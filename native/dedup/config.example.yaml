@@ -1,0 +1,51 @@
+# Pablo dedup — example configuration.
+# Copy to config.yaml and edit. All paths may be absolute or relative to CWD.
+# CLI flags override these (e.g. --threshold 0.82).
+
+# --- Inputs -----------------------------------------------------------------
+roots:
+  - /home/me/Pictures
+  - /mnt/archive/scans
+# Extensions considered (lowercase, no dot). RAW handled when built with LibRaw.
+extensions: [jpg, jpeg, png, tif, tiff, webp, heic, cr2, cr3, nef, arw, dng, raf, rw2]
+
+# --- Workspace (persisted so embedding runs once) ---------------------------
+workspace:
+  db: ./dedup.db            # SQLite metadata (paths, hashes, EXIF, cluster ids)
+  vectors: ./vectors.f32    # flat float32 embedding store, mmap-friendly
+  quarantine: ./quarantine  # discards are MOVED here — never deleted
+
+# --- Embedding (SSCD via ONNX Runtime) --------------------------------------
+embed:
+  model: ./models/sscd_disc_mixup.onnx
+  input_size: 288           # short-side resize before center context; ImageNet norm
+  batch_size: 64            # 32–256; tune to RAM/VRAM
+  provider: cpu             # cpu | cuda  (cuda requires the GPU ORT build)
+  intra_op_threads: 0       # 0 = ORT default (= hardware concurrency)
+
+# --- Indexing + neighbour search --------------------------------------------
+index:
+  k: 20                     # neighbours retrieved per image (10–50)
+
+# --- Clustering -------------------------------------------------------------
+cluster:
+  threshold: 0.80           # cosine similarity edge cutoff; calibrate per library
+  mutual_knn: true          # require A∈kNN(B) AND B∈kNN(A) — curbs transitive drift
+  max_cluster_size: 400     # warn + flag clusters that balloon past this (drift smell)
+  exif_time_guard: false    # if true, borderline edges need EXIF timestamps within...
+  exif_time_window_sec: 5   # ...this window to count (burst-shot false-positive guard)
+
+# --- Decode / throughput ----------------------------------------------------
+decode:
+  threads: 0                # 0 = hardware concurrency; decode + I/O is the bottleneck
+  prefer_embedded_thumb: true   # RAW: pull embedded JPEG thumb (skip demosaic)
+
+# --- Exact-duplicate pre-filter ---------------------------------------------
+exact:
+  content_hash: true        # xxh3-128 byte-identical detection
+  phash_hamming: 6          # group near-identical re-saves within this Hamming distance
+
+# --- Review server ----------------------------------------------------------
+server:
+  host: 127.0.0.1
+  port: 8755
