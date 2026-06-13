@@ -72,6 +72,10 @@ public:
     // M1 plumbing only; real publishes come from the compositor in M3.
     void publish_solid_color(uint8_t b, uint8_t g, uint8_t r, uint8_t a);
 
+    // Publish a fully-decoded frame (premultiplied BGRA) as the new front
+    // frame. Thread-safe. Used by the M3 libvips decode path.
+    void publish_frame(FramePtr frame);
+
     // Borrow the latest front frame. Returns nullptr if no frame has been
     // published. The returned shared_ptr keeps the pixel memory alive for
     // the caller's use; the caller drops it (via release_view) to free.

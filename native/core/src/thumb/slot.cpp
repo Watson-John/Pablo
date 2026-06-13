@@ -59,6 +59,11 @@ void Slot::publish_solid_color(uint8_t b, uint8_t g, uint8_t r, uint8_t a) {
     }
 }
 
+void Slot::publish_frame(FramePtr frame) {
+    std::lock_guard lk(front_mu_);
+    front_ = std::move(frame);
+}
+
 FramePtr Slot::acquire_view() noexcept {
     std::lock_guard lk(front_mu_);
     return front_;  // copies the shared_ptr (refcount +1)

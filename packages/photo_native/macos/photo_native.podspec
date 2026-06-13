@@ -39,6 +39,28 @@ Pod::Spec.new do |s|
 
   s.dependency 'FlutterMacOS'
 
+  # ---- libvips (Homebrew) for the M3 real-decode path ----
+  # Resolved at pod-install time. If libvips isn't installed (or pkg-config
+  # can't describe it), the plugin still builds and falls back to the M2
+  # synthetic path — PHOTO_HAVE_VIPS simply stays undefined.
+  vips_defs   = ''
+  vips_cflags = ''
+  vips_libs   = ''
+  vips_prefix = `brew --prefix vips 2>/dev/null`.strip
+  unless vips_prefix.empty?
+    brew_root = `brew --prefix 2>/dev/null`.strip
+    glib_pfx  = `brew --prefix glib 2>/dev/null`.strip
+    pkg_dirs  = [vips_prefix, glib_pfx, brew_root].reject(&:empty?)
+                  .map { |p| "#{p}/lib/pkgconfig" }.join(':')
+    cflags = `PKG_CONFIG_PATH=#{pkg_dirs} pkg-config --cflags vips 2>/dev/null`.strip
+    libs   = `PKG_CONFIG_PATH=#{pkg_dirs} pkg-config --libs vips 2>/dev/null`.strip
+    unless cflags.empty? || libs.empty?
+      vips_defs   = ' PHOTO_HAVE_VIPS=1'
+      vips_cflags = cflags
+      vips_libs   = " #{libs}"
+    end
+  end
+
   s.pod_target_xcconfig = {
     'DEFINES_MODULE'              => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
@@ -49,7 +71,8 @@ Pod::Spec.new do |s|
       '"$(PODS_TARGET_SRCROOT)/_native_core/include"',
       '"$(PODS_TARGET_SRCROOT)/_native_core/src"',
     ].join(' '),
-    'GCC_PREPROCESSOR_DEFINITIONS' => 'PHOTO_BUILD_STATIC=1',
+    'OTHER_CPLUSPLUSFLAGS' => "$(inherited) #{vips_cflags}",
+    'GCC_PREPROCESSOR_DEFINITIONS' => "PHOTO_BUILD_STATIC=1#{vips_defs}",
     # Default visibility — hiding it breaks Obj-C class symbol export, which
     # GeneratedPluginRegistrant references. C++ internal symbols inside
     # photo_core stay hidden via the namespace anyway; PHOTO_API marks the
@@ -59,6 +82,6 @@ Pod::Spec.new do |s|
     # search path is inherited from the parent project but we add it
     # explicitly so the plugin framework links cleanly under use_frameworks!.
     'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/FlutterMacOS"',
-    'OTHER_LDFLAGS' => '$(inherited) -framework FlutterMacOS',
+    'OTHER_LDFLAGS' => "$(inherited) -framework FlutterMacOS#{vips_libs}",
   }
 end
