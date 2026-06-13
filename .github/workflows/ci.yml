@@ -91,8 +91,9 @@ jobs:
         run: |
           choco install -y --no-progress pkgconfiglite
           $rel = Invoke-RestMethod "https://api.github.com/repos/libvips/build-win64-mxe/releases/latest" -Headers @{ 'User-Agent' = 'pablo-ci' }
-          $asset = $rel.assets | Where-Object { $_.name -like 'vips-dev-w64-web-*.zip' } | Select-Object -First 1
-          if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -like 'vips-dev-w64-*.zip' } | Select-Object -First 1 }
+          $asset = $rel.assets | Where-Object { $_.name -like 'vips-dev-x64-web-*.zip' -and $_.name -notlike '*static*' -and $_.name -notlike '*ffi*' } | Select-Object -First 1
+          if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -like 'vips-dev-x64-web-*.zip' } | Select-Object -First 1 }
+          if (-not $asset) { throw "no vips-dev-x64-web asset in release $($rel.tag_name)" }
           Write-Host "libvips asset: $($asset.name)"
           Invoke-WebRequest $asset.browser_download_url -OutFile vips.zip
           Expand-Archive vips.zip -DestinationPath C:\vips -Force
