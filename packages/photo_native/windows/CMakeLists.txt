@@ -39,7 +39,11 @@ endif()
 # engine falls back to the synthetic publish, so the plugin still builds.
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-  pkg_check_modules(VIPS IMPORTED_TARGET vips)
+  # Not IMPORTED_TARGET: the prebuilt vips.pc can list optional-dep include
+  # dirs not shipped in every bundle, and CMake hard-errors when an IMPORTED
+  # target's interface include path is missing. Plain vars pass them as
+  # harmless -I flags instead.
+  pkg_check_modules(VIPS vips)
 endif()
 # CI sets PHOTO_REQUIRE_VIPS=1 to assert real decode is wired — a green build
 # then proves vips linked (MSVC/Flutter hide the #pragma-message marker).
@@ -96,7 +100,9 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
 
 if(VIPS_FOUND)
   target_compile_definitions(${PLUGIN_NAME} PRIVATE PHOTO_HAVE_VIPS=1)
-  target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::VIPS)
+  target_include_directories(${PLUGIN_NAME} PRIVATE ${VIPS_INCLUDE_DIRS})
+  target_link_directories(${PLUGIN_NAME} PRIVATE ${VIPS_LIBRARY_DIRS})
+  target_link_libraries(${PLUGIN_NAME} PRIVATE ${VIPS_LIBRARIES})
   message(STATUS "photo_native(windows): libvips ${VIPS_VERSION} -> real decode")
 else()
   message(STATUS "photo_native(windows): libvips not found -> synthetic decode")
