@@ -39,6 +39,9 @@ class SectionScrollView extends StatelessWidget {
       color: PabloColors.backgroundSurface,
       child: ListView.builder(
         padding: EdgeInsets.zero,
+        // Prefetch ~1.5 screens of sections ahead so their thumbnails are
+        // requested (and cached by the native engine) before they scroll in.
+        cacheExtent: 1200,
         itemCount: sections.length,
         itemBuilder: (context, i) {
           final section = sections[i];
@@ -75,7 +78,10 @@ class SectionScrollView extends StatelessWidget {
                           ),
                         ]
                       : photos.map((p) {
-                          return PhotoThumb(
+                          // Isolate each thumb's repaints (hover/select/zoom)
+                          // from its neighbours.
+                          return RepaintBoundary(
+                              child: PhotoThumb(
                             photo: p,
                             size: st.thumbSize,
                             selected: st.selectedPhotos.contains(p.id),
@@ -95,7 +101,7 @@ class SectionScrollView extends StatelessWidget {
                             onAddToTray: () => st.addToTray(p.id),
                             onSecondaryTap: (pos) =>
                                 onPhotoSecondary?.call(pos, p.id),
-                          );
+                          ));
                         }).toList(),
                 ),
               ),
