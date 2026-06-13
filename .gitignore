@@ -14,3 +14,7 @@ target/
 # Flutter/Dart artifacts at any depth (pablo/.gitignore also covers these)
 **/.dart_tool/
 **/build/
+
+# Local image datasets — multi-GB corpora, never commit (e.g. Flickr30k)
+/flickr30k_images/
+/datasets/
