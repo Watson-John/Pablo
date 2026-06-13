@@ -37,6 +37,7 @@ for rel in api/c_api.cpp \
            runtime/job_system.cpp \
            thumb/slot.cpp \
            thumb/thumb_service.cpp \
+           thumb/thumb_cache.cpp \
            util/log.cpp; do
     ln -sfn "$repo_root/native/core/src/$rel" \
             "$mac_root/Classes/core/$(basename "$rel")"

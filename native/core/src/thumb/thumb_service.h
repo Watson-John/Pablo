@@ -31,12 +31,18 @@
 
 namespace photo {
 
+class ThumbCache;
+
 class ThumbService {
 public:
     ThumbService(SlotStore* slots, EventRing* events, JobSystem* jobs);
 
     ThumbService(const ThumbService&)            = delete;
     ThumbService& operator=(const ThumbService&) = delete;
+
+    // Attach the persistent thumbnail cache (owned by Engine). When set,
+    // requests serve from disk on a hit and store decoded frames on a miss.
+    void set_cache(ThumbCache* cache) { cache_ = cache; }
 
     // Submit a thumbnail request. Returns a non-zero request id on
     // acceptance; 0 if rejected (invalid slot, no stages requested).
@@ -83,6 +89,7 @@ private:
     SlotStore*  slots_;
     EventRing*  events_;
     JobSystem*  jobs_;
+    ThumbCache* cache_{nullptr};  // not owned (Engine owns it)
 
     // Public request_id namespace lives in ThumbService, not JobSystem,
     // so callers cancel by request_id without leaking the underlying

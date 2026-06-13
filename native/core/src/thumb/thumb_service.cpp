@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "thumb/slot.h"
+#include "thumb/thumb_cache.h"
 
 #ifdef PHOTO_HAVE_VIPS
 #include <vips/vips.h>
@@ -295,36 +296,69 @@ void ThumbService::run_synthetic(uint64_t request_id,
         PHOTO_STAGE_MASK_FULL,
     };
 #ifdef PHOTO_HAVE_VIPS
-    // Decode-once: find the largest requested tier, decode the file a single
-    // time, then derive each requested stage by a cheap in-memory resize.
-    int max_dim = 0;
+    // Per requested stage: target box, cache key, and serve-state.
+    struct StageReq {
+        uint32_t stage;
+        int dim;
+        uint64_t key;
+        bool wanted;
+        bool served;
+    };
+    const bool use_cache = (cache_ != nullptr && cache_->ok());
+    StageReq reqs[3];
     for (size_t i = 0; i < 3; ++i) {
-        if (wanted_stages_mask & kStageBits[i]) {
-            max_dim = std::max(
-                max_dim, stage_target_dim(kStages[i], target_w, target_h));
+        reqs[i].stage = kStages[i];
+        reqs[i].wanted = (wanted_stages_mask & kStageBits[i]) != 0;
+        reqs[i].served = false;
+        reqs[i].dim = reqs[i].wanted
+                          ? stage_target_dim(kStages[i], target_w, target_h)
+                          : 0;
+        reqs[i].key = (use_cache && reqs[i].wanted)
+                          ? ThumbCache::key(asset_id, kStages[i], path)
+                          : 0;
+    }
+
+    // 1) Serve cache hits immediately (no decode); note the misses' max box.
+    int max_miss_dim = 0;
+    for (size_t i = 0; i < 3; ++i) {
+        if (!reqs[i].wanted) continue;
+        if (slot->current_generation() != generation) return;
+        FramePtr cached = use_cache ? cache_->get(reqs[i].key) : nullptr;
+        if (cached != nullptr) {
+            const uint32_t fw = cached->width;
+            const uint32_t fh = cached->height;
+            slot->publish_frame(std::move(cached));
+            emit_stage_ready(request_id, asset_id, slot_id, generation,
+                             reqs[i].stage, fw, fh);
+            reqs[i].served = true;
+        } else {
+            max_miss_dim = std::max(max_miss_dim, reqs[i].dim);
         }
     }
-    VipsImage* base = decode_base(path, max_dim);
+    if (max_miss_dim == 0) return;  // fully served from cache — no file decode
+
+    // 2) Decode the source once, then derive + cache the remaining stages.
+    VipsImage* base = decode_base(path, max_miss_dim);
     if (base == nullptr) {
         emit_stage_failed(request_id, asset_id, slot_id, generation,
                           0, PHOTO_STATUS_DECODE_ERROR);
         return;
     }
     for (size_t i = 0; i < 3; ++i) {
-        if ((wanted_stages_mask & kStageBits[i]) == 0) continue;
+        if (!reqs[i].wanted || reqs[i].served) continue;
         if (slot->current_generation() != generation) break;  // stale: stop
-        FramePtr frame = frame_from_base(
-            base, stage_target_dim(kStages[i], target_w, target_h));
+        FramePtr frame = frame_from_base(base, reqs[i].dim);
         if (frame == nullptr) {
             emit_stage_failed(request_id, asset_id, slot_id, generation,
-                              kStages[i], PHOTO_STATUS_DECODE_ERROR);
+                              reqs[i].stage, PHOTO_STATUS_DECODE_ERROR);
             continue;
         }
+        if (use_cache) cache_->put(reqs[i].key, *frame);
         const uint32_t fw = frame->width;
         const uint32_t fh = frame->height;
         slot->publish_frame(std::move(frame));
         emit_stage_ready(request_id, asset_id, slot_id, generation,
-                         kStages[i], fw, fh);
+                         reqs[i].stage, fw, fh);
     }
     g_object_unref(base);
 #else

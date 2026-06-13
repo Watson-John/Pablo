@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "util/log.h"
+#include "thumb/thumb_cache.h"
 
 namespace photo {
 
@@ -101,6 +102,12 @@ Engine::Engine(fs::path catalog_path,
                static_cast<unsigned long long>(memory_budget_),
                static_cast<unsigned long long>(disk_budget_),
                decode_threads);
+
+    cache_ = std::make_unique<ThumbCache>(cache_path_);
+    thumbs_.set_cache(cache_.get());
+    PHOTO_LOGF(PHOTO_LOG_INFO, "thumb cache %s (%zu entries)",
+               cache_->ok() ? "ready" : "DISABLED",
+               cache_->entry_count());
 }
 
 Engine::~Engine() {

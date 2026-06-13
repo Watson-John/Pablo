@@ -21,6 +21,8 @@
 
 namespace photo {
 
+class ThumbCache;
+
 class Engine {
 public:
     // Create from a (validated) configuration. May throw on fatal init.
@@ -51,6 +53,10 @@ private:
            uint64_t memory_budget,
            uint64_t disk_budget,
            uint32_t decode_threads);
+
+    // Owned thumbnail cache. Declared first so it is destroyed last — after
+    // the job system's workers, which reference it through ThumbService.
+    std::unique_ptr<ThumbCache> cache_;
 
     SlotStore                 slots_;
     EventRing                 events_{1024};
