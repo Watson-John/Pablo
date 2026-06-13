@@ -34,6 +34,10 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 
+# Optional libvips (apt: libvips-dev) — enables the M3 real-decode path.
+# When absent, thumb_service falls back to the synthetic publish.
+pkg_check_modules(VIPS IMPORTED_TARGET vips)
+
 list(APPEND PLUGIN_SOURCES
   "photo_native_plugin.cc"
   "photo_native_texture.cc"
@@ -80,5 +84,13 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE
   flutter
   PkgConfig::GTK
 )
+
+if(VIPS_FOUND)
+  target_compile_definitions(${PLUGIN_NAME} PRIVATE PHOTO_HAVE_VIPS=1)
+  target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::VIPS)
+  message(STATUS "photo_native(linux): libvips ${VIPS_VERSION} -> real decode")
+else()
+  message(STATUS "photo_native(linux): libvips not found -> synthetic decode")
+endif()
 
 set(photo_native_bundled_libraries "" PARENT_SCOPE)

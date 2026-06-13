@@ -34,6 +34,14 @@ if(NOT NATIVE_CORE_DIR)
   message(FATAL_ERROR "photo_native: could not locate native/core from ${_pn_real}")
 endif()
 
+# Optional libvips (vcpkg) — enables the M3 real-decode path on Windows when
+# pkg-config + vips are discoverable (see CI's vcpkg setup). Absent -> the
+# engine falls back to the synthetic publish, so the plugin still builds.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(VIPS IMPORTED_TARGET vips)
+endif()
+
 list(APPEND PLUGIN_SOURCES
   "photo_native_plugin.cpp"
   "photo_native_texture.cpp"
@@ -80,6 +88,14 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
 )
 
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
+
+if(VIPS_FOUND)
+  target_compile_definitions(${PLUGIN_NAME} PRIVATE PHOTO_HAVE_VIPS=1)
+  target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::VIPS)
+  message(STATUS "photo_native(windows): libvips ${VIPS_VERSION} -> real decode")
+else()
+  message(STATUS "photo_native(windows): libvips not found -> synthetic decode")
+endif()
 
 # No additional bundled libraries in M1.
 set(photo_native_bundled_libraries "" PARENT_SCOPE)
