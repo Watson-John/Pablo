@@ -13,6 +13,11 @@
 
 #ifdef PHOTO_HAVE_VIPS
 #include <vips/vips.h>
+// Compiler-emitted marker (survives Flutter's CMake-output filtering) so CI
+// can confirm which platforms actually compiled the real-decode path.
+#pragma message("photo_native: real libvips decode ENABLED (PHOTO_HAVE_VIPS)")
+#else
+#pragma message("photo_native: libvips absent -> synthetic decode fallback")
 #endif
 
 namespace photo {
