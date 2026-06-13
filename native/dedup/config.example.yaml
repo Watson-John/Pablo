@@ -20,7 +20,9 @@ embed:
   model: ./models/sscd_disc_mixup.onnx
   input_size: 288           # short-side resize before center context; ImageNet norm
   batch_size: 64            # 32–256; tune to RAM/VRAM
-  provider: cpu             # cpu | cuda  (cuda requires the GPU ORT build)
+  provider: cpu             # cpu | cuda | coreml
+                            #   cuda   -> needs the onnxruntime-gpu build (NVIDIA)
+                            #   coreml -> macOS / Apple Silicon (Neural Engine/GPU)
   intra_op_threads: 0       # 0 = ORT default (= hardware concurrency)
 
 # --- Indexing + neighbour search --------------------------------------------

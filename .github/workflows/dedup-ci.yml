@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +52,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake pkg-config autoconf automake libtool
 
+      - name: macOS build deps + vcpkg bootstrap
+        if: matrix.os == 'macos-latest'
+        run: |
+          # libomp: FAISS' CMake requires OpenMP and AppleClang has none built in.
+          brew install ninja autoconf automake libtool pkg-config libomp
+          # The arm64 macOS runner images do NOT ship vcpkg (VCPKG_INSTALLATION_ROOT
+          # is unset), so bootstrap our own.
+          git clone --depth 1 https://github.com/microsoft/vcpkg "$HOME/vcpkg"
+          "$HOME/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+
       - name: Configure + build (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -59,6 +69,16 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_MANIFEST_FEATURES="" \
             -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Configure + build (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cmake -S native/dedup -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_FEATURES="" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
           cmake --build build --parallel
 
       - name: Configure + build (Windows)

@@ -17,6 +17,12 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+#if defined(__APPLE__)
+// Dedicated CoreML factory: present in every macOS CoreML-enabled ORT build and
+// works across versions. The generic AppendExecutionProvider("CoreML") string is
+// only recognized on ORT >= 1.21, so we don't rely on it.
+#include <coreml_provider_factory.h>
+#endif
 #endif
 
 namespace dedup {
@@ -65,6 +71,21 @@ struct Embedder::Impl {
                 LOG_WARN("embed: CUDA provider unavailable (" << e.what()
                           << "); falling back to CPU. Use the onnxruntime-gpu build.");
             }
+        } else if (cfg.provider == "coreml") {
+#if defined(__APPLE__)
+            // Apple Neural Engine / GPU on macOS via the dedicated CoreML factory
+            // (version-portable; degrades to CPU if the EP is unavailable).
+            try {
+                Ort::ThrowOnError(
+                    OrtSessionOptionsAppendExecutionProvider_CoreML(opts, /*flags=*/0));
+                LOG_INFO("embed: CoreML execution provider enabled");
+            } catch (const std::exception& e) {
+                LOG_WARN("embed: CoreML provider unavailable (" << e.what()
+                          << "); falling back to CPU.");
+            }
+#else
+            LOG_WARN("embed: provider=coreml is macOS-only; falling back to CPU");
+#endif
         }
 
 #ifdef _WIN32

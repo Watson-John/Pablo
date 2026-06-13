@@ -76,23 +76,37 @@ at it:
 
 ```bash
 export ONNXRUNTIME_ROOT=/opt/onnxruntime-linux-x64-1.20.0   # has include/ + lib/
+# Windows: onnxruntime-win-x64-<ver>   macOS: onnxruntime-osx-arm64-<ver> (or -universal2)
 ```
 
-For GPU, use the `-gpu` build and set `embed.provider: cuda` in the config.
+Acceleration by platform, set via `embed.provider`:
+- `cuda` — NVIDIA; use the `onnxruntime-gpu` build (Windows/Linux).
+- `coreml` — macOS / Apple Silicon; uses the dedicated CoreML provider factory,
+  so it engages on the official macOS ORT builds (Neural Engine / GPU). Falls
+  back to CPU if unavailable.
+- `cpu` — the portable default everywhere.
 
 ## Build
+
+Targets **Linux, Windows, and macOS** (Apple Silicon or Intel).
 
 ```bash
 # from native/dedup/
 export VCPKG_ROOT=/path/to/vcpkg
-export ONNXRUNTIME_ROOT=/path/to/onnxruntime-<os>-x64-<ver>
+export ONNXRUNTIME_ROOT=/path/to/onnxruntime-<os>-<arch>-<ver>
 
-cmake --preset linux-release          # or windows-release
+cmake --preset linux-release          # or windows-release / macos-release
 cmake --build --preset linux-release
 ```
 
 The `faiss;raw` manifest features are enabled by the presets. Drop them
 (`-DVCPKG_MANIFEST_FEATURES=`) for a lean build that uses the fallbacks.
+
+**macOS prerequisite:** the `faiss` feature pulls in FAISS, whose CMake requires
+OpenMP — AppleClang has none built in, so install it first:
+`brew install libomp`. (Or drop the feature: `-DVCPKG_MANIFEST_FEATURES=raw`, or
+`=""`, to use the exact brute-force fallback instead.) `VCPKG_ROOT` must point at
+a vcpkg checkout on macOS too (the arm64 CI runners bootstrap their own).
 
 ## Model: export SSCD to ONNX (one-time)
 
