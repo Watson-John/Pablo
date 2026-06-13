@@ -72,24 +72,36 @@ bool ensure_vips() {
     return ok;
 }
 
-// Decode `path` shrink-on-load to fit a `target_dim` box, producing a
-// premultiplied-BGRA FrameBuffer. Returns nullptr on any failure.
-FramePtr decode_to_bgra(const std::string& path, int target_dim) {
+// Decode `path` shrink-on-load to fit a `max_dim` box. This is the single
+// expensive operation (file read + JPEG/PNG/… decode). Returns the loaded
+// VipsImage (caller owns the ref) or nullptr on failure.
+VipsImage* decode_base(const std::string& path, int max_dim) {
     if (!ensure_vips()) return nullptr;
+    VipsImage* base = nullptr;
+    if (vips_thumbnail(path.c_str(), &base, max_dim, nullptr) != 0) {
+        vips_error_clear();
+        return nullptr;
+    }
+    return base;
+}
 
-    VipsImage* in = nullptr;
-    if (vips_thumbnail(path.c_str(), &in, target_dim, nullptr) != 0) {
+// Derive a premultiplied-BGRA frame at a `dim` box from an already-decoded
+// base image. Cheap in-memory resize — no file re-read. Returns nullptr on
+// failure.
+FramePtr frame_from_base(VipsImage* base, int dim) {
+    VipsImage* sized = nullptr;
+    if (vips_thumbnail_image(base, &sized, dim, nullptr) != 0) {
         vips_error_clear();
         return nullptr;
     }
     // Normalize to 8-bit sRGB, then ensure a straight-alpha channel.
     VipsImage* srgb = nullptr;
-    if (vips_colourspace(in, &srgb, VIPS_INTERPRETATION_sRGB, nullptr) != 0) {
-        g_object_unref(in);
+    if (vips_colourspace(sized, &srgb, VIPS_INTERPRETATION_sRGB, nullptr) != 0) {
+        g_object_unref(sized);
         vips_error_clear();
         return nullptr;
     }
-    g_object_unref(in);
+    g_object_unref(sized);
     VipsImage* rgba = srgb;
     if (vips_image_get_bands(srgb) < 4) {
         VipsImage* with_a = nullptr;
@@ -282,32 +294,49 @@ void ThumbService::run_synthetic(uint64_t request_id,
         PHOTO_STAGE_MASK_THUMB256,
         PHOTO_STAGE_MASK_FULL,
     };
+#ifdef PHOTO_HAVE_VIPS
+    // Decode-once: find the largest requested tier, decode the file a single
+    // time, then derive each requested stage by a cheap in-memory resize.
+    int max_dim = 0;
+    for (size_t i = 0; i < 3; ++i) {
+        if (wanted_stages_mask & kStageBits[i]) {
+            max_dim = std::max(
+                max_dim, stage_target_dim(kStages[i], target_w, target_h));
+        }
+    }
+    VipsImage* base = decode_base(path, max_dim);
+    if (base == nullptr) {
+        emit_stage_failed(request_id, asset_id, slot_id, generation,
+                          0, PHOTO_STATUS_DECODE_ERROR);
+        return;
+    }
     for (size_t i = 0; i < 3; ++i) {
         if ((wanted_stages_mask & kStageBits[i]) == 0) continue;
-        if (slot->current_generation() != generation) return;
-
-#ifdef PHOTO_HAVE_VIPS
-        // M3: real decode via libvips (shrink-on-load to the stage's box).
-        FramePtr frame = decode_to_bgra(
-            path, stage_target_dim(kStages[i], target_w, target_h));
+        if (slot->current_generation() != generation) break;  // stale: stop
+        FramePtr frame = frame_from_base(
+            base, stage_target_dim(kStages[i], target_w, target_h));
         if (frame == nullptr) {
             emit_stage_failed(request_id, asset_id, slot_id, generation,
                               kStages[i], PHOTO_STATUS_DECODE_ERROR);
             continue;
         }
-        if (slot->current_generation() != generation) return;
         const uint32_t fw = frame->width;
         const uint32_t fh = frame->height;
         slot->publish_frame(std::move(frame));
         emit_stage_ready(request_id, asset_id, slot_id, generation,
                          kStages[i], fw, fh);
+    }
+    g_object_unref(base);
 #else
-        // M2 fallback: synthetic solid color (platforms without libvips yet).
+    for (size_t i = 0; i < 3; ++i) {
+        if ((wanted_stages_mask & kStageBits[i]) == 0) continue;
+        if (slot->current_generation() != generation) return;
+        // M2 fallback: synthetic solid color (platforms without libvips).
         publish_stage_for_path(*slot, kStages[i], path);
         emit_stage_ready(request_id, asset_id, slot_id, generation,
                          kStages[i], slot->initial_w(), slot->initial_h());
-#endif
     }
+#endif
 }
 
 }  // namespace photo
