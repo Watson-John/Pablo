@@ -85,23 +85,24 @@ jobs:
       - name: Install libvips (macOS real-decode path)
         if: matrix.target == 'macos'
         run: brew install vips
-      - name: Install libvips + pkg-config (Windows real-decode path)
+      - name: Install libvips (Windows real-decode path)
         if: matrix.target == 'windows'
         shell: pwsh
         run: |
-          choco install -y --no-progress pkgconfiglite
+          # Prebuilt libvips Windows dev bundle (MSVC import libs). Its .pc files
+          # hardcode non-relocatable build paths, so the plugin CMake consumes it
+          # by full path via PHOTO_VIPS_ROOT rather than pkg-config.
           $rel = Invoke-RestMethod "https://api.github.com/repos/libvips/build-win64-mxe/releases/latest" -Headers @{ 'User-Agent' = 'pablo-ci' }
-          $asset = $rel.assets | Where-Object { $_.name -like 'vips-dev-x64-all-*.zip' -and $_.name -notlike '*static*' -and $_.name -notlike '*ffi*' } | Select-Object -First 1
-          if (-not $asset) { $asset = $rel.assets | Where-Object { $_.name -like 'vips-dev-x64-all-*.zip' } | Select-Object -First 1 }
-          if (-not $asset) { throw "no vips-dev-x64-all asset in release $($rel.tag_name)" }
+          $asset = $rel.assets | Where-Object { $_.name -like 'vips-dev-x64-web-*.zip' -and $_.name -notlike '*static*' -and $_.name -notlike '*ffi*' } | Select-Object -First 1
+          if (-not $asset) { throw "no vips-dev-x64-web asset in release $($rel.tag_name)" }
           Write-Host "libvips asset: $($asset.name)"
           Invoke-WebRequest $asset.browser_download_url -OutFile vips.zip
           Expand-Archive vips.zip -DestinationPath C:\vips -Force
           $dev = (Get-ChildItem C:\vips -Directory | Where-Object { $_.Name -like 'vips-dev-*' } | Select-Object -First 1).FullName
           Write-Host "vips dev dir: $dev"
-          "PKG_CONFIG_PATH=$dev\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PHOTO_REQUIRE_VIPS=1"               | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "$dev\bin"                           | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          "PHOTO_VIPS_ROOT=$dev"  | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PHOTO_REQUIRE_VIPS=1"  | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "$dev\bin"              | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Enable ${{ matrix.target }} desktop
         run: flutter config --enable-${{ matrix.target }}-desktop
       - run: flutter pub get
