@@ -41,7 +41,9 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/runtime/engine.cpp"
   "${NATIVE_CORE_DIR}/src/runtime/slot_store.cpp"
   "${NATIVE_CORE_DIR}/src/runtime/event_ring.cpp"
+  "${NATIVE_CORE_DIR}/src/runtime/job_system.cpp"
   "${NATIVE_CORE_DIR}/src/thumb/slot.cpp"
+  "${NATIVE_CORE_DIR}/src/thumb/thumb_service.cpp"
   "${NATIVE_CORE_DIR}/src/util/log.cpp"
 )
 
@@ -66,6 +68,12 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${NATIVE_CORE_DIR}/include"
   "${NATIVE_CORE_DIR}/src"
+)
+
+# Expose the plugin's public header dir to dependents — the app's generated
+# generated_plugin_registrant.cc does #include <photo_native/photo_native_plugin.h>.
+target_include_directories(${PLUGIN_NAME} INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
 target_link_libraries(${PLUGIN_NAME} PRIVATE

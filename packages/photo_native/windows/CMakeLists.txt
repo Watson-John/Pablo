@@ -42,7 +42,9 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/runtime/engine.cpp"
   "${NATIVE_CORE_DIR}/src/runtime/slot_store.cpp"
   "${NATIVE_CORE_DIR}/src/runtime/event_ring.cpp"
+  "${NATIVE_CORE_DIR}/src/runtime/job_system.cpp"
   "${NATIVE_CORE_DIR}/src/thumb/slot.cpp"
+  "${NATIVE_CORE_DIR}/src/thumb/thumb_service.cpp"
   "${NATIVE_CORE_DIR}/src/util/log.cpp"
 )
 
