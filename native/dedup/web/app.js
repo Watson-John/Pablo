@@ -102,10 +102,18 @@ function renderTile(m) {
   meta.textContent = `${name} · ${m.format.toUpperCase()} · ${fmtSize(m.size)}`;
   tile.appendChild(meta);
 
-  // Click toggles quarantine selection.
+  // Click toggles quarantine selection. Discarding the suggested keeper needs
+  // an explicit confirmation so a cluster is never silently left with no master.
   tile.onclick = () => {
-    if (state.discards.has(m.id)) state.discards.delete(m.id);
-    else state.discards.add(m.id);
+    if (state.discards.has(m.id)) {
+      state.discards.delete(m.id);
+    } else {
+      if (m.is_keeper &&
+          !confirm("This is the suggested KEEPER of its cluster — quarantine it anyway?")) {
+        return;
+      }
+      state.discards.add(m.id);
+    }
     render();
   };
   return tile;
@@ -127,7 +135,20 @@ $("#lightbox").onclick = () => $("#lightbox").classList.add("hidden");
 $("#quarantineBtn").onclick = async () => {
   const ids = [...state.discards];
   if (ids.length === 0) return;
-  if (!confirm(`Move ${ids.length} image(s) to quarantine? (reversible — files are moved, not deleted)`)) return;
+
+  // Safety: surface keepers being discarded and clusters left with no survivor.
+  let keeperCount = 0;
+  const noSurvivor = [];
+  for (const c of state.clusters) {
+    const surviving = c.members.filter((m) => !state.discards.has(m.id));
+    if (surviving.length === 0) noSurvivor.push(c.id);
+    for (const m of c.members) if (m.is_keeper && state.discards.has(m.id)) keeperCount++;
+  }
+  let msg = `Move ${ids.length} image(s) to quarantine? (reversible — files are moved, not deleted)`;
+  if (keeperCount > 0) msg += `\n\n⚠ ${keeperCount} of these is the suggested KEEPER of its cluster.`;
+  if (noSurvivor.length > 0)
+    msg += `\n⚠ ${noSurvivor.length} cluster(s) would have NO surviving image (clusters: ${noSurvivor.join(", ")}).`;
+  if (!confirm(msg)) return;
 
   const btn = $("#quarantineBtn");
   btn.disabled = true;

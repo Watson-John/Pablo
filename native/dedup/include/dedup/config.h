@@ -15,7 +15,12 @@ namespace dedup {
 struct Config {
     // Inputs.
     std::vector<std::string> roots;
-    std::vector<std::string> extensions;
+    // Non-empty default so `dedup scan --roots ...` works with no config file.
+    // A YAML `extensions:` list fully replaces this (loader clears before fill).
+    std::vector<std::string> extensions = {
+        "jpg", "jpeg", "png", "tif", "tiff", "webp", "heic",
+        "cr2", "cr3", "nef", "arw", "dng", "raf", "rw2",
+    };
 
     // Workspace (persisted state — embedding runs once).
     std::string db_path = "./dedup.db";

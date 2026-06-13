@@ -15,3 +15,7 @@ config.yaml
 *.onnx
 *.pt
 *.torchscript.pt
+
+# Python bytecode (from the export tool)
+__pycache__/
+*.pyc

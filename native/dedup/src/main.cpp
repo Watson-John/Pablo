@@ -3,6 +3,8 @@
 //
 // CLI: `dedup <scan|serve|calibrate> [flags]`.
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -75,6 +77,13 @@ std::vector<std::string> split_commas(const std::string& s) {
 // Apply CLI overrides on top of the loaded config.
 void apply_overrides(Config& cfg, const Args& a) {
     if (a.has("roots"))      cfg.roots = split_commas(a.str("roots"));
+    if (a.has("extensions")) {
+        cfg.extensions = split_commas(a.str("extensions"));
+        for (auto& e : cfg.extensions) {
+            std::transform(e.begin(), e.end(), e.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+        }
+    }
     if (a.has("model"))      cfg.model_path = a.str("model");
     if (a.has("provider"))   cfg.provider = a.str("provider");
     if (a.has("db"))         cfg.db_path = a.str("db");
@@ -98,7 +107,7 @@ int usage() {
         "  dedup calibrate  [--config f] [--from 0.70] [--to 0.90] [--step 0.02]\n"
         "  dedup serve      [--config f] [--host 127.0.0.1] [--port 8755]\n\n"
         "Common flags: --db --vectors --quarantine --k --batch-size --provider\n"
-        "              --threads --mutual-knn 0|1 --verbose --quiet\n\n"
+        "              --extensions jpg,png,cr2 --threads --mutual-knn 0|1 --verbose --quiet\n\n"
         "Never deletes: discards are MOVED to the quarantine directory.\n";
     return 2;
 }

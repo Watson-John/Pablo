@@ -3,6 +3,7 @@
 
 #include "dedup/server.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 

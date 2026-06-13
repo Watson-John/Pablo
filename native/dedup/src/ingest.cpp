@@ -3,6 +3,7 @@
 
 #include "dedup/ingest.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <chrono>
@@ -156,7 +157,15 @@ ExactGroups exact_duplicate_pass(std::vector<ImageRecord>& records, const Config
                 bands[b][key].push_back(idx);
             }
         }
-        const int max_h = cfg.phash_hamming;
+        // The 8 one-byte bands guarantee "within Hamming d share >=1 identical
+        // band" only for d <= 7 (pigeonhole). Beyond that, a true pair could
+        // differ in every band and never land in a shared bucket, silently
+        // missing it — so clamp the LSH cutoff to 7. (SSCD catches the rest.)
+        const int max_h = std::min(cfg.phash_hamming, 7);
+        if (cfg.phash_hamming > 7) {
+            LOG_WARN("phash_hamming=" << cfg.phash_hamming << " exceeds the band-LSH "
+                     "completeness limit; clamping the exact-pass cutoff to 7");
+        }
         for (auto& band : bands) {
             for (auto& [key, bucket] : band) {
                 for (size_t a = 0; a < bucket.size(); ++a) {
