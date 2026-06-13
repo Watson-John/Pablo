@@ -73,6 +73,12 @@ target_include_directories(${PLUGIN_NAME} PRIVATE
   "${NATIVE_CORE_DIR}/src"
 )
 
+# Expose the plugin's public header dir to dependents — the app's generated
+# generated_plugin_registrant.cc does #include <photo_native/photo_native_plugin.h>.
+target_include_directories(${PLUGIN_NAME} INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
 
 # No additional bundled libraries in M1.
