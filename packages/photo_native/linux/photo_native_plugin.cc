@@ -25,6 +25,11 @@ struct _PhotoNativePlugin {
 
 G_DEFINE_TYPE(PhotoNativePlugin, photo_native_plugin, G_TYPE_OBJECT)
 
+// G_DEFINE_TYPE (unlike G_DECLARE_FINAL_TYPE) does not register a g_autoptr
+// cleanup for this type; register it explicitly so the
+// g_autoptr(PhotoNativePlugin) in register_with_registrar below compiles.
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(PhotoNativePlugin, g_object_unref)
+
 static FlMethodResponse *call_attach_engine(PhotoNativePlugin *self,
                                             FlValue *args) {
     FlValue *handle = fl_value_lookup_string(args, "engineHandle");

@@ -18,7 +18,21 @@ set(PLUGIN_NAME "photo_native_plugin")
 # location and breaks (notably in CI). Resolve symlinks first so the path is
 # computed from the plugin's TRUE location in the repo.
 get_filename_component(_pn_real "${CMAKE_CURRENT_LIST_DIR}" REALPATH)
-get_filename_component(NATIVE_CORE_DIR "${_pn_real}/../../../native/core" ABSOLUTE)
+# Walk upward from the (symlink-resolved) plugin dir to locate the repo's
+# out-of-tree native/core. Robust whether Flutter stages the plugin as a
+# symlink or a copy (Windows often copies), and to varying depth.
+set(NATIVE_CORE_DIR "")
+set(_pn_search "${_pn_real}")
+foreach(_pn_i RANGE 8)
+  if(EXISTS "${_pn_search}/native/core/include/photo_core.h")
+    set(NATIVE_CORE_DIR "${_pn_search}/native/core")
+    break()
+  endif()
+  get_filename_component(_pn_search "${_pn_search}" DIRECTORY)
+endforeach()
+if(NOT NATIVE_CORE_DIR)
+  message(FATAL_ERROR "photo_native: could not locate native/core from ${_pn_real}")
+endif()
 
 list(APPEND PLUGIN_SOURCES
   "photo_native_plugin.cpp"
