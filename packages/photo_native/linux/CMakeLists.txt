@@ -37,6 +37,11 @@ pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
 # Optional libvips (apt: libvips-dev) — enables the M3 real-decode path.
 # When absent, thumb_service falls back to the synthetic publish.
 pkg_check_modules(VIPS IMPORTED_TARGET vips)
+# CI sets PHOTO_REQUIRE_VIPS=1 to assert real decode is wired — a green build
+# then proves vips linked (MSVC/Flutter hide the #pragma-message marker).
+if(NOT VIPS_FOUND AND DEFINED ENV{PHOTO_REQUIRE_VIPS})
+  message(FATAL_ERROR "photo_native: PHOTO_REQUIRE_VIPS set but libvips not found via pkg-config")
+endif()
 
 list(APPEND PLUGIN_SOURCES
   "photo_native_plugin.cc"

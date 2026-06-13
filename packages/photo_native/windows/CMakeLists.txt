@@ -41,6 +41,11 @@ find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
   pkg_check_modules(VIPS IMPORTED_TARGET vips)
 endif()
+# CI sets PHOTO_REQUIRE_VIPS=1 to assert real decode is wired — a green build
+# then proves vips linked (MSVC/Flutter hide the #pragma-message marker).
+if(NOT VIPS_FOUND AND DEFINED ENV{PHOTO_REQUIRE_VIPS})
+  message(FATAL_ERROR "photo_native: PHOTO_REQUIRE_VIPS set but libvips not found via pkg-config")
+endif()
 
 list(APPEND PLUGIN_SOURCES
   "photo_native_plugin.cpp"
