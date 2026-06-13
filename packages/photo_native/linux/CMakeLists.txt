@@ -8,7 +8,14 @@ set(PROJECT_NAME "photo_native")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
 set(PLUGIN_NAME "photo_native_plugin")
-set(NATIVE_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../native/core")
+
+# Flutter symlinks this plugin into
+# <app>/linux/flutter/ephemeral/.plugin_symlinks/photo_native/, so a naive
+# relative path to the out-of-tree native/core resolves against the symlink
+# location and breaks (notably in CI). Resolve symlinks first so the path is
+# computed from the plugin's TRUE location in the repo.
+get_filename_component(_pn_real "${CMAKE_CURRENT_LIST_DIR}" REALPATH)
+get_filename_component(NATIVE_CORE_DIR "${_pn_real}/../../../native/core" ABSOLUTE)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)

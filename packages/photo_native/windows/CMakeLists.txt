@@ -12,7 +12,13 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 # name it loads. Keep it stable; Dart's load_library.dart depends on it.
 set(PLUGIN_NAME "photo_native_plugin")
 
-set(NATIVE_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../native/core")
+# Flutter symlinks this plugin into
+# <app>\windows\flutter\ephemeral\.plugin_symlinks\photo_native\, so a naive
+# relative path to the out-of-tree native/core resolves against the symlink
+# location and breaks (notably in CI). Resolve symlinks first so the path is
+# computed from the plugin's TRUE location in the repo.
+get_filename_component(_pn_real "${CMAKE_CURRENT_LIST_DIR}" REALPATH)
+get_filename_component(NATIVE_CORE_DIR "${_pn_real}/../../../native/core" ABSOLUTE)
 
 list(APPEND PLUGIN_SOURCES
   "photo_native_plugin.cpp"

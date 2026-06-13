@@ -84,5 +84,9 @@ jobs:
       - name: Enable ${{ matrix.target }} desktop
         run: flutter config --enable-${{ matrix.target }}-desktop
       - run: flutter pub get
+      - name: Set up native plugin symlinks (macOS pod build)
+        if: matrix.target == 'macos'
+        working-directory: .
+        run: bash tools/setup-plugin-symlinks.sh
       - name: Build ${{ matrix.target }} (debug)
         run: flutter build ${{ matrix.target }} --debug
