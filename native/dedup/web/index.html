@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pablo dedup — review</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Pablo&nbsp;dedup<span class="sub">near-duplicate review</span></div>
+    <div class="stats" id="stats">loading…</div>
+    <div class="legend">
+      <span class="chip keep">keeper</span>
+      <span class="chip discard">marked for quarantine</span>
+      <span class="chip oversize">oversize · check manually</span>
+    </div>
+  </header>
+
+  <main id="clusters" class="clusters"><!-- populated by app.js --></main>
+
+  <footer class="actionbar">
+    <div class="note">Nothing is deleted — selected images are <b>moved to quarantine</b>.</div>
+    <button id="quarantineBtn" class="primary" disabled>Quarantine 0 selected</button>
+  </footer>
+
+  <div id="lightbox" class="lightbox hidden"><img id="lightboxImg" alt="" /></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

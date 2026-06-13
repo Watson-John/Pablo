@@ -1,0 +1,70 @@
+name: dedup CI
+
+# Compile smoke-test for the standalone near-duplicate detector (native/dedup).
+# Heavier than the Flutter CI — it builds OpenCV(+contrib) via vcpkg — so it is
+# PATH-FILTERED to native/dedup changes and uses vcpkg's GitHub Actions binary
+# cache (x-gha) so only the first run pays the full dependency build.
+#
+# The optional features (faiss / raw / ONNX Runtime) are OFF here to keep the
+# build tractable; the code compiles in its fallback configuration. Enable them
+# locally via the CMake presets for a full build.
+
+on:
+  push:
+    branches: [main, 'pablo-v*', 'feat/dedup-*']
+    paths: ['native/dedup/**', '.github/workflows/dedup-ci.yml']
+  pull_request:
+    paths: ['native/dedup/**', '.github/workflows/dedup-ci.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: dedup-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Expose the Actions cache endpoint to vcpkg's x-gha binary cache.
+      - name: Enable vcpkg binary cache (x-gha)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Linux build deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake pkg-config autoconf automake libtool
+
+      - name: Configure + build (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cmake -S native/dedup -B build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_MANIFEST_FEATURES="" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Configure + build (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          cmake -S native/dedup -B build `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_MANIFEST_FEATURES="" `
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --parallel
