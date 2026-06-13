@@ -38,6 +38,11 @@ dependencies:
   # DM Sans (UI), Lora (serif section titles), JetBrains Mono (numeric / EXIF).
   google_fonts: ^6.2.1
 
+  # Pablo native backend (FFI + texture registrar). Path dependency on the
+  # in-repo plugin under packages/photo_native.
+  photo_native:
+    path: ../packages/photo_native
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

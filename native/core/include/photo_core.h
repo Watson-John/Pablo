@@ -1,0 +1,397 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026 Pablo contributors.
+ *
+ * photo_core.h — Pablo native backend C ABI.
+ *
+ * This header is the single source of truth for the FFI boundary between the
+ * Flutter app (Dart) and the native C++20 core. Every Dart-facing symbol the
+ * app may call lives here. Anything else is internal and may change without
+ * notice.
+ *
+ * INVARIANTS (enforced everywhere):
+ *   1. No image bytes cross this boundary. Pixels live in native memory and
+ *      reach the screen through Flutter Texture widgets backed by the
+ *      photo_native plugin's per-platform texture registrar.
+ *   2. No callbacks from native into Dart. Dart drains an event ring on its
+ *      own schedule via photo_poll_events.
+ *   3. All structs in this header are POD (plain data, no STL, no inheritance,
+ *      no constructors). All enums are sized int32 by convention.
+ *   4. All strings are NUL-terminated UTF-8. Strings passed *in* must remain
+ *      valid for the duration of the call only — implementations copy what
+ *      they need to retain. Strings returned *out* are owned by the engine
+ *      and remain valid until the next mutating call on the same engine.
+ *   5. Request IDs are monotonically increasing 64-bit integers. ID 0 means
+ *      "rejected" (e.g. invalid slot) or "no request"; never a valid ID.
+ *   6. Generation tokens are caller-defined uint64s. The engine treats them
+ *      opaquely; it never invents them, only echoes them on events and drops
+ *      stale results on mismatch.
+ *   7. All functions are thread-safe unless explicitly marked otherwise.
+ *
+ * OWNERSHIP:
+ *   - Engine memory is owned by the engine. The plugin's texture callback
+ *     calls photo_slot_acquire_latest to borrow a frame view; the borrow
+ *     must be returned by exactly one matching photo_slot_release call.
+ *   - Event structs returned by photo_poll_events are caller-allocated;
+ *     the engine fills them. No owned pointers leave via events.
+ *
+ * VERSIONING:
+ *   - This is ABI version 1 (see PHOTO_ABI_VERSION below). Compatible changes
+ *     append fields to the end of POD structs and new enum values to the end
+ *     of enums. Breaking changes bump PHOTO_ABI_VERSION and rename symbols
+ *     with a _v2 suffix so old + new can coexist during transition.
+ */
+
+#ifndef PHOTO_CORE_H
+#define PHOTO_CORE_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "photo_core_version.h"
+
+#ifdef _WIN32
+#  define PHOTO_API __declspec(dllexport)
+#else
+#  define PHOTO_API __attribute__((visibility("default")))
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ------------------------------------------------------------------------- */
+/* Forward declarations                                                      */
+/* ------------------------------------------------------------------------- */
+
+typedef struct photo_engine photo_engine_t;
+
+/* ------------------------------------------------------------------------- */
+/* Enumerations                                                              */
+/* ------------------------------------------------------------------------- */
+
+typedef enum {
+    PHOTO_STATUS_OK            = 0,
+    PHOTO_STATUS_INVALID_ARG   = 1,
+    PHOTO_STATUS_NOT_FOUND     = 2,
+    PHOTO_STATUS_IO_ERROR      = 3,
+    PHOTO_STATUS_DECODE_ERROR  = 4,
+    PHOTO_STATUS_OUT_OF_MEMORY = 5,
+    PHOTO_STATUS_CANCELLED     = 6,
+    PHOTO_STATUS_UNSUPPORTED   = 7,
+    PHOTO_STATUS_BUSY          = 8,
+    PHOTO_STATUS_INTERNAL      = 9,
+    PHOTO_STATUS_BAD_STATE     = 10
+} photo_status_t;
+
+typedef enum {
+    PHOTO_STAGE_PLACEHOLDER32 = 1,
+    PHOTO_STAGE_THUMB256      = 2,
+    PHOTO_STAGE_FULL          = 3
+} photo_stage_t;
+
+/* Bit mask for wanted_stages_mask in photo_thumb_request_fast. */
+#define PHOTO_STAGE_MASK_PLACEHOLDER32 (1u << 0)
+#define PHOTO_STAGE_MASK_THUMB256      (1u << 1)
+#define PHOTO_STAGE_MASK_FULL          (1u << 2)
+#define PHOTO_STAGE_MASK_DEFAULT \
+    (PHOTO_STAGE_MASK_PLACEHOLDER32 | PHOTO_STAGE_MASK_THUMB256)
+
+typedef enum {
+    PHOTO_PRIORITY_INTERACTIVE = 0,  /* on-screen, must satisfy in this frame */
+    PHOTO_PRIORITY_VIEWPORT    = 1,  /* in current viewport / short prefetch  */
+    PHOTO_PRIORITY_IDLE        = 2   /* background; pre-cache and recache     */
+} photo_priority_t;
+
+typedef enum {
+    PHOTO_EVT_STAGE_READY      = 1,
+    PHOTO_EVT_STAGE_FAILED     = 2,
+    PHOTO_EVT_IMPORT_PROGRESS  = 3,
+    PHOTO_EVT_IMPORT_COMPLETE  = 4,
+    PHOTO_EVT_SCAN_PROGRESS    = 5,
+    PHOTO_EVT_CLUSTER_UPDATED  = 6,
+    PHOTO_EVT_PROVIDER_PROBED  = 7,
+    PHOTO_EVT_LOG              = 8
+} photo_event_kind_t;
+
+typedef enum {
+    PHOTO_PROVIDER_CPU      = 0,
+    PHOTO_PROVIDER_WINML    = 1,
+    PHOTO_PROVIDER_DML      = 2,
+    PHOTO_PROVIDER_COREML   = 3,
+    PHOTO_PROVIDER_CUDA     = 4,
+    PHOTO_PROVIDER_OPENVINO = 5
+} photo_provider_t;
+
+typedef enum {
+    PHOTO_LOG_TRACE = 0,
+    PHOTO_LOG_DEBUG = 1,
+    PHOTO_LOG_INFO  = 2,
+    PHOTO_LOG_WARN  = 3,
+    PHOTO_LOG_ERROR = 4
+} photo_log_level_t;
+
+/* ------------------------------------------------------------------------- */
+/* Configuration                                                             */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Engine configuration. Caller fills this and passes to photo_engine_create.
+ * The engine copies what it needs; pointers do not need to outlive the call.
+ *
+ * Zero/NULL fields request engine defaults:
+ *   memory_budget_bytes = 256 MiB
+ *   disk_budget_bytes   = 16 GiB
+ *   decode_threads      = max(2, physical_cores - 1)
+ *   io_threads          = 4
+ *   ml_threads          = max(1, physical_cores / 2)
+ */
+typedef struct {
+    const char* catalog_path_utf8;   /* SQLite DB path; must be on local FS  */
+    const char* cache_path_utf8;     /* LMDB env directory; will be created  */
+    const char* models_path_utf8;    /* dir for ML models (M6+); may be NULL */
+    uint64_t    memory_budget_bytes; /* memory LRU cap                       */
+    uint64_t    disk_budget_bytes;   /* LMDB high-water mark for eviction    */
+    uint32_t    decode_threads;
+    uint32_t    io_threads;
+    uint32_t    ml_threads;
+    uint32_t    log_level;           /* photo_log_level_t                    */
+    uint32_t    flags;               /* reserved; pass 0                     */
+} photo_config_t;
+
+/* ------------------------------------------------------------------------- */
+/* Engine lifecycle                                                          */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Create an engine. Returns NULL on failure (config invalid, cache path not
+ * writable, catalog on a network FS, etc.). Each engine owns its own threads,
+ * cache, and catalog; multiple engines may coexist in one process but is not
+ * an expected use case.
+ *
+ * Thread-safety: not safe to call concurrently with itself for the same
+ * paths; safe across distinct paths.
+ */
+PHOTO_API photo_engine_t* photo_engine_create(const photo_config_t* cfg);
+
+/*
+ * Destroy an engine. Cancels in-flight work, flushes pending catalog writes,
+ * and closes the cache. Blocks until all workers exit. Safe to pass NULL.
+ *
+ * Thread-safety: must not be called while any other engine call is in flight.
+ */
+PHOTO_API void photo_engine_destroy(photo_engine_t* engine);
+
+/* Returns a static string. Format: "MAJOR.MINOR.PATCH+gitsha". */
+PHOTO_API const char* photo_engine_version(void);
+
+/* ABI version constant for runtime compatibility checks from Dart. */
+PHOTO_API uint32_t photo_abi_version(void);
+
+/* ------------------------------------------------------------------------- */
+/* Slot lifecycle (called by the photo_native plugin, NOT by Dart)           */
+/*                                                                           */
+/* A slot is a logical render target. Each visible gallery tile has one      */
+/* slot for its lifetime. The plugin pairs each slot with a Flutter texture  */
+/* registration of equal lifetime. Stage upgrades swap frames within the     */
+/* slot; the Flutter texture ID never changes for the slot's life.           */
+/* ------------------------------------------------------------------------- */
+
+PHOTO_API uint64_t photo_slot_create(photo_engine_t* engine,
+                                     int32_t initial_w, int32_t initial_h);
+
+PHOTO_API void photo_slot_destroy(photo_engine_t* engine, uint64_t slot_id);
+
+/*
+ * Bind a generation token to a slot. Any in-flight request whose generation
+ * does not equal the slot's current generation will not produce a visible
+ * frame and will not emit STAGE_READY events. Used by the UI when a virtualized
+ * cell rebinds to a different asset.
+ *
+ * Thread-safety: callable from any thread. Returns previous generation.
+ */
+PHOTO_API uint64_t photo_slot_bind_generation(photo_engine_t* engine,
+                                              uint64_t slot_id,
+                                              uint64_t generation);
+
+/* ------------------------------------------------------------------------- */
+/* Thumbnail requests                                                        */
+/*                                                                           */
+/* The hot path (photo_thumb_request_fast) takes scalars to avoid per-request */
+/* heap allocation on the Dart side. The struct variant (photo_thumb_request) */
+/* is retained for cold-path callers and future-field additions.              */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Hot path: submit a thumbnail request from Dart with zero heap allocation.
+ * The path_utf8 buffer must remain valid only for the duration of this call.
+ *
+ * Returns a non-zero request ID on success, 0 on rejection (invalid slot,
+ * empty path, etc.).
+ *
+ * Thread-safety: callable from any thread. Designed for p99 < 50 us on the
+ * Dart caller side.
+ */
+PHOTO_API uint64_t photo_thumb_request_fast(
+    photo_engine_t* engine,
+    uint64_t asset_id,
+    uint64_t slot_id,
+    uint64_t generation,
+    const char* path_utf8,
+    uint32_t target_w,
+    uint32_t target_h,
+    uint32_t wanted_stages_mask,
+    uint32_t priority,                  /* photo_priority_t */
+    uint32_t flags);
+
+/*
+ * Cold path / struct variant. Equivalent to photo_thumb_request_fast but
+ * accepts a struct for forward field extension. Cost includes one indirection.
+ */
+typedef struct {
+    uint64_t asset_id;
+    uint64_t slot_id;
+    uint64_t generation;
+    const char* path_utf8;
+    uint32_t target_w;
+    uint32_t target_h;
+    uint32_t wanted_stages_mask;
+    uint32_t priority;
+    uint32_t flags;
+    uint32_t _reserved[3];
+} photo_thumb_request_t;
+
+PHOTO_API uint64_t photo_thumb_request(photo_engine_t* engine,
+                                       const photo_thumb_request_t* req);
+
+/*
+ * Cancel a previously submitted thumbnail request. Cancellation is O(1) and
+ * advisory: in-flight work that has already produced a frame may still
+ * complete; the result will not be presented if the request's generation
+ * no longer matches the slot's current generation. Safe to call with an
+ * unknown ID.
+ */
+PHOTO_API void photo_thumb_cancel(photo_engine_t* engine, uint64_t request_id);
+
+/* ------------------------------------------------------------------------- */
+/* Frame acquisition (called by the plugin's texture callback)               */
+/* ------------------------------------------------------------------------- */
+
+typedef struct {
+    const uint8_t* bgra;       /* device-byte-order BGRA, premultiplied alpha */
+    uint32_t       width;
+    uint32_t       height;
+    uint32_t       stride;     /* bytes per row, >= width * 4                 */
+    void*          release_ctx; /* opaque; pass to photo_slot_release         */
+} photo_frame_view_t;
+
+/*
+ * Acquire the latest presentable frame for a slot. The returned view borrows
+ * memory owned by the engine. The caller must call photo_slot_release exactly
+ * once with the returned release_ctx. Returns false if no frame is yet
+ * available; in that case *out is zeroed and release is not required.
+ *
+ * Thread-safety: callable from any thread. Typically called from the platform
+ * texture callback (macOS raster thread / Windows render thread).
+ */
+PHOTO_API bool photo_slot_acquire_latest(photo_engine_t* engine,
+                                         uint64_t slot_id,
+                                         photo_frame_view_t* out);
+
+PHOTO_API void photo_slot_release(photo_engine_t* engine, void* release_ctx);
+
+/* ------------------------------------------------------------------------- */
+/* Events (pull-based, Dart drains)                                          */
+/* ------------------------------------------------------------------------- */
+
+typedef struct {
+    uint32_t kind;            /* photo_event_kind_t                       */
+    uint32_t stage;           /* photo_stage_t (where applicable)         */
+    int32_t  status;          /* photo_status_t (where applicable)        */
+    uint32_t width;
+    uint32_t height;
+    uint64_t request_id;
+    uint64_t asset_id;
+    uint64_t slot_id;
+    uint64_t generation;
+    uint64_t aux64;           /* event-kind dependent payload             */
+    uint64_t aux64_b;
+    uint32_t _reserved[2];
+} photo_event_t;
+
+/*
+ * Drain up to `cap` events into `out`. Returns the number written. Drains in
+ * FIFO order. Safe to call from one thread only (designed as SPSC: Dart pump
+ * is the single consumer).
+ */
+PHOTO_API size_t photo_poll_events(photo_engine_t* engine,
+                                   photo_event_t* out,
+                                   size_t cap);
+
+/* ------------------------------------------------------------------------- */
+/* Import and catalog                                                        */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Begin importing photos from a path. If the path is a file, imports that
+ * one asset; if a directory, recurses. Returns a non-zero job ID; progress
+ * is reported via PHOTO_EVT_IMPORT_PROGRESS and PHOTO_EVT_IMPORT_COMPLETE
+ * events whose request_id matches the returned job ID.
+ *
+ * flags: reserved; pass 0.
+ */
+PHOTO_API uint64_t photo_import_path(photo_engine_t* engine,
+                                     const char* path_utf8,
+                                     uint32_t flags);
+
+/*
+ * Re-scan all previously imported locations for changes (added/removed/modified
+ * files). Returns a job ID. Progress events as above.
+ */
+PHOTO_API uint64_t photo_rescan(photo_engine_t* engine, uint32_t flags);
+
+/* ------------------------------------------------------------------------- */
+/* ML (added in M6)                                                          */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Probe whether a provider is usable on this machine. Results are cached
+ * per (provider, driver_version, gpu_uuid, ort_version). Synchronous; bounded
+ * to ~2s per probe. Returns photo_status_t.
+ */
+PHOTO_API int32_t photo_provider_probe(photo_engine_t* engine,
+                                       int32_t provider);
+
+/*
+ * Schedule a face scan for an asset. Detection -> alignment -> embedding,
+ * with results stored in the catalog. Emits PHOTO_EVT_SCAN_PROGRESS while
+ * running. Returns a job ID.
+ */
+PHOTO_API uint64_t photo_face_scan(photo_engine_t* engine,
+                                   uint64_t asset_id,
+                                   uint32_t flags);
+
+/* ------------------------------------------------------------------------- */
+/* Clustering (added in M7)                                                  */
+/* ------------------------------------------------------------------------- */
+
+PHOTO_API uint64_t photo_face_approve(photo_engine_t* engine,
+                                      uint64_t cluster_id,
+                                      uint64_t embedding_id);
+
+PHOTO_API uint64_t photo_face_reject(photo_engine_t* engine,
+                                     uint64_t cluster_id,
+                                     uint64_t embedding_id);
+
+/*
+ * Trigger a full HDBSCAN rebuild. Expensive (minutes on a large library).
+ * Runs in the idle lane. Emits PHOTO_EVT_CLUSTER_UPDATED on completion.
+ */
+PHOTO_API uint64_t photo_cluster_rebuild(photo_engine_t* engine, uint32_t flags);
+
+#ifdef __cplusplus
+}  /* extern "C" */
+#endif
+
+#endif /* PHOTO_CORE_H */

@@ -1,0 +1,13 @@
+# Per-developer absolute symlinks created by tools/setup-plugin-symlinks.sh.
+# Targets differ per checkout location, so we keep them out of source control.
+macos/_native_core
+macos/Classes/core/
+
+# Standard Flutter plugin build outputs
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/

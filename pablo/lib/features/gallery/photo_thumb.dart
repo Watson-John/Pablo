@@ -3,9 +3,11 @@
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart';
 
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
+import '../../native/native_backend.dart';
 import '../../theme/tokens.dart';
 
 class PhotoThumb extends StatefulWidget {
@@ -142,55 +144,61 @@ class _PhotoThumbState extends State<PhotoThumb> {
                       width: widget.size,
                       height: h,
                       decoration: BoxDecoration(
-                        gradient: widget.photo.gradient,
                         borderRadius: PabloRadius.lgAll,
                         border: Border.all(color: borderColor),
                         boxShadow: shadows,
                       ),
-                      child: Stack(
-                        children: [
-                          if (widget.photo.starred)
-                            const Positioned(
-                              bottom: 5,
-                              left: 5,
-                              child: PabloIcon(
-                                PabloIconName.starFill,
-                                size: 13,
-                                color: PabloColors.amber,
-                              ),
+                      child: ClipRRect(
+                        borderRadius: PabloRadius.lgAll,
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: _ThumbBackdrop(photo: widget.photo),
                             ),
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: overlayCheck(),
-                          ),
-                          if (_hover && !widget.inTray)
+                            if (widget.photo.starred)
+                              const Positioned(
+                                bottom: 5,
+                                left: 5,
+                                child: PabloIcon(
+                                  PabloIconName.starFill,
+                                  size: 13,
+                                  color: PabloColors.amber,
+                                ),
+                              ),
                             Positioned(
-                              bottom: 4,
+                              top: 4,
                               right: 4,
-                              child: GestureDetector(
-                                onTap: widget.onAddToTray,
-                                child: Container(
-                                  width: 22,
-                                  height: 22,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    shape: BoxShape.circle,
-                                    boxShadow: PabloShadows.sm,
-                                  ),
-                                  child: const Text(
-                                    '+',
-                                    style: TextStyle(
-                                      color: PabloColors.textSecondary,
-                                      fontSize: 13,
-                                      height: 1,
+                              child: overlayCheck(),
+                            ),
+                            if (_hover && !widget.inTray)
+                              Positioned(
+                                bottom: 4,
+                                right: 4,
+                                child: GestureDetector(
+                                  onTap: widget.onAddToTray,
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.9),
+                                      shape: BoxShape.circle,
+                                      boxShadow: PabloShadows.sm,
+                                    ),
+                                    child: const Text(
+                                      '+',
+                                      style: TextStyle(
+                                        color: PabloColors.textSecondary,
+                                        fontSize: 13,
+                                        height: 1,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                     if (widget.size >= 80) ...[
@@ -209,5 +217,128 @@ class _PhotoThumbState extends State<PhotoThumb> {
         ),
       ),
     );
+  }
+}
+
+/// Renders the thumbnail's pixel surface. When the native backend is
+/// available, routes through a [TextureSlot] (a Texture widget backed by
+/// photo_core). Otherwise renders the original linear gradient as the
+/// M0 mockup did. Border + shadow + overlays live in PhotoThumb above.
+class _ThumbBackdrop extends StatelessWidget {
+  const _ThumbBackdrop({required this.photo});
+
+  final Photo photo;
+
+  @override
+  Widget build(BuildContext context) {
+    final backend = NativeBackendScope.maybeOf(context);
+    if (backend == null) {
+      return DecoratedBox(
+        decoration: BoxDecoration(gradient: photo.gradient),
+      );
+    }
+    return _NativeThumbSurface(
+      photo: photo,
+      engine: backend.engine,
+    );
+  }
+}
+
+/// Stateful surface that owns a [TextureSlot] for its lifetime. Rebinds
+/// the slot generation when the photo identity changes and publishes a
+/// representative solid color (computed from the source gradient) via the
+/// M1 test hook. M2 replaces the publish with a real decode request.
+class _NativeThumbSurface extends StatefulWidget {
+  const _NativeThumbSurface({required this.photo, required this.engine});
+
+  final Photo photo;
+  final Engine engine;
+
+  @override
+  State<_NativeThumbSurface> createState() => _NativeThumbSurfaceState();
+}
+
+class _NativeThumbSurfaceState extends State<_NativeThumbSurface> {
+  TextureSlot? _slot;
+  String? _requestedPhotoId;
+  int _inFlightRequestId = 0;
+  bool _disposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _createSlot();
+  }
+
+  Future<void> _createSlot() async {
+    final slot = await TextureSlot.create(
+      widget.engine,
+      initialW: 64,
+      initialH: 64,
+    );
+    if (_disposed) {
+      await slot.dispose();
+      return;
+    }
+    setState(() => _slot = slot);
+    _submitRequestForCurrentPhoto();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NativeThumbSurface old) {
+    super.didUpdateWidget(old);
+    if (_slot != null && old.photo.id != widget.photo.id) {
+      // Cancel the previous in-flight request (advisory; even if it lands
+      // first, generation-token check in the engine drops the stale result).
+      if (_inFlightRequestId != 0) {
+        widget.engine.cancelRequest(_inFlightRequestId);
+        _inFlightRequestId = 0;
+      }
+      _slot!.rebind();
+      _requestedPhotoId = null;
+      _submitRequestForCurrentPhoto();
+    }
+  }
+
+  void _submitRequestForCurrentPhoto() {
+    final slot = _slot;
+    if (slot == null) return;
+    if (_requestedPhotoId == widget.photo.id) return;
+    // assetId is a stable per-photo number derived from the id string.
+    // Real asset ids come from the catalog in M3.
+    final assetId = widget.photo.id.hashCode.abs();
+    _inFlightRequestId = widget.engine.requestThumbnail(
+      assetId: assetId,
+      slotId: slot.slotId,
+      generation: slot.currentGeneration,
+      // M2: path identity drives synthetic color. M3 uses it to decode.
+      path: widget.photo.id,
+      targetW: 256,
+      targetH: 256,
+    );
+    _requestedPhotoId = widget.photo.id;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    if (_inFlightRequestId != 0) {
+      widget.engine.cancelRequest(_inFlightRequestId);
+    }
+    _slot?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slot = _slot;
+    if (slot == null) {
+      // Brief gap during async slot creation — fall back to gradient so
+      // there's no black flash.
+      return DecoratedBox(
+        decoration: BoxDecoration(gradient: widget.photo.gradient),
+      );
+    }
+    return Texture(textureId: slot.textureId);
   }
 }

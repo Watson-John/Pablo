@@ -1,0 +1,37 @@
+# Top-level CMake entry for the Pablo native backend.
+#
+# This is invoked when developing the native core in isolation. The Flutter
+# plugin's per-platform CMakeLists.txt files include native/core directly,
+# so this file is convenience for IDE setup and standalone builds.
+#
+# See BUILD.md for build commands and CMakePresets.json for presets.
+
+cmake_minimum_required(VERSION 3.27)
+
+project(pablo
+    VERSION 0.1.0
+    DESCRIPTION "Pablo native backend"
+    LANGUAGES CXX C
+)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# LGPL link-mode default. Per-library overrides in native/core/CMakeLists.txt
+# guarantee dynamic linkage for libvips, libheif, libraw, libexif regardless
+# of this default (see LICENSES.md and DECISIONS.md §D5).
+if(NOT DEFINED BUILD_SHARED_LIBS)
+    set(BUILD_SHARED_LIBS ON)
+endif()
+
+# Sanitizer toggles. Wired up in native/core/cmake/sanitizers.cmake.
+option(PHOTO_ENABLE_ASAN  "Enable AddressSanitizer"   OFF)
+option(PHOTO_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+option(PHOTO_ENABLE_TSAN  "Enable ThreadSanitizer"    OFF)
+
+option(PHOTO_BUILD_TESTS      "Build native unit tests" ON)
+option(PHOTO_BUILD_BENCHMARKS "Build native benchmarks" ON)
+
+add_subdirectory(native/core)

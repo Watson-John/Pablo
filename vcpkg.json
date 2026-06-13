@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "photo-core",
+  "version-string": "0.1.0",
+  "description": "Pablo native backend (M1 dependency set; expands per milestone).",
+  "dependencies": [
+    "gtest",
+    "benchmark"
+  ],
+  "features": {
+    "m3": {
+      "description": "Thumbnail engine v1 dependencies (libvips, codecs, cache).",
+      "dependencies": [
+        {
+          "name": "libvips",
+          "default-features": false,
+          "features": ["jpeg", "png", "tiff", "webp"]
+        },
+        "libjpeg-turbo",
+        "lmdb",
+        {
+          "name": "sqlite3",
+          "features": ["json1", "fts5"]
+        },
+        "blake3"
+      ]
+    },
+    "m5": {
+      "description": "Format expansion + metadata read (libheif, libjxl, libraw, libexif, pugixml).",
+      "dependencies": [
+        {
+          "name": "libheif",
+          "default-features": false,
+          "features": ["libde265"]
+        },
+        "libjxl",
+        "libraw",
+        "libexif",
+        "pugixml"
+      ]
+    }
+  }
+}

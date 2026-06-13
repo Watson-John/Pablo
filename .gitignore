@@ -1,0 +1,16 @@
+# Root build artifacts (CMake/native output) — keep source, drop build output
+/build/
+
+# Rust / native build dirs
+target/
+
+# Backup files
+*.bak
+
+# OS / editor cruft
+.DS_Store
+*~
+
+# Flutter/Dart artifacts at any depth (pablo/.gitignore also covers these)
+**/.dart_tool/
+**/build/
