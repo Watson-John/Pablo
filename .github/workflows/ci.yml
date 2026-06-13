@@ -48,9 +48,6 @@ jobs:
         run: flutter analyze
       - name: Tests
         run: flutter test --reporter compact
-        # Frontend scaffolding phase: tolerate "no tests found" without failing
-        # the gate. Tighten to a hard gate once a widget-test suite exists.
-        continue-on-error: true
 
   # ── Deeper smoke: actually build the desktop app (compiles the native
   #    texture seam) on each OS's native runner ──
