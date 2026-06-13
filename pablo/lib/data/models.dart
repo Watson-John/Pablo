@@ -95,12 +95,18 @@ class Photo {
     required this.label,
     required this.gradient,
     required this.starred,
+    this.filePath,
   });
 
   final String id;
   final String label;
   final LinearGradient gradient;
   final bool starred;
+
+  /// Absolute path to a real image file (dataset / import mode). Null for the
+  /// gradient mockup. When set, PhotoThumb routes it to the native libvips
+  /// decoder via the TextureSlot seam.
+  final String? filePath;
 }
 
 class Suggestion {

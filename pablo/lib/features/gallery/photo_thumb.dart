@@ -311,8 +311,9 @@ class _NativeThumbSurfaceState extends State<_NativeThumbSurface> {
       assetId: assetId,
       slotId: slot.slotId,
       generation: slot.currentGeneration,
-      // M2: path identity drives synthetic color. M3 uses it to decode.
-      path: widget.photo.id,
+      // Real file path drives the M3 libvips decode; falls back to the
+      // synthetic id (M2 solid color) for gradient-mock photos.
+      path: widget.photo.filePath ?? widget.photo.id,
       targetW: 256,
       targetH: 256,
     );

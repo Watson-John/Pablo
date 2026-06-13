@@ -1,6 +1,7 @@
 // Photo / EXIF / tag / suggestion factories.
 // Verbatim port of pablo3-foundation.jsx generator logic.
 
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -96,7 +97,62 @@ final Map<String, List<Photo>> _photoSets = (() {
   return m;
 })();
 
-List<Photo> photosFor(String id) => _photoSets[id] ?? const [];
+// ── Dataset mode (Stage 2b) ──────────────────────────────────────────────
+// When PABLO_DATASET_DIR is provided, the gallery shows real image files from
+// that folder so the native libvips decoder (PABLO_NATIVE_THUMBS) renders real
+// thumbnails through the GPU TextureSlot seam — used to exercise the pipeline
+// on the Flickr30k set.
+const String kDatasetDir =
+    String.fromEnvironment('PABLO_DATASET_DIR', defaultValue: '');
+bool get kDatasetMode => kDatasetDir.isNotEmpty;
+const int _kDatasetMax = 5000;
+
+const LinearGradient _datasetPlaceholder = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [Color(0xFFEEECE6), Color(0xFFD6D1C6)],
+);
+
+List<Photo> _loadDatasetPhotos() {
+  try {
+    final dir = Directory(kDatasetDir);
+    if (!dir.existsSync()) return const [];
+    final files = dir
+        .listSync(followLinks: false)
+        .whereType<File>()
+        .where((f) {
+          final p = f.path.toLowerCase();
+          return p.endsWith('.jpg') ||
+              p.endsWith('.jpeg') ||
+              p.endsWith('.png');
+        })
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    final out = <Photo>[];
+    for (final f in files) {
+      if (out.length >= _kDatasetMax) break;
+      final name = f.path.split(Platform.pathSeparator).last;
+      out.add(Photo(
+        id: f.path,
+        label: name,
+        gradient: _datasetPlaceholder,
+        starred: false,
+        filePath: f.path,
+      ));
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  }
+}
+
+final List<Photo> _datasetPhotos =
+    kDatasetMode ? _loadDatasetPhotos() : const <Photo>[];
+
+List<Photo> photosFor(String id) {
+  if (kDatasetMode && _datasetPhotos.isNotEmpty) return _datasetPhotos;
+  return _photoSets[id] ?? const [];
+}
 
 // ── Suggestions per person ──
 class _SuggPreset {
