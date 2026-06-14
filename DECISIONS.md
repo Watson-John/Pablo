@@ -150,6 +150,27 @@ The full architectural plan lives at [`/Users/johnwatson/.claude/plans/what-are-
 
 ---
 
+## D10. Thumbnail cache eviction — rotating self-describing segments
+
+**Date:** 2026-06-14
+**Status:** Locked (current `ThumbCache` implementation)
+
+**Decision:** The on-disk thumbnail cache (`native/core/src/thumb/thumb_cache.{h,cpp}`) is a set of rotating, self-describing segment files `seg-<id>.pak` rather than a single pack+index pair (or the LMDB store sketched in D9). Each segment is `[8-byte magic 'PABSEG02'][RecHeader][blob]...`; the per-blob `RecHeader` carries `(key,len,width,height,flags)` inline, so each segment validates standalone and the in-RAM index is rebuilt by scanning segments at open (ascending id + offset ⇒ newest live copy wins). Disk-budget eviction deletes the **oldest whole segment** when the sum of segment sizes exceeds `disk_budget_bytes`; LRU is approximated by a RAM-only CLOCK bit set on `get()` plus promote-at-evict (hot entries are re-appended into the active segment just before their segment is dropped). A single blob is bounded to 64 MiB and the per-segment cap to ≤256 MiB so all in-segment offsets stay under `LONG_MAX` (portable `std::fseek`).
+
+**Rationale:**
+- Eviction from an append-only store needs either compaction (a multi-GB rewrite under the lock) or whole-file rotation. Rotation gives O(1) reclaim, a whole-file atomic crash unit, and no compaction pass — the simplest design that never serves wrong bytes after a crash.
+- Dropping the separate index file removes the half-renamed-pair / dangling-pointer hazard a pack+idx pair would have under eviction; the index is always rebuilt from the same self-describing bytes.
+
+**Implications:**
+- The new magic `PABSEG02` is foreign to the prior `PABPACK1`/`PABIDX01` single-pack format, so an existing cache is **reset once** on upgrade (cold start; the cache is regenerable). Not a bug.
+- Crash-**consistent**, not power-loss-**durable**: writes use `fflush` (libc), not `fsync`. A power cut may lose recently-written thumbnails; this is within tolerance (they re-decode).
+- Cache key remains the existing FNV-1a of `(asset_id, stage, path + size + mtime)` — it does **not** yet incorporate codec-library versions as D8 specifies; revisit when D8's keying is adopted.
+- Differs from D9's LMDB + batched-eviction model: that store is not yet implemented; this file-based cache is what ships in M3.
+
+**Revisit trigger:** if per-drop index-erase latency at the 16 GiB default proves too high (benchmark before shipping a huge default), lower the segment cap or move `remove()`+erase to a brief-lock background reclaimer. If D8/D9's LMDB store is adopted, supersede this.
+
+---
+
 ## Decision queue (open)
 
 | Item | Owed by | Notes |

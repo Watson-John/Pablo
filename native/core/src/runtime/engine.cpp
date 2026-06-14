@@ -103,7 +103,7 @@ Engine::Engine(fs::path catalog_path,
                static_cast<unsigned long long>(disk_budget_),
                decode_threads);
 
-    cache_ = std::make_unique<ThumbCache>(cache_path_);
+    cache_ = std::make_unique<ThumbCache>(cache_path_, disk_budget_);
     thumbs_.set_cache(cache_.get());
     PHOTO_LOGF(PHOTO_LOG_INFO, "thumb cache %s (%zu entries)",
                cache_->ok() ? "ready" : "DISABLED",
