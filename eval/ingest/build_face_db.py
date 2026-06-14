@@ -48,7 +48,8 @@ from picasa_ini import (
     find_picasa_ini,
     parse_picasa_ini,
 )
-from xmp_regions import exiftool_available, named_face_regions, read_xmp_regions
+from raw_preview import exiftool_available, extract_raw_preview
+from xmp_regions import named_face_regions, read_xmp_regions
 
 # These are the user's own trusted photos; lift PIL's decompression-bomb guard.
 Image.MAX_IMAGE_PIXELS = None
@@ -139,12 +140,15 @@ def apply_orientation(img: Image.Image, orientation: int) -> Image.Image:
     return img.transpose(method) if method is not None else img
 
 
-def open_source(path: Path) -> Optional[Tuple[Image.Image, int]]:
+def open_source(path: Path, allow_raw: bool = True) -> Optional[Tuple[Image.Image, int]]:
     """Open a photo as RGB **without** applying orientation; return (img, orient).
 
-    Returns None on decode failure. The caller decides how to use ``orient``
-    (see --coord-space).
+    RAW files route through exiftool's embedded preview (Pillow only exposes a
+    tiny RAW thumbnail). Returns None on decode failure / unsupported. The caller
+    decides how to use ``orient`` (see --coord-space).
     """
+    if path.suffix.lower() in RAW_EXTS:
+        return extract_raw_preview(path) if allow_raw else None
     try:
         img = Image.open(path)
         img.load()
@@ -182,12 +186,14 @@ class Stats:
     images_missing: int = 0
     images_unreadable: int = 0
     skipped_raw: int = 0
+    raw_faces: int = 0
     faces_written: int = 0
     skipped_unnamed: int = 0
     skipped_unresolved: int = 0
     skipped_dup: int = 0
     skipped_tiny: int = 0
     skipped_error: int = 0
+    resolved_global: int = 0
     xmp_faces_written: int = 0
     by_person: Counter = field(default_factory=Counter)
 
@@ -208,7 +214,8 @@ class FaceDBBuilder:
         self.keep_unknown = args.keep_unknown
         self.xmp_fallback = args.xmp_fallback
         self.coord_space = args.coord_space
-        self.include_raw = args.include_raw
+        self.no_raw = args.no_raw
+        self.exiftool_ok = exiftool_available()
         self.global_contacts: Dict[str, str] = {}
         self.seen_faces: set = set()       # (content_key, rect_hex) dedup
         self.used_crop_paths: set = set()
@@ -319,14 +326,30 @@ class FaceDBBuilder:
                   file=sys.stderr)
             self.xmp_fallback = False
 
+        # ONE tree walk: parse each folder's INI once, union its [Contacts2] into
+        # the global map (a hash missing from its own folder is often named in
+        # another), and queue folders that have faces. A single traversal matters
+        # on external drives, which dislike two passes.
+        n_before = len(self.global_contacts)
+        entries = []  # (folder, contacts, faces_by_file)
+        for dirpath, _dirnames, _filenames in os.walk(root):
+            ini = find_picasa_ini(Path(dirpath))
+            if ini is None:
+                continue
+            contacts, faces = parse_picasa_ini(ini)
+            if not self.args.no_global_contacts:
+                for h, n in contacts.items():
+                    self.global_contacts.setdefault(h, n)
+            if faces:
+                entries.append((Path(dirpath), contacts, faces))
+        print(f"global contacts: {len(self.global_contacts)} distinct "
+              f"({n_before} from contacts.xml + INI union) | "
+              f"{len(entries)} folder(s) with faces")
+
         self._open_manifest()
         try:
-            for dirpath, _dirnames, _filenames in os.walk(root):
-                folder = Path(dirpath)
-                ini = find_picasa_ini(folder)
-                if ini is None:
-                    continue
-                self._process_folder(folder, ini)
+            for folder, contacts, faces_by_file in entries:
+                self._process_folder(folder, contacts, faces_by_file)
                 if self.args.limit and self.stats.faces_written >= self.args.limit:
                     print(f"(reached --limit {self.args.limit})")
                     break
@@ -347,16 +370,12 @@ class FaceDBBuilder:
             return apply_orientation(img_raw, orient), 1
         return img_raw, orient
 
-    def _process_folder(self, folder: Path, ini: Path):
-        contacts, faces_by_file = parse_picasa_ini(ini)
+    def _process_folder(self, folder: Path, contacts: Dict[str, str],
+                        faces_by_file: Dict[str, list]):
         if not faces_by_file:
             return
         self.stats.folders_with_ini += 1
         case_index = build_case_index(folder)
-
-        def resolve_name(chash: str) -> Optional[str]:
-            return contacts.get(chash) or self.global_contacts.get(chash)
-
         ini_referenced = set()
         for section, recs in faces_by_file.items():
             actual = case_index.get(section.lower())
@@ -364,12 +383,13 @@ class FaceDBBuilder:
                 self.stats.images_missing += 1
                 continue
             ini_referenced.add(actual.name.lower())
-            if actual.suffix.lower() in RAW_EXTS and not self.include_raw:
+            is_raw = actual.suffix.lower() in RAW_EXTS
+            if is_raw and (self.no_raw or not self.exiftool_ok):
                 self.stats.skipped_raw += 1
                 continue
             self.stats.images_referenced += 1
 
-            opened = open_source(actual)
+            opened = open_source(actual, allow_raw=not self.no_raw)
             if opened is None:
                 self.stats.images_unreadable += 1
                 continue
@@ -382,7 +402,11 @@ class FaceDBBuilder:
                 if chash == UNNAMED_HASH:
                     self.stats.skipped_unnamed += 1
                     continue
-                name = resolve_name(chash)
+                name = contacts.get(chash)            # this folder's [Contacts2]
+                if name is None:
+                    name = self.global_contacts.get(chash)   # cross-folder / xml
+                    if name is not None:
+                        self.stats.resolved_global += 1
                 if name is None:
                     if self.keep_unknown:
                         name = f"Unknown_{chash}"   # full hash — distinct unknowns stay distinct
@@ -397,9 +421,12 @@ class FaceDBBuilder:
                 if self._emit(
                     name=name, chash=chash, src_image=actual, folder=folder,
                     crop_src=crop_src, crop_orient=crop_orient,
-                    box_norm=decode_rect64_norm(rect_hex), idx=idx, source="ini",
+                    box_norm=decode_rect64_norm(rect_hex), idx=idx,
+                    source="raw" if is_raw else "ini",
                 ):
                     self.stats.faces_written += 1
+                    if is_raw:
+                        self.stats.raw_faces += 1
 
         if self.xmp_fallback:
             self._xmp_pass(folder, case_index, ini_referenced)
@@ -448,9 +475,11 @@ class FaceDBBuilder:
         print(f"  images missing on disk : {s.images_missing}")
         print(f"  images unreadable      : {s.images_unreadable}")
         print(f"  RAW skipped            : {s.skipped_raw}")
-        print(f"  faces written          : {s.faces_written}  (xmp: {s.xmp_faces_written})")
+        print(f"  faces written          : {s.faces_written}  "
+              f"(raw: {s.raw_faces}, xmp: {s.xmp_faces_written})")
         print(f"  distinct people        : {len(s.by_person)}")
         print(f"  skipped unnamed (ffff) : {s.skipped_unnamed}")
+        print(f"  resolved via global    : {s.resolved_global}")
         print(f"  skipped unresolved hash: {s.skipped_unresolved}")
         print(f"  skipped duplicate face : {s.skipped_dup}")
         print(f"  skipped tiny/invalid   : {s.skipped_tiny}")
@@ -477,15 +506,18 @@ def parse_args(argv):
                     help="skip crops smaller than this many px on a side (0 = keep all)")
     ap.add_argument("--keep-unknown", action="store_true",
                     help="keep unresolved-hash faces as Unknown_<hash> instead of skipping")
-    ap.add_argument("--include-raw", action="store_true",
-                    help="attempt RAW files via Pillow (WARNING: only the embedded "
-                         "thumbnail, often tiny). Off by default.")
+    ap.add_argument("--no-raw", action="store_true",
+                    help="skip RAW files entirely. Default: decode RAW via the "
+                         "largest embedded preview (needs exiftool).")
     ap.add_argument("--xmp-fallback", action="store_true",
                     help="for images with no INI entry, read embedded XMP regions (exiftool)")
     ap.add_argument("--contacts-xml", default=None,
                     help="explicit path to Picasa db3/contacts.xml (hash fallback)")
     ap.add_argument("--find-contacts-xml", action="store_true",
                     help="search the tree for a contacts.xml to resolve unknown hashes")
+    ap.add_argument("--no-global-contacts", action="store_true",
+                    help="disable the cross-folder [Contacts2] union (resolve names "
+                         "only within each face's own folder)")
     ap.add_argument("--limit", type=int, default=0, help="stop after N faces (testing)")
     ap.add_argument("--allow-in-repo", action="store_true",
                     help="permit writing the (PII) face DB inside a git work tree")

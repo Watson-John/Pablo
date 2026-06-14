@@ -44,10 +44,13 @@ before decoding or short rectangles silently corrupt. (Unit-tested.)
 
 ## RAW files
 
-`.dng/.nef/.cr2/...` are **skipped by default**: Pillow only exposes the tiny
-embedded thumbnail (a `.nef` decodes to 160×120), which would pollute the DB
-with unusable crops. `--include-raw` opts in anyway; proper preview extraction
-(exiftool `-JpgFromRaw`) is a TODO.
+`.dng/.nef/.cr2/...` are decoded via their **largest embedded JPEG preview**
+(exiftool): a Nikon `.nef` carries a full-size `JpgFromRaw` (e.g. 6000×4000), a
+Pixel `.dng` a smaller `PreviewImage` (~548×412). The rect is decoded against
+the preview's dimensions and the crop is rotated upright using exiftool's
+orientation — the same coord-space rule as a JPEG (verified on real NEF + DNG
+faces). `--no-raw` skips them; if exiftool is absent, RAW is skipped and counted.
+Pillow's own RAW thumbnail (160×120) is never used.
 
 ## Usage
 
