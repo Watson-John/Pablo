@@ -220,6 +220,7 @@ class _BodyState extends State<_Body> {
                               photo: _resolveActivePhoto(st),
                               activeTab: st.infoPanelTab!,
                               onClose: () => st.setInfoPanelTab(null),
+                              onTabChange: (t) => st.setInfoPanelTab(t),
                             ),
                         ],
                       ),
