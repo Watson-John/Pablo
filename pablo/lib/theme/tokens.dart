@@ -98,6 +98,20 @@ class PabloColors {
   static const Color darkTextStrong = Color(0xFFF6EFE2);
   static const Color darkTextBody = Color(0xFFE0D6C5);
 
+  // ── Sidebar section wayfinding colors ────────────────────────────────
+  // Earthy, muted per-section icon colors so the eye navigates quickly. Azure
+  // stays reserved for the active/selected state (accentActive overrides these).
+  static const Color sectionPeople = Color(0xFFD6492A); // terracotta coral
+  static const Color sectionAlbums = Color(0xFF8E3FB8); // plum
+  static const Color sectionFolders = Color(0xFFE08600); // amber gold
+  static const Color sectionTimeline = Color(0xFF1F9550); // sage green
+  static const Color sectionMap = Color(0xFF0A938A); // teal
+
+  // ── Lightbox dark-field controls (gray on the espresso canvas) ────────
+  static const Color lightboxNavIcon = Color(0xFF6B6B6B); // idle arrow
+  static const Color lightboxNavHoverBg = Color(0xFF1E1E1E); // arrow hover well
+  static const Color lightboxNavHoverIcon = Color(0xFFE6E6E6); // arrow hover
+
   // ── Map ───────────────────────────────────────────────────────────────
   static const Color mapOcean = Color(0xFFC8D8EA);
   static const Color mapOceanLight = Color(0xFFD8E4F0);

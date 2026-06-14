@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
 import '../../app/app_state.dart';
-import '../../components/nav_item.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/section_header.dart';
@@ -47,32 +46,27 @@ class Sidebar extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Map
-                  Padding(
-                    padding: const EdgeInsets.only(
-                      left: 0,
-                      right: 0,
-                      top: PabloSpacing.md,
-                      bottom: PabloSpacing.sm,
-                    ),
-                    child: NavItem(
-                      icon: PabloIconName.map,
-                      label: 'Map',
-                      count: '570',
-                      active: st.activeSection == NavSection.map,
-                      indent: PabloSpacing.xl,
-                      onPressed: () => st.setSelectedItem('map', NavSection.map),
-                    ),
+                  // Map (standalone nav card)
+                  _MapCard(
+                    active: st.activeSection == NavSection.map,
+                    onTap: () => st.setSelectedItem('map', NavSection.map),
                   ),
                   Container(
                     height: 1,
                     color: PabloColors.borderSubtle,
-                    margin: const EdgeInsets.only(bottom: PabloSpacing.sm),
+                    margin: const EdgeInsets.fromLTRB(
+                      PabloSpacing.xl,
+                      PabloSpacing.sm,
+                      PabloSpacing.xl,
+                      PabloSpacing.md,
+                    ),
                   ),
 
                   // People
                   CollapsibleSection(
                     label: 'People',
+                    icon: PabloIconName.people,
+                    iconColor: PabloColors.sectionPeople,
                     collapsedCount: '$peopleTotal',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -99,6 +93,8 @@ class Sidebar extends StatelessWidget {
                   // Albums
                   CollapsibleSection(
                     label: 'Albums',
+                    icon: PabloIconName.albums,
+                    iconColor: PabloColors.sectionAlbums,
                     collapsedCount: '${kAlbums.length}',
                     trailing: PabloIconButton(
                       icon: PabloIconName.plus,
@@ -126,6 +122,8 @@ class Sidebar extends StatelessWidget {
                   // Folders
                   CollapsibleSection(
                     label: 'Folders',
+                    icon: PabloIconName.folder,
+                    iconColor: PabloColors.sectionFolders,
                     collapsedCount: '$folderCount',
                     trailing: _FolderSortToggle(
                       sort: st.folderSort,
@@ -158,6 +156,8 @@ class Sidebar extends StatelessWidget {
                   // Timeline
                   CollapsibleSection(
                     label: 'Timeline',
+                    icon: PabloIconName.calendar,
+                    iconColor: PabloColors.sectionTimeline,
                     defaultOpen: false,
                     collapsedCount: '2022–2024',
                     child: Column(
@@ -177,44 +177,6 @@ class Sidebar extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
-          ),
-
-          // Storage footer
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: PabloSpacing.xxl,
-              vertical: PabloSpacing.lg,
-            ),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: PabloColors.borderSubtle)),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  '1,247 photos',
-                  style: PabloTypography.sans(
-                    fontSize: 11,
-                    color: PabloColors.textMuted,
-                  ),
-                ),
-                const SizedBox(width: PabloSpacing.md),
-                Text(
-                  '·',
-                  style: PabloTypography.sans(
-                    fontSize: 11,
-                    color: PabloColors.borderSubtle,
-                  ),
-                ),
-                const SizedBox(width: PabloSpacing.md),
-                Text(
-                  '14.2 GB',
-                  style: PabloTypography.sans(
-                    fontSize: 11,
-                    color: PabloColors.textMuted,
-                  ),
-                ),
-              ],
             ),
           ),
         ],
@@ -244,6 +206,85 @@ class Sidebar extends StatelessWidget {
           onSelect: () => st.setSelectedItem(f.id, NavSection.folders),
         ),
     ];
+  }
+}
+
+/// Map nav as a standalone bordered card matching the section-header chrome
+/// (non-collapsible). Icon is teal at rest, azure when the Map view is active.
+class _MapCard extends StatefulWidget {
+  const _MapCard({required this.active, required this.onTap});
+  final bool active;
+  final VoidCallback onTap;
+  @override
+  State<_MapCard> createState() => _MapCardState();
+}
+
+class _MapCardState extends State<_MapCard> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final headerBg = widget.active
+        ? PabloColors.backgroundSelected
+        : _hover
+            ? PabloColors.backgroundSidebarHover
+            : PabloColors.backgroundSidebar;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        PabloSpacing.base,
+        PabloSpacing.sm,
+        PabloSpacing.base,
+        PabloSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: PabloColors.backgroundSurface,
+        border: Border.all(color: PabloColors.borderStrong),
+        borderRadius: PabloRadius.mdAll,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: PabloDurations.hover,
+            height: PabloSizing.controlMd,
+            padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.lg),
+            color: headerBg,
+            child: Row(
+              children: [
+                PabloIcon(
+                  PabloIconName.map,
+                  size: 14,
+                  color: widget.active
+                      ? PabloColors.accentActive
+                      : PabloColors.sectionMap,
+                ),
+                const SizedBox(width: PabloSpacing.base),
+                Expanded(
+                  child: Text(
+                    'Map',
+                    style: PabloTypography.serif(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  '570',
+                  style: PabloTypography.mono(
+                    fontSize: 10,
+                    color: PabloColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
