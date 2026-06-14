@@ -2,11 +2,12 @@
 
 import 'package:flutter/material.dart';
 
-import '../../components/pablo_button.dart';
+import '../../components/pablo_icon.dart';
 import '../../components/pablo_slider.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import 'adjustment_section.dart';
+import 'edit_footer_bar.dart';
 import 'filter_row.dart';
 import 'tools_grid.dart';
 
@@ -78,11 +79,18 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
   String? _activeTool;
   String _activeFilter = 'none';
   bool _saved = false;
+  bool _savedCopy = false;
   final Map<String, bool> _open = {
-    'light': true,
-    'color': true,
+    'light': false,
+    'color': false,
     'detail': false,
   };
+
+  String get _saveLabel => _savedCopy
+      ? '✓ Copy saved!'
+      : _saved
+          ? '✓ Saved!'
+          : 'Save Edits';
 
   void _set(void Function(EditAdjustments) mut) {
     setState(() {
@@ -91,9 +99,22 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
   }
 
   void _save() {
-    setState(() => _saved = true);
+    setState(() {
+      _saved = true;
+      _savedCopy = false;
+    });
     Future.delayed(const Duration(milliseconds: 2200), () {
       if (mounted) setState(() => _saved = false);
+    });
+  }
+
+  void _saveCopy() {
+    setState(() {
+      _savedCopy = true;
+      _saved = false;
+    });
+    Future.delayed(const Duration(milliseconds: 2200), () {
+      if (mounted) setState(() => _savedCopy = false);
     });
   }
 
@@ -107,45 +128,16 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final isDefault = _adj.isDefault && _activeFilter == 'none';
     return Container(
       width: widget.width,
       decoration: BoxDecoration(
-        color: PabloColors.backgroundSidebar,
+        color: PabloColors.backgroundSurface,
         boxShadow: PabloShadows.sidebar,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: PabloSpacing.xl,
-              vertical: PabloSpacing.lg,
-            ),
-            decoration: const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: PabloColors.borderSubtle),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: PabloButton(
-                    label: _saved ? '✓ Saved!' : 'Save Edits',
-                    variant: PabloButtonVariant.primary,
-                    onPressed: _save,
-                    expand: true,
-                  ),
-                ),
-                const SizedBox(width: PabloSpacing.base),
-                PabloButton(
-                  label: 'Reset',
-                  onPressed: _adj.isDefault && _activeFilter == 'none' ? null : _reset,
-                  disabled: _adj.isDefault && _activeFilter == 'none',
-                  tooltip: 'Reset all adjustments',
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(
@@ -157,46 +149,14 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.only(bottom: PabloSpacing.md),
-                    margin: const EdgeInsets.only(bottom: PabloSpacing.base),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: PabloColors.borderSubtle),
-                      ),
-                    ),
-                    child: Text(
-                      'FILTERS',
-                      style: PabloTypography.sans(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
+                  _groupTitle('Filters'),
                   FilterRow(
                     photo: widget.photo,
                     activeFilter: _activeFilter,
                     onChange: (f) => setState(() => _activeFilter = f),
                   ),
                   const SizedBox(height: PabloSpacing.xxl),
-                  Container(
-                    padding: const EdgeInsets.only(bottom: PabloSpacing.md),
-                    margin: const EdgeInsets.only(bottom: PabloSpacing.base),
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(color: PabloColors.borderSubtle),
-                      ),
-                    ),
-                    child: Text(
-                      'TOOLS',
-                      style: PabloTypography.sans(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
+                  _groupTitle('Tools'),
                   ToolsGrid(
                     activeTool: _activeTool,
                     onChange: (t) => setState(() => _activeTool = t),
@@ -226,6 +186,7 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
 
                   AdjustmentSection(
                     label: 'Light',
+                    icon: PabloIconName.sun,
                     open: _open['light']!,
                     onToggle: () => setState(() => _open['light'] = !_open['light']!),
                     children: [
@@ -274,6 +235,7 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
 
                   AdjustmentSection(
                     label: 'Color',
+                    icon: PabloIconName.droplet,
                     open: _open['color']!,
                     onToggle: () => setState(() => _open['color'] = !_open['color']!),
                     children: [
@@ -302,6 +264,7 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
 
                   AdjustmentSection(
                     label: 'Detail',
+                    icon: PabloIconName.sparkle,
                     open: _open['detail']!,
                     onToggle: () => setState(() => _open['detail'] = !_open['detail']!),
                     children: [
@@ -330,10 +293,29 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
               ),
             ),
           ),
+          EditFooterBar(
+            isDefault: isDefault,
+            saveLabel: _saveLabel,
+            onSave: _save,
+            onSaveCopy: _saveCopy,
+            onReset: _reset,
+          ),
         ],
       ),
     );
   }
+
+  Widget _groupTitle(String label) => Container(
+        margin: const EdgeInsets.only(bottom: PabloSpacing.base),
+        padding: const EdgeInsets.only(bottom: PabloSpacing.md),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: PabloColors.borderStrong)),
+        ),
+        child: Text(
+          label,
+          style: PabloTypography.serif(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      );
 
   String _toolLabel(String id) {
     return switch (id) {

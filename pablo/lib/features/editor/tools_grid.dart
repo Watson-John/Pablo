@@ -46,13 +46,13 @@ class ToolsGrid extends StatelessWidget {
               decoration: BoxDecoration(
                 color: sel
                     ? PabloColors.accentBackground
-                    : PabloColors.backgroundSurface,
+                    : PabloColors.backgroundSurfaceAlt,
                 border: Border.all(
                   color: sel
                       ? PabloColors.accentPrimary
-                      : PabloColors.borderSubtle,
+                      : PabloColors.borderStrong,
                 ),
-                borderRadius: PabloRadius.panelAll,
+                borderRadius: PabloRadius.mdAll,
                 boxShadow: sel ? null : PabloShadows.sm,
               ),
               child: Column(

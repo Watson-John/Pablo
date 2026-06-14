@@ -29,6 +29,10 @@ enum PabloIconName {
   panelRight,
   star,
   starFill,
+  sun,
+  sparkle,
+  droplet,
+  save,
   info,
   infoFill,
   tag,
@@ -355,6 +359,45 @@ class _PabloIconPainter extends CustomPainter {
         canvas.drawPath(_star(), stroke);
       case PabloIconName.starFill:
         canvas.drawPath(_star(), fill);
+      case PabloIconName.sun:
+        canvas.drawCircle(const Offset(12, 12), 4, stroke);
+        canvas.drawLine(const Offset(12, 2), const Offset(12, 4.5), stroke);
+        canvas.drawLine(const Offset(12, 19.5), const Offset(12, 22), stroke);
+        canvas.drawLine(const Offset(2, 12), const Offset(4.5, 12), stroke);
+        canvas.drawLine(const Offset(19.5, 12), const Offset(22, 12), stroke);
+        canvas.drawLine(const Offset(4.9, 4.9), const Offset(6.7, 6.7), stroke);
+        canvas.drawLine(const Offset(17.3, 17.3), const Offset(19.1, 19.1), stroke);
+        canvas.drawLine(const Offset(4.9, 19.1), const Offset(6.7, 17.3), stroke);
+        canvas.drawLine(const Offset(17.3, 6.7), const Offset(19.1, 4.9), stroke);
+      case PabloIconName.sparkle:
+        canvas.drawPath(
+          Path()
+            ..moveTo(12, 3)
+            ..lineTo(13.9, 8.1)
+            ..lineTo(19, 10)
+            ..lineTo(13.9, 11.9)
+            ..lineTo(12, 17)
+            ..lineTo(10.1, 11.9)
+            ..lineTo(5, 10)
+            ..lineTo(10.1, 8.1)
+            ..close(),
+          stroke,
+        );
+      case PabloIconName.droplet:
+        canvas.drawPath(
+          Path()
+            ..moveTo(12, 3)
+            ..quadraticBezierTo(18.5, 10.5, 18.5, 14.5)
+            ..arcToPoint(const Offset(5.5, 14.5),
+                radius: const Radius.circular(6.5), clockwise: true)
+            ..quadraticBezierTo(5.5, 10.5, 12, 3)
+            ..close(),
+          stroke,
+        );
+      case PabloIconName.save:
+        _rrect(canvas, stroke, 3, 3, 18, 18, 2); // disk body
+        canvas.drawRect(const Rect.fromLTWH(7, 3, 8, 5), stroke); // top shutter
+        _rrect(canvas, stroke, 7, 12, 10, 9, 1); // label area
       case PabloIconName.info:
         canvas.drawCircle(const Offset(12, 12), 10, stroke);
         canvas.drawLine(const Offset(12, 16), const Offset(12, 12), stroke);
