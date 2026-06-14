@@ -1,4 +1,6 @@
 // MapPage — heat-map view of photo locations + location-photo grid below.
+// Pablo v4: the map auto-collapses (fades + slides away) once the photo grid
+// scrolls past a small threshold, and re-reveals near the top / on a new pick.
 
 import 'package:flutter/material.dart';
 
@@ -11,6 +13,8 @@ import '../../theme/tokens.dart';
 import 'location_photo_grid.dart';
 import 'usa_heat_map.dart';
 
+const double _kMapHeight = 300;
+
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
 
@@ -21,6 +25,44 @@ class MapPage extends StatefulWidget {
 class _MapPageState extends State<MapPage> {
   String? _selectedId;
   bool _showMap = true;
+  bool _mapCollapsed = false;
+  final ScrollController _scrollCtl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtl.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollCtl.removeListener(_onScroll);
+    _scrollCtl.dispose();
+    super.dispose();
+  }
+
+  // Binary collapse with a hysteresis band so the transition fires once, not
+  // every frame.
+  void _onScroll() {
+    if (!_scrollCtl.hasClients) return;
+    final y = _scrollCtl.offset;
+    if (y > 56 && !_mapCollapsed) {
+      setState(() => _mapCollapsed = true);
+    } else if (y < 16 && _mapCollapsed) {
+      setState(() => _mapCollapsed = false);
+    }
+  }
+
+  void _select(String id) {
+    setState(() {
+      _selectedId = _selectedId == id ? null : id;
+      _mapCollapsed = false;
+    });
+    // Jump the (rebuilt) grid back to the top after this frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollCtl.hasClients) _scrollCtl.jumpTo(0);
+    });
+  }
 
   Map<String, List<Photo>> get _photosByLocation => {
         for (var i = 0; i < kMapLocations.length; i++)
@@ -32,16 +74,14 @@ class _MapPageState extends State<MapPage> {
 
   @override
   Widget build(BuildContext context) {
-    final selected =
-        _selectedId != null
-            ? kMapLocations.firstWhere(
-                (l) => l.id == _selectedId,
-                orElse: () => kMapLocations.first,
-              )
-            : null;
-    final photos = _selectedId != null
-        ? _photosByLocation[_selectedId]!
-        : <Photo>[];
+    final selected = _selectedId != null
+        ? kMapLocations.firstWhere(
+            (l) => l.id == _selectedId,
+            orElse: () => kMapLocations.first,
+          )
+        : null;
+    final photos =
+        _selectedId != null ? _photosByLocation[_selectedId]! : <Photo>[];
     final totalPhotos = kMapLocations.fold<int>(0, (a, b) => a + b.count);
 
     return Container(
@@ -63,15 +103,15 @@ class _MapPageState extends State<MapPage> {
                   size: 15,
                   color: PabloColors.textMuted,
                 ),
-                const SizedBox(width: PabloSpacing.lg),
+                const SizedBox(width: PabloSpacing.base),
                 Text(
                   'Photo Map',
-                  style: PabloTypography.sans(
-                    fontSize: 13,
+                  style: PabloTypography.serif(
+                    fontSize: 15,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(width: PabloSpacing.lg),
+                const SizedBox(width: PabloSpacing.base),
                 Text(
                   '$totalPhotos photos · ${kMapLocations.length} locations',
                   style: PabloTypography.caption,
@@ -86,23 +126,34 @@ class _MapPageState extends State<MapPage> {
               ],
             ),
           ),
-          // Map
+          // Collapsible map — binary open/hidden; fades + slides away on scroll.
           if (_showMap)
-            Container(
-              height: 300,
-              decoration: const BoxDecoration(
+            AnimatedContainer(
+              duration: PabloDurations.slow,
+              curve: PabloEasing.standard,
+              height: _mapCollapsed ? 0 : _kMapHeight,
+              transform: Matrix4.translationValues(0, _mapCollapsed ? -12 : 0, 0),
+              clipBehavior: Clip.hardEdge,
+              decoration: BoxDecoration(
                 color: PabloColors.mapOcean,
                 border: Border(
-                  bottom: BorderSide(color: PabloColors.borderSubtle),
+                  bottom: BorderSide(
+                    color: _mapCollapsed
+                        ? Colors.transparent
+                        : PabloColors.borderSubtle,
+                  ),
                 ),
               ),
-              child: USAHeatMap(
-                selectedId: _selectedId,
-                onSelect: (id) {
-                  setState(() {
-                    _selectedId = _selectedId == id ? null : id;
-                  });
-                },
+              child: AnimatedOpacity(
+                duration: PabloDurations.base,
+                opacity: _mapCollapsed ? 0 : 1,
+                child: IgnorePointer(
+                  ignoring: _mapCollapsed,
+                  child: USAHeatMap(
+                    selectedId: _selectedId,
+                    onSelect: _select,
+                  ),
+                ),
               ),
             ),
           // Photos
@@ -126,14 +177,14 @@ class _MapPageState extends State<MapPage> {
                           children: [
                             const PabloIcon(
                               PabloIconName.map,
-                              size: 13,
+                              size: 15,
                               color: PabloColors.accentPrimary,
                             ),
                             const SizedBox(width: PabloSpacing.base),
                             Text(
                               selected.name,
-                              style: PabloTypography.sans(
-                                fontSize: 13,
+                              style: PabloTypography.serif(
+                                fontSize: 15,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -165,6 +216,7 @@ class _MapPageState extends State<MapPage> {
                       ),
                       Expanded(
                         child: SingleChildScrollView(
+                          controller: _scrollCtl,
                           child: LocationPhotoGrid(photos: photos),
                         ),
                       ),
