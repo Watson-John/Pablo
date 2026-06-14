@@ -18,3 +18,10 @@ target/
 # Local image datasets — multi-GB corpora, never commit (e.g. Flickr30k)
 /flickr30k_images/
 /datasets/
+
+# Generated face database (eval/ingest/build_face_db.py) — crops of real,
+# named people + a manifest with names and absolute photo paths. PII: NEVER
+# commit. Anchored at any depth so it's covered regardless of --out / CWD.
+**/faces_db/
+**/crops/
+**/manifest.csv

@@ -1,0 +1,9 @@
+# Generated face database — crops of real people; never commit.
+faces_db/
+*.csv
+crops/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
