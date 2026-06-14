@@ -165,6 +165,7 @@ The full architectural plan lives at [`/Users/johnwatson/.claude/plans/what-are-
 - The new magic `PABSEG02` is foreign to the prior `PABPACK1`/`PABIDX01` single-pack format, so an existing cache is **reset once** on upgrade (cold start; the cache is regenerable). Not a bug.
 - Crash-**consistent**, not power-loss-**durable**: writes use `fflush` (libc), not `fsync`. A power cut may lose recently-written thumbnails; this is within tolerance (they re-decode).
 - Cache key remains the existing FNV-1a of `(asset_id, stage, path + size + mtime)` — it does **not** yet incorporate codec-library versions as D8 specifies; revisit when D8's keying is adopted.
+- Blobs are stored **JPEG-encoded** (Q85, alpha dropped — thumbnails are opaque) when libvips is available, ~10x smaller than raw BGRA so far more thumbnails fit the disk budget; the RecHeader `flags` bit1 marks JPEG and `get()` decodes on read. Without libvips the blob is raw premultiplied BGRA. Records self-describe their format, so raw and JPEG records coexist in one cache (no magic bump). A torn/garbage JPEG fails to decode → clean cache miss, never wrong bytes.
 - Differs from D9's LMDB + batched-eviction model: that store is not yet implemented; this file-based cache is what ships in M3.
 
 **Revisit trigger:** if per-drop index-erase latency at the 16 GiB default proves too high (benchmark before shipping a huge default), lower the segment cap or move `remove()`+erase to a brief-lock background reclaimer. If D8/D9's LMDB store is adopted, supersede this.

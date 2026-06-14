@@ -8,6 +8,12 @@
 #include <memory>
 #include <system_error>
 #include <utility>
+#include <vector>
+
+#ifdef PHOTO_HAVE_VIPS
+#include <mutex>
+#include <vips/vips.h>
+#endif
 
 namespace photo {
 
@@ -18,9 +24,18 @@ namespace {
 // cold start (the cache is regenerable). See DECISIONS.md.
 constexpr char     kSegMagic[8] = {'P', 'A', 'B', 'S', 'E', 'G', '0', '2'};
 constexpr uint64_t kHeaderSize  = 8;
-constexpr uint8_t  kFlagLive    = 1;
-[[maybe_unused]] constexpr uint8_t kFlagDead = 0;  // documents the format; scan treats non-live as dead
+constexpr uint8_t  kFlagLive    = 0x1;  // bit0: record is live (else a tombstone)
+constexpr uint8_t  kFlagJpeg    = 0x2;  // bit1: stored blob is JPEG (else raw BGRA)
+[[maybe_unused]] constexpr uint8_t kFlagDead = 0;  // documents the format
+constexpr uint8_t  kFmtRaw      = 0;    // Entry.format: raw premultiplied BGRA
+constexpr uint8_t  kFmtJpeg     = 1;    // Entry.format: JPEG
 constexpr uint64_t kMiB         = 1024ull * 1024ull;
+
+#ifdef PHOTO_HAVE_VIPS
+// JPEG quality for cached thumbnails — visually lossless at thumbnail sizes,
+// ~10x smaller on disk than raw BGRA so far more thumbs fit the disk budget.
+constexpr int kJpegQuality = 85;
+#endif
 
 // Hard ceiling on a single blob. Real thumbnails are <= ~16 MiB (the 2048px
 // FULL stage); this generous bound rejects absurd inputs, keeps blob length
@@ -59,6 +74,94 @@ uint64_t fnv1a(const std::string& s) {
     }
     return h;
 }
+
+#ifdef PHOTO_HAVE_VIPS
+bool ensure_vips_cache() {
+    static std::once_flag once;
+    static bool ok = false;
+    std::call_once(once, [] { ok = (VIPS_INIT("pablo-cache") == 0); });
+    return ok;
+}
+
+// Encode a premultiplied-BGRA frame to JPEG bytes. Thumbnails are opaque
+// (alpha 255), so dropping alpha is lossless; JPEG itself is visually lossless
+// at kJpegQuality but ~10x smaller than raw. Returns empty on failure.
+std::vector<uint8_t> encode_jpeg(const FrameBuffer& fb) {
+    std::vector<uint8_t> out;
+    if (!ensure_vips_cache() || fb.width == 0 || fb.height == 0) return out;
+    const size_t px = static_cast<size_t>(fb.width) * fb.height;
+    if (fb.bgra.size() < px * 4) return out;
+    std::vector<uint8_t> rgb(px * 3);
+    const uint8_t* s = fb.bgra.data();
+    for (size_t i = 0; i < px; ++i) {
+        rgb[i * 3 + 0] = s[i * 4 + 2];  // R
+        rgb[i * 3 + 1] = s[i * 4 + 1];  // G
+        rgb[i * 3 + 2] = s[i * 4 + 0];  // B
+    }
+    // new_from_memory does NOT copy; rgb must outlive img (it does — unref below).
+    VipsImage* img = vips_image_new_from_memory(
+        rgb.data(), rgb.size(),
+        static_cast<int>(fb.width), static_cast<int>(fb.height), 3,
+        VIPS_FORMAT_UCHAR);
+    if (img == nullptr) return out;
+    void* buf = nullptr;
+    size_t len = 0;
+    const int rc = vips_jpegsave_buffer(img, &buf, &len, "Q", kJpegQuality, NULL);
+    g_object_unref(img);
+    if (rc != 0 || buf == nullptr) {
+        if (buf != nullptr) g_free(buf);
+        vips_error_clear();
+        return out;
+    }
+    out.assign(static_cast<uint8_t*>(buf), static_cast<uint8_t*>(buf) + len);
+    g_free(buf);
+    return out;
+}
+
+// Decode JPEG bytes back to a premultiplied-BGRA frame. `data` must stay valid
+// for the duration of this call.
+FramePtr decode_jpeg(const uint8_t* data, size_t len) {
+    if (!ensure_vips_cache()) return nullptr;
+    VipsImage* img = nullptr;
+    if (vips_jpegload_buffer(const_cast<uint8_t*>(data), len, &img, NULL) != 0 ||
+        img == nullptr) {
+        vips_error_clear();
+        return nullptr;
+    }
+    VipsImage* srgb = nullptr;
+    if (vips_colourspace(img, &srgb, VIPS_INTERPRETATION_sRGB, NULL) != 0) {
+        g_object_unref(img);
+        vips_error_clear();
+        return nullptr;
+    }
+    g_object_unref(img);
+    const int w = vips_image_get_width(srgb);
+    const int h = vips_image_get_height(srgb);
+    const int bands = vips_image_get_bands(srgb);
+    size_t n = 0;
+    auto* mem = static_cast<uint8_t*>(vips_image_write_to_memory(srgb, &n));
+    g_object_unref(srgb);
+    if (mem == nullptr || w <= 0 || h <= 0 || bands < 3) {
+        if (mem != nullptr) g_free(mem);
+        return nullptr;
+    }
+    auto fb = std::make_shared<FrameBuffer>();
+    fb->width = static_cast<uint32_t>(w);
+    fb->height = static_cast<uint32_t>(h);
+    fb->stride = fb->width * 4;
+    fb->bgra.resize(static_cast<size_t>(fb->stride) * fb->height);
+    const size_t px = static_cast<size_t>(w) * h;
+    uint8_t* d = fb->bgra.data();
+    for (size_t i = 0; i < px; ++i) {
+        d[i * 4 + 0] = mem[i * bands + 2];  // B
+        d[i * 4 + 1] = mem[i * bands + 1];  // G
+        d[i * 4 + 2] = mem[i * bands + 0];  // R
+        d[i * 4 + 3] = 255;
+    }
+    g_free(mem);
+    return fb;
+}
+#endif  // PHOTO_HAVE_VIPS
 
 }  // namespace
 
@@ -197,18 +300,21 @@ uint64_t ThumbCache::scan_segment_locked(uint64_t seg_id, std::FILE* fp,
         // Validate the record. On any inconsistency STOP scanning this segment:
         // in a self-describing log the next record's position depends on this
         // record's len, so a torn record makes everything after it unreadable.
-        // Compute the expected length in u64 so a garbage width*height can't
-        // wrap to match h.len (which would accept a corrupt record).
-        const uint64_t expect =
+        // Raw size from the dims (u64 so a garbage width*height can't wrap).
+        // For raw blobs len must equal it exactly; for JPEG it must be smaller.
+        const uint64_t rawSize =
             static_cast<uint64_t>(h.width) * h.height * 4ull;
-        if (h.len == 0 || expect > kMaxBlobBytes || h.len != expect) break;
+        const bool isJpeg = (h.flags & kFlagJpeg) != 0;
+        if (h.len == 0 || rawSize == 0 || rawSize > kMaxBlobBytes) break;
+        if (isJpeg ? (h.len > rawSize) : (h.len != rawSize)) break;
         const uint64_t blob_off = off + sizeof(RecHeader);
         if (blob_off + h.len > on_disk_size) break;  // torn/partial blob
 
-        if (h.flags == kFlagLive) {
-            index_[h.key] = Entry{seg_id, blob_off, h.len, h.width, h.height, 0};
+        if ((h.flags & kFlagLive) != 0) {
+            index_[h.key] = Entry{seg_id, blob_off, h.len, h.width, h.height,
+                                  isJpeg ? kFmtJpeg : kFmtRaw, 0};
             keys.push_back(h.key);
-        } else {  // kFlagDead tombstone — treat as absent
+        } else {  // tombstone — treat as absent
             index_.erase(h.key);
         }
 
@@ -248,22 +354,35 @@ FramePtr ThumbCache::get(uint64_t k) {
     auto sit = segs_.find(e.seg_id);
     if (sit == segs_.end()) return nullptr;  // index/segment desync — miss
 
+    std::vector<uint8_t> blob(e.len);
+    if (std::fseek(sit->second.fp, static_cast<long>(e.blob_offset), SEEK_SET) != 0) {
+        return nullptr;
+    }
+    if (std::fread(blob.data(), 1, e.len, sit->second.fp) != e.len) {
+        return nullptr;
+    }
+
+    if (e.format == kFmtJpeg) {
+#ifdef PHOTO_HAVE_VIPS
+        return decode_jpeg(blob.data(), e.len);  // null on decode failure -> miss
+#else
+        return nullptr;  // JPEG blob but no decoder in this build
+#endif
+    }
+
+    // Raw premultiplied BGRA — the bytes are the frame.
     auto fb = std::make_shared<FrameBuffer>();
     fb->width  = e.width;
     fb->height = e.height;
     fb->stride = e.width * 4;
-    fb->bgra.resize(e.len);
-    if (std::fseek(sit->second.fp, static_cast<long>(e.blob_offset), SEEK_SET) != 0) {
-        return nullptr;
-    }
-    if (std::fread(fb->bgra.data(), 1, e.len, sit->second.fp) != e.len) {
-        return nullptr;
-    }
+    fb->bgra = std::move(blob);
     return fb;
 }
 
-bool ThumbCache::append_record_locked(uint64_t seg_id, uint64_t k,
-                                      const FrameBuffer& frame, uint32_t len) {
+bool ThumbCache::append_raw_locked(uint64_t seg_id, uint64_t k,
+                                   const uint8_t* data, uint32_t len,
+                                   uint32_t width, uint32_t height,
+                                   uint8_t format) {
     auto sit = segs_.find(seg_id);
     if (sit == segs_.end()) return false;
     SegMeta& sm = sit->second;
@@ -274,12 +393,13 @@ bool ThumbCache::append_record_locked(uint64_t seg_id, uint64_t k,
     RecHeader h{};
     h.key    = k;
     h.len    = len;
-    h.width  = frame.width;
-    h.height = frame.height;
-    h.flags  = kFlagLive;
+    h.width  = width;
+    h.height = height;
+    h.flags  = static_cast<uint8_t>(
+        kFlagLive | (format == kFmtJpeg ? kFlagJpeg : 0));
     if (std::fwrite(&h, sizeof(h), 1, sm.fp) != 1) return false;
     std::fflush(sm.fp);  // header durable before the blob — clean torn boundary
-    if (std::fwrite(frame.bgra.data(), 1, len, sm.fp) != len) return false;
+    if (len > 0 && std::fwrite(data, 1, len, sm.fp) != len) return false;
     std::fflush(sm.fp);
 
     const uint64_t needed = sizeof(RecHeader) + len;
@@ -287,7 +407,7 @@ bool ThumbCache::append_record_locked(uint64_t seg_id, uint64_t k,
     sm.keys.push_back(k);
     total_bytes_ += needed;
     index_[k] = Entry{seg_id, off + sizeof(RecHeader), len,
-                      frame.width, frame.height, 0};
+                      width, height, format, 0};
     return true;
 }
 
@@ -325,19 +445,17 @@ void ThumbCache::promote_from_locked(uint64_t victim_seg_id) {
         if (e->second.clock == 0) continue;               // cold — let it die
 
         const Entry src = e->second;
-        FrameBuffer fb;
-        fb.width  = src.width;
-        fb.height = src.height;
-        fb.stride = src.width * 4;
-        fb.bgra.resize(src.len);
+        // Copy the STORED bytes verbatim (a JPEG stays JPEG — no re-encode).
+        std::vector<uint8_t> blob(src.len);
         if (std::fseek(vit->second.fp, static_cast<long>(src.blob_offset),
                        SEEK_SET) != 0) {
             continue;
         }
-        if (std::fread(fb.bgra.data(), 1, src.len, vit->second.fp) != src.len) {
+        if (std::fread(blob.data(), 1, src.len, vit->second.fp) != src.len) {
             continue;
         }
-        if (append_record_locked(active_seg_id_, k, fb, src.len)) {
+        if (append_raw_locked(active_seg_id_, k, blob.data(), src.len,
+                              src.width, src.height, src.format)) {
             used += sizeof(RecHeader) + src.len;
         }
     }
@@ -373,17 +491,33 @@ void ThumbCache::drop_oldest_segment_locked(
 }
 
 void ThumbCache::put(uint64_t k, const FrameBuffer& frame) {
-    // Size in u64 so width*height*4 can't overflow uint32_t and wrap to a small
-    // value (which would store a corrupt length).
-    const uint64_t len64 =
+    // Raw size in u64 so width*height*4 can't overflow uint32_t and wrap to a
+    // small value. Bounds the dims (and thus in-segment offsets) regardless of
+    // the smaller stored (encoded) size.
+    const uint64_t rawLen =
         static_cast<uint64_t>(frame.width) * frame.height * 4ull;
-    if (len64 == 0 || len64 > kMaxBlobBytes || frame.bgra.size() < len64) return;
-    const uint32_t len = static_cast<uint32_t>(len64);
+    if (rawLen == 0 || rawLen > kMaxBlobBytes || frame.bgra.size() < rawLen) {
+        return;
+    }
 
     std::lock_guard<std::mutex> lk(mu_);
     if (!ok_ || index_.count(k)) return;
 
-    const uint64_t needed = sizeof(RecHeader) + len64;
+    // Prefer a JPEG-encoded blob (≈10x smaller) when libvips is available so
+    // far more thumbnails fit the disk budget; fall back to raw BGRA otherwise.
+    const uint8_t* data = frame.bgra.data();
+    uint32_t storeLen = static_cast<uint32_t>(rawLen);
+    uint8_t format = kFmtRaw;
+#ifdef PHOTO_HAVE_VIPS
+    std::vector<uint8_t> jpeg = encode_jpeg(frame);
+    if (!jpeg.empty() && jpeg.size() < rawLen) {
+        data = jpeg.data();  // valid until this function returns (append copies)
+        storeLen = static_cast<uint32_t>(jpeg.size());
+        format = kFmtJpeg;
+    }
+#endif
+
+    const uint64_t needed = sizeof(RecHeader) + storeLen;
     if (needed > budget_) return;  // a single blob can't fit the budget — no-op
 
     // Roll to a new segment if this record won't fit the active one (but always
@@ -395,7 +529,8 @@ void ThumbCache::put(uint64_t k, const FrameBuffer& frame) {
         roll_active_segment_locked();
     }
 
-    append_record_locked(active_seg_id_, k, frame, len);
+    append_raw_locked(active_seg_id_, k, data, storeLen,
+                      frame.width, frame.height, format);
     enforce_budget_locked();
 }
 

@@ -75,10 +75,11 @@ public:
 private:
     struct Entry {
         uint64_t seg_id;       // which segment holds the live copy
-        uint64_t blob_offset;  // byte offset of the blob (past its RecHeader)
-        uint32_t len;          // blob length (== width*height*4)
+        uint64_t blob_offset;  // byte offset of the stored blob (past RecHeader)
+        uint32_t len;          // STORED blob length (raw = w*h*4; JPEG = file size)
         uint32_t width;
         uint32_t height;
+        uint8_t  format;       // 0 = raw premultiplied BGRA, 1 = JPEG
         uint8_t  clock;        // RAM-only LRU/CLOCK recency bit (1 = recent)
     };
 
@@ -94,8 +95,11 @@ private:
                                  uint64_t on_disk_size,
                                  std::vector<uint64_t>& keys);
     std::FILE* create_segment_file_locked(uint64_t id);
-    bool     append_record_locked(uint64_t seg_id, uint64_t k,
-                                  const FrameBuffer& frame, uint32_t len);
+    // Low-level: write [RecHeader][data] verbatim. Used by put() (after any
+    // encode) and by promotion (verbatim copy, preserving format).
+    bool     append_raw_locked(uint64_t seg_id, uint64_t k,
+                               const uint8_t* data, uint32_t len,
+                               uint32_t width, uint32_t height, uint8_t format);
     void     roll_active_segment_locked();
     void     promote_from_locked(uint64_t victim_seg_id);
     void     enforce_budget_locked();
