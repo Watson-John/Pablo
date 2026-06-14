@@ -5,7 +5,8 @@
 // photo's true aspect ratio up front (avoids the relayout jitter you'd get if
 // real dimensions only arrived after an async decode). Supports JPEG, PNG,
 // GIF, and BMP — enough for the dataset path; unknown formats return null and
-// the caller falls back to a hash-derived ratio.
+// the caller falls back to a hash-derived ratio. Supports JPEG, PNG, GIF, BMP,
+// and WebP (lossy VP8, lossless VP8L, extended VP8X).
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -70,6 +71,37 @@ ImageDims? _parse(Uint8List b) {
   // JPEG: scan segment markers for the Start-Of-Frame.
   if (b[0] == 0xFF && b[1] == 0xD8) return _jpeg(b);
 
+  // WebP: "RIFF"...."WEBP" then a VP8 / VP8L / VP8X chunk.
+  if (b.length >= 30 &&
+      b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 &&
+      b[8] == 0x57 && b[9] == 0x45 && b[10] == 0x42 && b[11] == 0x50) {
+    return _webp(b);
+  }
+
+  return null;
+}
+
+ImageDims? _webp(Uint8List b) {
+  final c0 = b[12], c1 = b[13], c2 = b[14], c3 = b[15];
+  // "VP8 " — lossy. 14-bit width/height after the 0x9d 0x01 0x2a start code.
+  if (c0 == 0x56 && c1 == 0x50 && c2 == 0x38 && c3 == 0x20) {
+    if (b[23] != 0x9D || b[24] != 0x01 || b[25] != 0x2A) return null;
+    return _mk((b[26] | (b[27] << 8)) & 0x3FFF, (b[28] | (b[29] << 8)) & 0x3FFF);
+  }
+  // "VP8L" — lossless. 14-bit width-1/height-1 packed after the 0x2f signature.
+  if (c0 == 0x56 && c1 == 0x50 && c2 == 0x38 && c3 == 0x4C) {
+    if (b[20] != 0x2F) return null;
+    final b1 = b[21], b2 = b[22], b3 = b[23], b4 = b[24];
+    final w = ((b2 & 0x3F) << 8 | b1) + 1;
+    final h = ((b4 & 0x0F) << 10 | b3 << 2 | (b2 >> 6)) + 1;
+    return _mk(w, h);
+  }
+  // "VP8X" — extended. Explicit 24-bit canvas width-1 / height-1.
+  if (c0 == 0x56 && c1 == 0x50 && c2 == 0x38 && c3 == 0x58) {
+    final w = (b[24] | b[25] << 8 | b[26] << 16) + 1;
+    final h = (b[27] | b[28] << 8 | b[29] << 16) + 1;
+    return _mk(w, h);
+  }
   return null;
 }
 

@@ -61,6 +61,22 @@ void main() {
     expect(d.height, 600);
   });
 
+  test('WebP VP8X canvas size (24-bit, width-1/height-1)', () {
+    final b = <int>[
+      0x52, 0x49, 0x46, 0x46, // "RIFF"
+      0x00, 0x00, 0x00, 0x00, // file size (ignored)
+      0x57, 0x45, 0x42, 0x50, // "WEBP"
+      0x56, 0x50, 0x38, 0x58, // "VP8X"
+      0x0A, 0x00, 0x00, 0x00, // chunk size
+      0x10, 0x00, 0x00, 0x00, // flags + reserved
+      0x1F, 0x03, 0x00, // width-1 = 799  -> 800
+      0x57, 0x02, 0x00, // height-1 = 599 -> 600
+    ];
+    final d = readImageDimensions(write('a.webp', b))!;
+    expect(d.width, 800);
+    expect(d.height, 600);
+  });
+
   test('unrecognized / truncated returns null', () {
     expect(readImageDimensions(write('x.bin', [1, 2, 3, 4, 5])), isNull);
     expect(readImageDimensions('${tmp.path}/does_not_exist.jpg'), isNull);
