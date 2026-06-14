@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../utils/hash.dart';
+import '../utils/image_dims.dart';
 import 'mock_data.dart';
 import 'models.dart';
 
@@ -132,12 +133,16 @@ List<Photo> _loadDatasetPhotos() {
     for (final f in files) {
       if (out.length >= _kDatasetMax) break;
       final name = f.path.split(Platform.pathSeparator).last;
+      // Header-only read (no pixel decode) so masonry can size tiles to the
+      // photo's true shape up front. Null -> masonry falls back to a ratio.
+      final dims = readImageDimensions(f.path);
       out.add(Photo(
         id: f.path,
         label: name,
         gradient: _datasetPlaceholder,
         starred: false,
         filePath: f.path,
+        aspect: dims?.aspect,
       ));
     }
     return out;
@@ -162,6 +167,11 @@ List<Photo> photosFor(String id) {
 const _kAspects = <double>[0.66, 0.75, 0.8, 1.0, 1.0, 1.33, 1.5, 0.7, 1.78, 1.0];
 
 double photoAspect(String id) => _kAspects[pabloHash(id) % _kAspects.length];
+
+/// Aspect ratio (width / height) to lay a photo's masonry tile out at: the
+/// real header-read ratio when known (dataset photos), else a stable
+/// hash-derived ratio (mockup photos).
+double aspectFor(Photo p) => p.aspect ?? photoAspect(p.id);
 
 // ── Suggestions per person ──
 class _SuggPreset {

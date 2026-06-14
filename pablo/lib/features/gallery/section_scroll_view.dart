@@ -95,7 +95,7 @@ class SectionScrollView extends StatelessWidget {
                           photos,
                           photos[i],
                           cw,
-                          imageAspect: photoAspect(photos[i].id),
+                          imageAspect: aspectFor(photos[i]),
                           showLabel: false,
                         ),
                       ),

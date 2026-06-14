@@ -22,9 +22,15 @@ const bool kUseNativeTextureThumbs = bool.fromEnvironment(
 );
 
 class NativeBackend {
-  NativeBackend._(this.engine);
+  NativeBackend._(this.engine, this._pump);
 
   final Engine engine;
+  final EventPump _pump;
+
+  /// Broadcast stream of native events (stage-ready/-failed, import progress…).
+  /// Thumbnail surfaces listen for STAGE_READY to learn the decoded frame's
+  /// real dimensions so they can cover-fit the texture without distortion.
+  Stream<PhotoEvent> get events => _pump.stream;
 
   static Future<NativeBackend?> initialize() async {
     if (!kUseNativeTextureThumbs) return null;
@@ -42,18 +48,24 @@ class NativeBackend {
         return null;
       }
       await TextureRegistry.instance.attachEngine(engine);
+      // Drain the native event ring so STAGE_READY dimensions reach the UI
+      // (and the ring never backs up). Pull-based on a short timer.
+      final pump = EventPump(engine)..start();
       debugPrint(
         '[pablo] native backend engine=${Engine.engineVersion} '
         'abi=${Engine.abiVersion} platform=${Platform.operatingSystem}',
       );
-      return NativeBackend._(engine);
+      return NativeBackend._(engine, pump);
     } catch (e, st) {
       debugPrint('[pablo] native backend init failed: $e\n$st');
       return null;
     }
   }
 
-  void dispose() => engine.dispose();
+  void dispose() {
+    _pump.dispose();
+    engine.dispose();
+  }
 }
 
 class NativeBackendScope extends InheritedWidget {

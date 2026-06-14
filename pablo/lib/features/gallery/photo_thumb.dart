@@ -1,6 +1,8 @@
 // PhotoThumb — hover/selected/in-tray states, star indicator, hover-add-to-tray
 // + button, optional double-click to open lightbox.
 
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_native/photo_native.dart';
@@ -253,6 +255,7 @@ class _ThumbBackdrop extends StatelessWidget {
     return _NativeThumbSurface(
       photo: photo,
       engine: backend.engine,
+      events: backend.events,
     );
   }
 }
@@ -262,10 +265,15 @@ class _ThumbBackdrop extends StatelessWidget {
 /// representative solid color (computed from the source gradient) via the
 /// M1 test hook. M2 replaces the publish with a real decode request.
 class _NativeThumbSurface extends StatefulWidget {
-  const _NativeThumbSurface({required this.photo, required this.engine});
+  const _NativeThumbSurface({
+    required this.photo,
+    required this.engine,
+    required this.events,
+  });
 
   final Photo photo;
   final Engine engine;
+  final Stream<PhotoEvent> events;
 
   @override
   State<_NativeThumbSurface> createState() => _NativeThumbSurfaceState();
@@ -276,6 +284,13 @@ class _NativeThumbSurfaceState extends State<_NativeThumbSurface> {
   String? _requestedPhotoId;
   int _inFlightRequestId = 0;
   bool _disposed = false;
+
+  // Real decoded-frame dimensions for the current photo, learned from
+  // STAGE_READY events. Drives the cover-fit so the texture fills its tile
+  // without distortion. Null until the first frame for this photo lands.
+  int? _frameW;
+  int? _frameH;
+  StreamSubscription<PhotoEvent>? _sub;
 
   @override
   void initState() {
@@ -293,6 +308,23 @@ class _NativeThumbSurfaceState extends State<_NativeThumbSurface> {
       await slot.dispose();
       return;
     }
+    // Listen for this slot's stage-ready events to capture the decoded frame's
+    // real dimensions. Stale-generation events (from a recycled tile's prior
+    // photo) are dropped by the generation check.
+    _sub = widget.events.listen((e) {
+      if (e.kind != PhotoEventKind.stageReady) return;
+      final s = _slot;
+      if (s == null || e.slotId != s.slotId) return;
+      if (e.generation != s.currentGeneration) return;
+      if (e.width <= 0 || e.height <= 0) return;
+      if (e.width == _frameW && e.height == _frameH) return;
+      if (mounted) {
+        setState(() {
+          _frameW = e.width;
+          _frameH = e.height;
+        });
+      }
+    });
     setState(() => _slot = slot);
     _submitRequestForCurrentPhoto();
   }
@@ -309,6 +341,10 @@ class _NativeThumbSurfaceState extends State<_NativeThumbSurface> {
       }
       _slot!.rebind();
       _requestedPhotoId = null;
+      // New photo: the previous photo's dimensions no longer apply. Reset so
+      // we fill the tile until the new photo's first frame reports its size.
+      _frameW = null;
+      _frameH = null;
       _submitRequestForCurrentPhoto();
     }
   }
@@ -336,6 +372,7 @@ class _NativeThumbSurfaceState extends State<_NativeThumbSurface> {
   @override
   void dispose() {
     _disposed = true;
+    _sub?.cancel();
     if (_inFlightRequestId != 0) {
       widget.engine.cancelRequest(_inFlightRequestId);
     }
@@ -353,6 +390,26 @@ class _NativeThumbSurfaceState extends State<_NativeThumbSurface> {
         decoration: BoxDecoration(gradient: widget.photo.gradient),
       );
     }
-    return Texture(textureId: slot.textureId);
+    final texture = Texture(textureId: slot.textureId);
+    final fw = _frameW, fh = _frameH;
+    if (fw == null || fh == null) {
+      // Dimensions not yet known — fill the tile (matches prior behavior).
+      return texture;
+    }
+    // Cover-fit the decoded frame into the tile: scale to fill preserving the
+    // photo's real aspect, center-crop the overflow. In masonry the tile
+    // already matches this aspect, so nothing is cropped; in the uniform grid
+    // the photo is cropped to the cell instead of stretched.
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        clipBehavior: Clip.hardEdge,
+        child: SizedBox(
+          width: fw.toDouble(),
+          height: fh.toDouble(),
+          child: texture,
+        ),
+      ),
+    );
   }
 }

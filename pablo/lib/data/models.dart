@@ -96,6 +96,7 @@ class Photo {
     required this.gradient,
     required this.starred,
     this.filePath,
+    this.aspect,
   });
 
   final String id;
@@ -107,6 +108,11 @@ class Photo {
   /// gradient mockup. When set, PhotoThumb routes it to the native libvips
   /// decoder via the TextureSlot seam.
   final String? filePath;
+
+  /// True aspect ratio (width / height) read from the file header. Set for
+  /// real photos so the masonry layout sizes the tile to the photo's real
+  /// shape. Null for mockup photos (a hash-derived ratio is used instead).
+  final double? aspect;
 }
 
 class Suggestion {
