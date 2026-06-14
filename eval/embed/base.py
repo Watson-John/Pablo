@@ -52,4 +52,7 @@ def build_embedder(model_cfg: Dict[str, Any]) -> Embedder:
     if t == "arcface_onnx":
         from embed.arcface_onnx import ArcFaceOnnxEmbedder
         return ArcFaceOnnxEmbedder(model_cfg)
+    if t == "hog":
+        from embed.hog_baseline import HOGBaselineEmbedder
+        return HOGBaselineEmbedder(model_cfg)
     raise ValueError(f"unknown embedder type: {t!r}")

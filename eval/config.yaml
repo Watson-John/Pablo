@@ -18,6 +18,9 @@ detector:
 
 # Adding a model = one row here (+ one Embedder subclass for a new family).
 models:
+  # Classical baseline — the HOG technique Picasa used for grouping (no learned
+  # weights). Stands in for the "Picasa / Neven-era" reference point.
+  - {name: hog,       type: hog,          metric: cosine, role: baseline}
   - {name: sface,     type: sface,        path: ./models/face_recognition_sface_2021dec.onnx, metric: cosine, role: candidate}
   - {name: dlib,      type: dlib_resnet,  path: ./models/dlib_face_recognition_resnet_model_v1.dat, predictor: ./models/shape_predictor_5_face_landmarks.dat, metric: l2, role: candidate}
   - {name: buffalo_l, type: arcface_onnx, path: ./models/w600k_r50.onnx,    color: rgb, norm: arcface, metric: cosine, role: ceiling}
@@ -26,6 +29,12 @@ models:
 eval:
   output_dir: ./eval_out
   min_faces_per_person: 2     # a person needs >=2 faces to form genuine pairs
+  # Quality gate (Picasa's `facequality` idea): a face is DETECTED for coverage
+  # but only enters the RECOGNITION metrics if it clears these. Low-res / blurry
+  # scans recovered by the detection retry-ladder otherwise poison the numbers.
+  quality_gate: true
+  min_face_px: 50             # detected face must be >= this on its short side
+  min_blur_var: 40.0          # Laplacian variance of the crop (sharpness)
   calibration_split: 0.4      # fraction of identities used to calibrate thresholds
   impostor_to_genuine_ratio: 10
   far_targets: [1.0e-3, 1.0e-4]

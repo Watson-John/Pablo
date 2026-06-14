@@ -34,7 +34,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 
-from common import Detection
+from common import ARCFACE_5PT, Detection
 
 # Native YuNet 15-float column layout (indices into Detection.row).
 #   bbox = row[0:4]; landmark x/y pairs follow; score = row[14].
@@ -92,69 +92,127 @@ class YuNetDetector:
             self.nms_threshold,
             self.top_k,
         )
+        self._low = None              # lazily-built lower-threshold retry detector
+        # The recovery ladder (upscale/pad/lower-threshold) boosts COVERAGE on
+        # hard scans but the faces it recovers are low-quality and hurt
+        # recognition, so it's opt-in. Off => clean single-shot detection.
+        self.recovery_ladder = bool(cfg.get("recovery_ladder", False))
 
     # ------------------------------------------------------------------ detect
 
-    def detect(self, image_bgr: np.ndarray) -> List[Detection]:
-        """Detect every face in a BGR image.
+    def _row_to_detection(self, raw) -> Optional[Detection]:
+        row = np.asarray(raw, dtype=np.float32).reshape(-1)
+        if row.shape[0] < 15:
+            return None
+        bbox = tuple(float(v) for v in row[_BBOX])               # x, y, w, h
+        # YuNet's native landmark order already matches ARCFACE_5PT (see the
+        # _ARCFACE_FROM_NATIVE note), so this is an identity copy.
+        landmarks = np.empty((5, 2), dtype=np.float32)
+        for dst, native_slot in enumerate(_ARCFACE_FROM_NATIVE):
+            base_col = 4 + 2 * native_slot
+            landmarks[dst, 0] = row[base_col]
+            landmarks[dst, 1] = row[base_col + 1]
+        return Detection(bbox=bbox, landmarks=landmarks,
+                         score=float(row[_SCORE]), row=row.copy())
 
-        Returns a list of ``Detection`` (possibly empty). ``landmarks`` are in
-        ArcFace template order; ``row`` is YuNet's raw native 15-float output.
-        """
+    def _raw_faces(self, image_bgr, detector=None):
+        """Run a YuNet detector on a BGR image -> (N,15) array or None."""
         if image_bgr is None or getattr(image_bgr, "size", 0) == 0:
-            return []
-
-        # OpenCV requires the network input size to match the image on EVERY
-        # call; setInputSize takes (width, height).
+            return None
+        detector = detector or self._detector
         h, w = image_bgr.shape[:2]
-        self._detector.setInputSize((w, h))
+        detector.setInputSize((w, h))           # required before every detect()
+        _, faces = detector.detect(image_bgr)
+        return faces
 
-        # detect() returns (retval, faces); faces is None when nothing is found,
-        # otherwise an (N, 15) float32 array.
-        _, faces = self._detector.detect(image_bgr)
+    def _low_detector(self):
+        """Lazily build a lower-threshold detector for the recall-retry pass."""
+        if self._low is None:
+            self._low = cv2.FaceDetectorYN_create(
+                str(self.model_path), "", (320, 320),
+                min(0.3, self.score_threshold), self.nms_threshold, self.top_k)
+        return self._low
+
+    def detect(self, image_bgr: np.ndarray) -> List[Detection]:
+        """Detect every face in a BGR image (list, possibly empty)."""
+        faces = self._raw_faces(image_bgr)
         if faces is None:
             return []
+        out = [self._row_to_detection(r) for r in faces]
+        return [d for d in out if d is not None]
 
-        out: List[Detection] = []
+    def _best_on_transformed(self, image_bgr, scale: float, pad: int,
+                             low: bool = False) -> Optional[Detection]:
+        """Detect on a scaled+padded copy; map the largest face back to ORIGINAL
+        crop coordinates. Upscaling lifts small scanned faces above YuNet's min
+        size; padding gives margin to faces that fill the frame."""
+        work = image_bgr
+        if scale != 1.0:
+            interp = cv2.INTER_CUBIC if scale > 1.0 else cv2.INTER_AREA
+            work = cv2.resize(image_bgr, None, fx=scale, fy=scale, interpolation=interp)
+        if pad > 0:
+            work = cv2.copyMakeBorder(work, pad, pad, pad, pad, cv2.BORDER_REFLECT_101)
+        faces = self._raw_faces(work, self._low_detector() if low else None)
+        if faces is None:
+            return None
+        best, best_area = None, -1.0
         for raw in faces:
-            row = np.asarray(raw, dtype=np.float32).reshape(-1)
-            if row.shape[0] < 15:
-                # Defensive: skip malformed rows rather than crash the run.
+            m = np.asarray(raw, dtype=np.float32).reshape(-1)
+            if m.shape[0] < 15:
                 continue
+            m = m.copy()
+            for c in (0, 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13):   # positions
+                m[c] = (m[c] - pad) / scale
+            m[2] /= scale                                         # w
+            m[3] /= scale                                         # h
+            area = m[2] * m[3]
+            if area > best_area:
+                best_area, best = area, m
+        return self._row_to_detection(best) if best is not None else None
 
-            bbox = tuple(float(v) for v in row[_BBOX])           # x, y, w, h
-            score = float(row[_SCORE])
-
-            # Reorder the five (x, y) landmark pairs from native YuNet order
-            # into ArcFace template order to match common.ARCFACE_5PT.
-            landmarks = np.empty((5, 2), dtype=np.float32)
-            for dst, native_slot in enumerate(_ARCFACE_FROM_NATIVE):
-                base_col = 4 + 2 * native_slot
-                landmarks[dst, 0] = row[base_col]
-                landmarks[dst, 1] = row[base_col + 1]
-
-            out.append(Detection(
-                bbox=bbox,
-                landmarks=landmarks,
-                score=score,
-                row=row.copy(),          # native order, untouched, for SFace
-            ))
-        return out
-
-    def detect_primary(self, image_bgr: np.ndarray) -> Optional[Detection]:
-        """Return the single best face, or ``None`` if none detected.
-
-        "Best" = the largest face by bbox area weighted toward higher
-        confidence: face crops are typically one centered subject, so the
-        biggest high-score box is the intended target. We rank by area first,
-        breaking ties by score.
-        """
-        dets = self.detect(image_bgr)
+    @staticmethod
+    def _best(dets: List[Detection]) -> Optional[Detection]:
         if not dets:
             return None
+        return max(dets, key=lambda d: (d.bbox[2] * d.bbox[3], d.score))
 
-        def _key(d: Detection):
-            _, _, bw, bh = d.bbox
-            return (bw * bh, d.score)
+    def _fallback_detection(self, w: int, h: int) -> Detection:
+        """Last resort when YuNet finds nothing: the crop IS a Picasa-labeled
+        face, so assume it fills the central ~72% and place ArcFace-template
+        landmarks there. Marked score=0.0 so callers can count fallbacks apart
+        from real detections (alignment is approximate)."""
+        frac = 0.72
+        bw, bh = w * frac, h * frac
+        ox, oy = (w - bw) / 2.0, (h - bh) / 2.0
+        lm = np.empty((5, 2), dtype=np.float32)
+        row = np.zeros(15, dtype=np.float32)
+        row[0:4] = (ox, oy, bw, bh)
+        for i, (px, py) in enumerate(ARCFACE_5PT):
+            x = ox + (px / 112.0) * bw
+            y = oy + (py / 112.0) * bh
+            lm[i] = (x, y)
+            row[4 + 2 * i], row[4 + 2 * i + 1] = x, y   # native order == ArcFace order
+        return Detection(bbox=(ox, oy, bw, bh), landmarks=lm, score=0.0, row=row)
 
-        return max(dets, key=_key)
+    def detect_primary(self, image_bgr: np.ndarray,
+                       allow_fallback: bool = False) -> Optional[Detection]:
+        """Best single face, with a recall-recovery ladder. Returns None only if
+        every YuNet attempt fails and ``allow_fallback`` is False."""
+        d = self._best(self.detect(image_bgr))
+        if d is not None:
+            return d
+        if image_bgr is None or getattr(image_bgr, "size", 0) == 0:
+            return None
+        if not self.recovery_ladder:                    # clean single-shot mode
+            h, w = image_bgr.shape[:2]
+            return self._fallback_detection(w, h) if allow_fallback else None
+        h, w = image_bgr.shape[:2]
+        short = min(h, w)
+        up = max(256.0 / short, 1.5) if short < 256 else 1.5     # upscale factor
+        pad = int(0.25 * short * up)
+        # ladder: upscale -> upscale+pad -> +lower-threshold
+        for scale, p, low in ((up, 0, False), (up, pad, False), (up, pad, True)):
+            d = self._best_on_transformed(image_bgr, scale, p, low)
+            if d is not None:
+                return d
+        return self._fallback_detection(w, h) if allow_fallback else None

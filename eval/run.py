@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import cv2
 import numpy as np
 import yaml
 
@@ -69,22 +70,38 @@ def phase_detect(cfg: dict, base: Path, faces: List[FaceEntry]
     """Run YuNet on each crop -> Detection (5 landmarks). Quarantine misses."""
     from detect.yunet import YuNetDetector
     det = YuNetDetector(cfg["detector"], base)
+    allow_fb = bool(cfg["detector"].get("fallback_full_crop", False))
     kept: Dict[str, Detection] = {}
+    quality: Dict[str, dict] = {}     # face_id -> {face_px, blur}
     missed: List[str] = []
+    n_fallback = 0
     for i, e in enumerate(faces):
         img = load_image_bgr(e.crop_path)
-        d = det.detect_primary(img) if img is not None else None
+        d = det.detect_primary(img, allow_fallback=allow_fb) if img is not None else None
         if d is None:
             missed.append(e.face_id)
         else:
             kept[e.face_id] = d
-        if (i + 1) % 200 == 0:
-            log(f"[phase 1] detected {i + 1}/{len(faces)}")
-    recall = len(kept) / max(1, len(faces))
-    log(f"[phase 1] YuNet landmark recall: {recall:.3f} "
-        f"({len(kept)} kept, {len(missed)} quarantined)")
-    return kept, {"recall": recall, "kept": len(kept), "missed": len(missed),
-                  "missed_ids": missed}
+            if d.score == 0.0:           # synthesized full-crop fallback
+                n_fallback += 1
+            # Per-face quality (Picasa's facequality): detected-face size +
+            # sharpness. Used to gate recognition, not coverage.
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            quality[e.face_id] = {
+                "face_px": float(min(d.bbox[2], d.bbox[3])),
+                "blur": float(cv2.Laplacian(gray, cv2.CV_64F).var()),
+            }
+    n = max(1, len(faces))
+    yunet_kept = len(kept) - n_fallback   # real YuNet detections
+    yunet_recall = yunet_kept / n
+    coverage = len(kept) / n
+    log(f"[phase 1] YuNet recall: {yunet_recall:.3f} ({yunet_kept} real detections); "
+        f"coverage {coverage:.3f} ({len(kept)} usable, {n_fallback} full-crop fallback, "
+        f"{len(missed)} dropped)")
+    return kept, {"recall": yunet_recall, "coverage": coverage,
+                  "kept": len(kept), "yunet_kept": yunet_kept,
+                  "fallback": n_fallback, "missed": len(missed),
+                  "missed_ids": missed}, quality
 
 
 # --------------------------------------------------------------------- phase 2
@@ -105,9 +122,12 @@ def phase_embed(cfg: dict, base: Path, faces: List[FaceEntry],
             log(f"[phase 2] {name}: loaded {len(results[name][1])} cached vectors")
             continue
         try:
-            emb = build_embedder({**mcfg, "path": str(_resolve(base, mcfg["path"]))}
-                                 | ({"predictor": str(_resolve(base, mcfg["predictor"]))}
-                                    if mcfg.get("predictor") else {}))
+            extra = {}
+            if mcfg.get("path"):                       # HOG has no model file
+                extra["path"] = str(_resolve(base, mcfg["path"]))
+            if mcfg.get("predictor"):
+                extra["predictor"] = str(_resolve(base, mcfg["predictor"]))
+            emb = build_embedder({**mcfg, **extra})
         except Exception as ex:  # noqa: BLE001 — a missing model/dep skips that model
             log(f"[phase 2] {name}: SKIPPED ({ex})")
             continue
@@ -149,21 +169,37 @@ def _identity_split(labels: List[str], frac: float, seed: int
 
 
 def phase_metrics(cfg: dict, embeddings: Dict[str, Tuple[np.ndarray, List[str]]],
-                  faces: List[FaceEntry]) -> dict:
+                  faces: List[FaceEntry], quality: Dict[str, dict]) -> dict:
     from metrics import verification, identification, clustering, operating_point
     ev = cfg["eval"]
     label_of = {e.face_id: e.person_name for e in faces}
+
+    def quality_ok(fid: str) -> bool:
+        if not ev.get("quality_gate", False):
+            return True
+        q = quality.get(fid)
+        if q is None:
+            return True
+        return (q["face_px"] >= ev.get("min_face_px", 0) and
+                q["blur"] >= ev.get("min_blur_var", 0.0))
+
     out: dict = {}
     for name, (X, ids) in embeddings.items():
         mcfg = next(m for m in cfg["models"] if m["name"] == name)
         metric = mcfg.get("metric", "cosine")
+        # Quality-gate: identical face set across all models (gate is detector-
+        # level, model-independent) -> a fair comparison on recognizable faces.
+        keep = [k for k, i in enumerate(ids) if quality_ok(i)]
+        n_gated = len(ids) - len(keep)
+        X = X[keep]
+        ids = [ids[k] for k in keep]
         y = [label_of[i] for i in ids]
         calib_mask, held_mask = _identity_split(y, ev["calibration_split"], ev["seed"])
         Xc, yc = X[calib_mask], list(np.array(y)[calib_mask])
         Xh, yh = X[held_mask], list(np.array(y)[held_mask])
 
         res = {"metric": metric, "role": mcfg.get("role"), "n": len(ids),
-               "dim": X.shape[1], "n_held": len(yh)}
+               "n_gated": n_gated, "dim": X.shape[1], "n_held": len(yh)}
         res["verification"] = verification.evaluate(
             Xc, yc, Xh, yh, metric=metric, far_targets=ev["far_targets"],
             impostor_ratio=ev["impostor_to_genuine_ratio"], seed=ev["seed"],
@@ -230,12 +266,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     log(f"loaded {len(faces)} faces across {len(set(e.person_name for e in faces))} "
         f"people (>= {minf} faces each)")
 
-    dets, detect_stats = phase_detect(cfg, base, faces)
+    dets, detect_stats, quality = phase_detect(cfg, base, faces)
     embeddings = phase_embed(cfg, base, faces, dets, out_dir)
     if not embeddings:
         log("no embeddings produced (models missing?). See tools/download_models.sh")
         return 1
-    metrics_out = phase_metrics(cfg, embeddings, faces)
+    metrics_out = phase_metrics(cfg, embeddings, faces, quality)
     phase_report(cfg, base, metrics_out, detect_stats, out_dir)
     return 0
 
