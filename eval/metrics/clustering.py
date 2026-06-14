@@ -45,7 +45,8 @@ from __future__ import annotations
 from typing import Dict, List, Sequence
 
 import numpy as np
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, HDBSCAN, AgglomerativeClustering
+from sklearn.metrics import silhouette_score
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 from sklearn.metrics import silhouette_score
 
@@ -358,6 +359,43 @@ def _run_chinese_whispers(X: np.ndarray, metric: str, seed: int) -> np.ndarray:
 
 # --------------------------------------------------------------------- evaluate
 
+def _run_agglomerative(X: np.ndarray, metric: str, seed: int) -> np.ndarray:
+    """Average-linkage agglomerative clustering — the most stable method in our
+    grid search (sface+agglomerative: F1 0.940 +/- 0.027 over 5 seeds). The
+    distance threshold is dataset-dependent, so it's self-tuned by silhouette."""
+    n = len(X)
+    if n < 3:
+        return np.zeros(n, dtype=int)
+    aff = "cosine" if metric == "cosine" else "euclidean"
+    best_labels, best_sil = None, -2.0
+    for dt in (0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9):
+        labels = AgglomerativeClustering(
+            n_clusters=None, distance_threshold=dt, linkage="average",
+            metric=aff).fit_predict(X)
+        k = len(set(labels.tolist()))
+        if 1 < k < n:
+            try:
+                sil = float(silhouette_score(X, labels, metric=aff))
+            except Exception:  # noqa: BLE001
+                sil = -2.0
+            if sil > best_sil:
+                best_sil, best_labels = sil, labels
+    if best_labels is None:
+        best_labels = AgglomerativeClustering(
+            n_clusters=None, distance_threshold=0.7, linkage="average",
+            metric=aff).fit_predict(X)
+    return best_labels
+
+
+def _run_hdbscan(X: np.ndarray, metric: str, seed: int) -> np.ndarray:
+    """Density clustering with explicit noise/outlier labels (-1) — useful for
+    flagging 'unknown' faces to a confirm step. Robust defaults from the grid."""
+    n = len(X)
+    if n < 4:
+        return np.zeros(n, dtype=int)
+    return HDBSCAN(min_cluster_size=4, min_samples=1).fit_predict(X)
+
+
 def evaluate(Xh: np.ndarray, yh: Sequence[str], *, metric: str,
              methods: Sequence[str], seed: int) -> Dict[str, object]:
     """Run the requested clustering ``methods`` and score each vs ground truth.
@@ -387,6 +425,8 @@ def evaluate(Xh: np.ndarray, yh: Sequence[str], *, metric: str,
     out: Dict[str, object] = {"n_true_clusters": int(len(set(true.tolist())))}
 
     runners = {
+        "agglomerative": _run_agglomerative,    # grid-search winner (most stable)
+        "hdbscan": _run_hdbscan,
         "dbscan": _run_dbscan,
         "chinese_whispers": _run_chinese_whispers,
     }

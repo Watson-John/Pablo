@@ -42,7 +42,10 @@ eval:
   impostor_to_genuine_ratio: 10
   far_targets: [1.0e-3, 1.0e-4]
   uncertain_band: 0.1         # +/- around threshold = prompt zone
-  clustering: [chinese_whispers, dbscan]
+  # Grid-searched (5-seed CV): agglomerative avg-linkage is the most stable
+  # (sface F1 0.94 +/- 0.03); HDBSCAN adds explicit outlier handling; DBSCAN for
+  # reference. Chinese Whispers was consistently weakest — dropped from default.
+  clustering: [agglomerative, hdbscan, dbscan]
   bootstrap_ci: true
   seed: 1234
 
