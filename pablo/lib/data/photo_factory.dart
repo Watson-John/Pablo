@@ -154,6 +154,15 @@ List<Photo> photosFor(String id) {
   return _photoSets[id] ?? const [];
 }
 
+// Stable per-photo aspect ratio (width / height) for the masonry layout.
+// Derived from the id hash so a photo keeps the same shape across rebuilds
+// (a shifting ratio would make the masonry columns jump on every repaint).
+// Real decoded dimensions could replace this later; for now this gives the
+// portrait/landscape/square variety masonry needs.
+const _kAspects = <double>[0.66, 0.75, 0.8, 1.0, 1.0, 1.33, 1.5, 0.7, 1.78, 1.0];
+
+double photoAspect(String id) => _kAspects[pabloHash(id) % _kAspects.length];
+
 // ── Suggestions per person ──
 class _SuggPreset {
   const _SuggPreset(this.h, this.s, this.l, this.deg, this.s2, this.l2);

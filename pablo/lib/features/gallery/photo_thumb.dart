@@ -16,6 +16,8 @@ class PhotoThumb extends StatefulWidget {
     required this.size,
     required this.selected,
     required this.inTray,
+    this.imageAspect,
+    this.showLabel = true,
     this.onTap,
     this.onDoubleTap,
     this.onAddToTray,
@@ -27,6 +29,15 @@ class PhotoThumb extends StatefulWidget {
   final double size;
   final bool selected;
   final bool inTray;
+
+  /// Image aspect ratio (width / height). When null the thumb uses the fixed
+  /// 0.72 footprint (uniform grid). The masonry view passes a per-photo ratio
+  /// so tiles vary in height.
+  final double? imageAspect;
+
+  /// Whether to render the filename caption under the image. Off in masonry,
+  /// where tight tiles read better without captions.
+  final bool showLabel;
   final void Function(PointerDownEvent event)? onTap;
   final void Function()? onDoubleTap;
   final void Function()? onAddToTray;
@@ -42,7 +53,9 @@ class _PhotoThumbState extends State<PhotoThumb> {
 
   @override
   Widget build(BuildContext context) {
-    final h = widget.size * 0.72;
+    final h = widget.imageAspect != null
+        ? widget.size / widget.imageAspect!
+        : widget.size * 0.72;
     final borderColor = (widget.selected || widget.inTray)
         ? PabloColors.selectionPrimary.withValues(alpha: 0.4)
         : PabloColors.borderSubtle;
@@ -201,7 +214,7 @@ class _PhotoThumbState extends State<PhotoThumb> {
                         ),
                       ),
                     ),
-                    if (widget.size >= 80) ...[
+                    if (widget.showLabel && widget.size >= 80) ...[
                       const SizedBox(height: 3),
                       Text(
                         widget.photo.label,
