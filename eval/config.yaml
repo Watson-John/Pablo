@@ -18,9 +18,12 @@ detector:
 
 # Adding a model = one row here (+ one Embedder subclass for a new family).
 models:
-  # Classical baseline — the HOG technique Picasa used for grouping (no learned
-  # weights). Stands in for the "Picasa / Neven-era" reference point.
+  # Classical baselines (no learned weights) — the "Picasa / Neven-era" end.
+  - {name: eigenface, type: eigenface,    path: ./models/eigenface_basis.npz, metric: cosine, role: baseline}
   - {name: hog,       type: hog,          metric: cosine, role: baseline}
+  # AuraFace — ResNet100 ArcFace, Apache-2.0, trained for COMMERCIAL use: a
+  # shippable model that may rival the non-commercial ceiling.
+  - {name: auraface,  type: arcface_onnx, path: ./models/auraface_glintr100.onnx, color: rgb, norm: arcface, metric: cosine, role: candidate}
   - {name: sface,     type: sface,        path: ./models/face_recognition_sface_2021dec.onnx, metric: cosine, role: candidate}
   - {name: dlib,      type: dlib_resnet,  path: ./models/dlib_face_recognition_resnet_model_v1.dat, predictor: ./models/shape_predictor_5_face_landmarks.dat, metric: l2, role: candidate}
   - {name: buffalo_l, type: arcface_onnx, path: ./models/w600k_r50.onnx,    color: rgb, norm: arcface, metric: cosine, role: ceiling}

@@ -55,4 +55,7 @@ def build_embedder(model_cfg: Dict[str, Any]) -> Embedder:
     if t == "hog":
         from embed.hog_baseline import HOGBaselineEmbedder
         return HOGBaselineEmbedder(model_cfg)
+    if t == "eigenface":
+        from embed.eigenface import EigenFaceEmbedder
+        return EigenFaceEmbedder(model_cfg)
     raise ValueError(f"unknown embedder type: {t!r}")
