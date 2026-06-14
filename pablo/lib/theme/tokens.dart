@@ -1,8 +1,18 @@
-// Pablo design tokens.
+// Pablo design tokens — Pablo Design System (Pablo DS, v4).
 //
 // This is the ONLY file in lib/ that may declare raw color / spacing / radius
 // literals. Every component must consume tokens from this file. See CLAUDE.md
 // for the enforcement rules.
+//
+// Identity: warm-white, photo-first. Surfaces are quiet near-white neutrals so
+// the photos carry the color; a single azure accent (#5283e3, white text on
+// top) is reserved for ACTION / SELECTION / ACTIVE state. A teal marks
+// on-device AI. Semantic hues (sage / clay / amber) are feedback-only.
+// Mixed shape language: rounded cards (Material warmth) + squared toolbars
+// (Fluent precision). Shadows are warm espresso-tinted, never neutral gray.
+//
+// Values mirror the bound Pablo DS token files: tokens/colors.css,
+// typography.css, spacing.css, elevation.css, motion.css.
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,77 +20,108 @@ import 'package:google_fonts/google_fonts.dart';
 class PabloColors {
   PabloColors._();
 
-  // Warm surfaces
-  static const Color backgroundShell = Color(0xFFF3EDE6);
-  static const Color backgroundSidebar = Color(0xFFEAE4DB);
-  static const Color backgroundSidebarHover = Color(0xFFE0D9CE);
-  static const Color backgroundSidebarActive = Color(0xFFD8D0C3);
-  static const Color backgroundSurface = Color(0xFFFDFAF6);
-  static const Color backgroundSurfaceAlt = Color(0xFFF7F2EC);
-  static const Color backgroundHover = Color(0xFFF0EBE3);
-  static const Color backgroundActive = Color(0xFFE6DFD5);
-  static const Color backgroundSelected = Color(0xFFFBF0E0);
+  // ── Warm-white surfaces ──────────────────────────────────────────────
+  static const Color backgroundShell = Color(0xFFF6F4F0); // --surface-canvas / warm-100
+  static const Color backgroundSidebar = Color(0xFFF1EEE7); // subtly-tinted chrome
+  static const Color backgroundSidebarHover = Color(0x0D211C15); // --surface-hover (5% ink)
+  static const Color backgroundSidebarActive = Color(0x17211C15); // --surface-active (9% ink)
+  static const Color backgroundSurface = Color(0xFFFBFAF8); // --surface-card / warm-50
+  static const Color backgroundSurfaceAlt = Color(0xFFEEECE6); // --surface-sunken / warm-150
+  static const Color backgroundRaised = Color(0xFFFFFFFF); // --surface-raised (menus/popovers)
+  static const Color backgroundHover = Color(0x0D211C15); // --surface-hover
+  static const Color backgroundActive = Color(0x17211C15); // --surface-active
+  static const Color backgroundSelected = Color(0xFFDDE9FD); // --surface-selected / azure-100
 
-  // Borders
-  static const Color borderSubtle = Color(0xFFDDD6CA);
-  static const Color borderStrong = Color(0xFFC8C0B2);
+  // ── Warm-neutral borders ─────────────────────────────────────────────
+  static const Color borderSubtle = Color(0xFFE6E3DB); // --border-subtle / warm-200
+  static const Color borderStrong = Color(0xFFD6D1C6); // --border-default / warm-300
 
-  // Text
-  static const Color textPrimary = Color(0xFF2D2820);
-  static const Color textSecondary = Color(0xFF5C554A);
-  static const Color textMuted = Color(0xFF9A9286);
-  static const Color textOnAccent = Color(0xFFFFFFFF);
+  // ── Warm-espresso ink ────────────────────────────────────────────────
+  static const Color textPrimary = Color(0xFF211C15); // --text-strong / warm-900
+  static const Color textSecondary = Color(0xFF4D4738); // --text-body / warm-700
+  static const Color textMuted = Color(0xFF8A8372); // --text-muted / warm-500
+  static const Color textFaint = Color(0xFFB2AB9B); // --text-faint / warm-400 (disabled)
+  static const Color textOnAccent = Color(0xFFFFFFFF); // white on azure
 
-  // Copper accent (actions, sliders, copper-tinted UI)
-  static const Color accentPrimary = Color(0xFFC17A3A);
-  static const Color accentHover = Color(0xFFA8682F);
-  static const Color accentActive = Color(0xFF8F5725);
-  static const Color accentBackground = Color(0xFFFBF0E0);
-  static const Color accentSoft = Color(0xFFF5E3CC);
+  // ── Azure — THE brand & action color (white text reads on azure-600) ──
+  static const Color accentPrimary = Color(0xFF5283E3); // azure-600
+  static const Color accentHover = Color(0xFF3866CF); // azure-700
+  static const Color accentActive = Color(0xFF284C9C); // azure-800
+  static const Color accentBackground = Color(0xFFDDE9FD); // azure-100 (soft tint)
+  static const Color accentSoft = Color(0xFFC2D6FB); // azure-200
 
-  // Blue selection (sidebar active, photo selection ring)
-  static const Color selectionPrimary = Color(0xFF2563EB);
-  static const Color selectionPrimaryHover = Color(0xFF1D4ED8);
-  static const Color selectionBackground = Color(0xFFDBEAFE);
+  // ── Selection — also azure in the DS (unified action/selection) ───────
+  static const Color selectionPrimary = Color(0xFF5283E3); // azure-600
+  static const Color selectionPrimaryHover = Color(0xFF3866CF); // azure-700
+  static const Color selectionBackground = Color(0xFFDDE9FD); // azure-100
 
-  // Status colors
-  static const Color success = Color(0xFF5E8E52);
-  static const Color successBackground = Color(0xFFEEF5EC);
-  static const Color successText = Color(0xFF3D6433);
-  static const Color successBorder = Color(0xFFBBF7D0);
+  // ── Feedback hues (distinct from brand) — sage / clay / amber / teal ──
+  static const Color success = Color(0xFF4E8460); // sage-500
+  static const Color successBackground = Color(0xFFDCE8DB); // sage-100
+  static const Color successText = Color(0xFF335C43); // sage-700
+  static const Color successBorder = Color(0xFF8FB591); // sage-300
 
-  static const Color error = Color(0xFFC06058);
-  static const Color errorBackground = Color(0xFFFDF0EE);
-  static const Color errorText = Color(0xFF8B3E38);
+  static const Color error = Color(0xFFB23A2E); // clay-500
+  static const Color errorBackground = Color(0xFFF3DCD4); // clay-100
+  static const Color errorText = Color(0xFF7D281F); // clay-700
+  static const Color errorBorder = Color(0xFFD99681); // clay-300
 
-  static const Color warning = Color(0xFFE8762A);
-  static const Color warningBackground = Color(0xFFFFF3E8);
-  static const Color warningText = Color(0xFFB05518);
-  static const Color warningBorder = Color(0xFFFCD34D);
+  static const Color warning = Color(0xFFD98324); // amber-500
+  static const Color warningBackground = Color(0xFFFBE4C4); // amber-100
+  static const Color warningText = Color(0xFF98591A); // amber-700
+  static const Color warningBorder = Color(0xFFEEB164); // amber-300
 
-  static const Color amber = Color(0xFFD4952E);
+  static const Color amber = Color(0xFFD98324); // star / folder leaf (amber-500)
 
-  // Assign / ignore actions
-  static const Color assignGreen = Color(0xFF5E9E58);
-  static const Color assignGreenHover = Color(0xFF4E8A49);
-  static const Color assignGreenActive = Color(0xFF347259);
-  static const Color ignoreRed = Color(0xFFC47068);
-  static const Color ignoreRedHover = Color(0xFFAD5E57);
-  static const Color ignoreRedActive = Color(0xFF944E4A);
+  // Teal — info / on-device AI accent
+  static const Color info = Color(0xFF2F7D8A); // teal-500
+  static const Color infoBackground = Color(0xFFCFE6E6); // teal-100
+  static const Color infoText = Color(0xFF1F555E); // teal-700
+  static const Color aiAccent = Color(0xFF2F7D8A); // teal — "on-device AI" spark
 
-  // Editor / dark surfaces (lightbox)
-  static const Color lightboxBackground = Color(0xFF1A1410);
+  // Plum — highlight / new (distinct from azure & teal)
+  static const Color highlight = Color(0xFF7A4EA0); // plum-500
+  static const Color highlightBackground = Color(0xFFE7DAF0); // plum-100
 
-  // Map ocean
+  // ── Assign / ignore actions — sage / clay ────────────────────────────
+  static const Color assignGreen = Color(0xFF4E8460); // sage-500
+  static const Color assignGreenHover = Color(0xFF335C43); // sage-700
+  static const Color assignGreenActive = Color(0xFF2A4A37);
+  static const Color ignoreRed = Color(0xFFB23A2E); // clay-500
+  static const Color ignoreRedHover = Color(0xFF7D281F); // clay-700
+  static const Color ignoreRedActive = Color(0xFF5E1E17);
+
+  // ── Dark / lightbox surfaces (near-black espresso field) ──────────────
+  static const Color lightboxBackground = Color(0xFF14110C); // warm-950
+  static const Color darkSurfaceCanvas = Color(0xFF1C1813); // [data-theme=dark] canvas
+  static const Color darkSurfaceCard = Color(0xFF251F18);
+  static const Color darkTextStrong = Color(0xFFF6EFE2);
+  static const Color darkTextBody = Color(0xFFE0D6C5);
+
+  // ── Sidebar section wayfinding colors ────────────────────────────────
+  // Earthy, muted per-section icon colors so the eye navigates quickly. Azure
+  // stays reserved for the active/selected state (accentActive overrides these).
+  static const Color sectionPeople = Color(0xFFD6492A); // terracotta coral
+  static const Color sectionAlbums = Color(0xFF8E3FB8); // plum
+  static const Color sectionFolders = Color(0xFFE08600); // amber gold
+  static const Color sectionTimeline = Color(0xFF1F9550); // sage green
+  static const Color sectionMap = Color(0xFF0A938A); // teal
+
+  // ── Lightbox dark-field controls (gray on the espresso canvas) ────────
+  static const Color lightboxNavIcon = Color(0xFF6B6B6B); // idle arrow
+  static const Color lightboxNavHoverBg = Color(0xFF1E1E1E); // arrow hover well
+  static const Color lightboxNavHoverIcon = Color(0xFFE6E6E6); // arrow hover
+
+  // ── Map ───────────────────────────────────────────────────────────────
   static const Color mapOcean = Color(0xFFC8D8EA);
   static const Color mapOceanLight = Color(0xFFD8E4F0);
-  static const Color mapLand = Color(0xFFEDE8DF);
-  static const Color mapLandBorder = Color(0xFFC0B8A8);
+  static const Color mapLand = Color(0xFFEEECE6);
+  static const Color mapLandBorder = Color(0xFFD6D1C6);
   static const Color mapGridLine = Color(0x2E8CA5C8);
   static const Color mapHeatStroke = Color(0x73945014);
   static const Color mapCenterDot = Color(0xE6FFFFFF);
 
-  // macOS-style traffic lights (title bar decoration)
+  // ── macOS-style traffic lights (title bar decoration) ─────────────────
   static const Color titleRed = Color(0xFFFF5F57);
   static const Color titleRedOutline = Color(0xFFE0443E);
   static const Color titleYellow = Color(0xFFFEBC2E);
@@ -88,14 +129,14 @@ class PabloColors {
   static const Color titleGreen = Color(0xFF28C840);
   static const Color titleGreenOutline = Color(0xFF1AAB29);
 
-  // Controls bar specific tints
-  static const Color controlsIconWarm = Color(0xFF7B6B4E);
-  static const Color controlsTabBackground = Color(0xFF7088B8);
-  static const Color controlsTabActiveFg = Color(0xFF111318);
+  // ── Controls bar specific tints ───────────────────────────────────────
+  static const Color controlsIconWarm = Color(0xFF6A6353); // warm-600
+  static const Color controlsTabBackground = Color(0xFF5283E3); // azure (active segment)
+  static const Color controlsTabActiveFg = Color(0xFFFFFFFF);
   static const Color controlsTabDivider = Color(0x33FFFFFF);
   static const Color controlsTabHover = Color(0x14000000);
 
-  // Folder / album icon glyph palette
+  // ── Folder / album icon glyph palette (matches DS folder leaf) ────────
   static const Color iconFolderBody = Color(0xFFF0C56D);
   static const Color iconFolderEdge = Color(0xFFD4A843);
   static const Color iconFolderBodyOpen = Color(0xFFEDBE5A);
@@ -104,7 +145,7 @@ class PabloColors {
   static const Color iconAlbumSpine = Color(0xFF7D5A3C);
   static const Color iconAlbumLine = Color(0x73FFFFFF);
 
-  // Avatar / overlays
+  // ── Avatar / overlays ─────────────────────────────────────────────────
   static const Color avatarInitial = Color(0xD9FFFFFF);
   static const Color tileGlyph = Color(0x80FFFFFF);
   static const Color tileGlyphFaded = Color(0x66FFFFFF);
@@ -113,8 +154,13 @@ class PabloColors {
   /// White with the given alpha (0–1) as a runtime color.
   static Color whiteAlpha(double alpha) =>
       const Color(0xFFFFFFFF).withValues(alpha: alpha);
+
+  /// Espresso ink with the given alpha — for warm scrims / hover washes.
+  static Color inkAlpha(double alpha) =>
+      const Color(0xFF211C15).withValues(alpha: alpha);
 }
 
+/// Spacing scale (4px base grid; balanced density).
 class PabloSpacing {
   PabloSpacing._();
   static const double xs = 2;
@@ -129,124 +175,131 @@ class PabloSpacing {
   static const double xxxxxl = 32;
 }
 
+/// Layout rails & control heights (Pablo DS spacing.css).
+class PabloSizing {
+  PabloSizing._();
+  static const double controlSm = 28;
+  static const double controlMd = 36; // default button / input
+  static const double controlLg = 44; // min touch target
+  static const double railSidebar = 248;
+  static const double railInspector = 320;
+  static const double toolbarHeight = 52;
+}
+
+/// Corner radii — mixed: rounded cards + squared toolbar wells.
 class PabloRadius {
   PabloRadius._();
-  static const double sm = 4;
-  static const double md = 6;
-  static const double lg = 8;
-  static const double panel = 12;
-  static const double pill = 20;
+  static const double xs = 3; // squared chrome accents, chips
+  static const double sm = 6; // inputs, buttons, toolbar wells
+  static const double md = 10; // cards, menus
+  static const double lg = 14; // panels, dialogs
+  static const double panel = 14;
+  static const double xl = 20; // large sheets, hero cards
+  static const double pill = 999; // pills, avatars
 
+  static const BorderRadius xsAll = BorderRadius.all(Radius.circular(xs));
   static const BorderRadius smAll = BorderRadius.all(Radius.circular(sm));
   static const BorderRadius mdAll = BorderRadius.all(Radius.circular(md));
   static const BorderRadius lgAll = BorderRadius.all(Radius.circular(lg));
-  static const BorderRadius panelAll =
-      BorderRadius.all(Radius.circular(panel));
-  static const BorderRadius pillAll =
-      BorderRadius.all(Radius.circular(pill));
+  static const BorderRadius panelAll = BorderRadius.all(Radius.circular(panel));
+  static const BorderRadius xlAll = BorderRadius.all(Radius.circular(xl));
+  static const BorderRadius pillAll = BorderRadius.all(Radius.circular(pill));
 }
 
+/// Warm espresso-tinted shadows (rgba(33,28,21,…)), soft & diffuse.
 class PabloShadows {
   PabloShadows._();
 
+  static const List<BoxShadow> xs = [
+    BoxShadow(color: Color(0x12211C15), offset: Offset(0, 1), blurRadius: 2),
+  ];
+
   static const List<BoxShadow> sm = [
-    BoxShadow(
-      color: Color(0x0F3C2814), // rgba(60,40,20,0.06)
-      offset: Offset(0, 1),
-      blurRadius: 3,
-    ),
+    BoxShadow(color: Color(0x14211C15), offset: Offset(0, 1), blurRadius: 3),
+    BoxShadow(color: Color(0x0F211C15), offset: Offset(0, 1), blurRadius: 2),
   ];
 
   static const List<BoxShadow> md = [
-    BoxShadow(
-      color: Color(0x173C2814), // rgba(60,40,20,0.09)
-      offset: Offset(0, 2),
-      blurRadius: 10,
-    ),
+    BoxShadow(color: Color(0x14211C15), offset: Offset(0, 2), blurRadius: 6),
+    BoxShadow(color: Color(0x12211C15), offset: Offset(0, 4), blurRadius: 12),
   ];
 
   static const List<BoxShadow> lg = [
-    BoxShadow(
-      color: Color(0x243C2814), // rgba(60,40,20,0.14)
-      offset: Offset(0, 8),
-      blurRadius: 28,
-    ),
-    BoxShadow(
-      color: Color(0x143C2814), // rgba(60,40,20,0.08)
-      offset: Offset(0, 0),
-      blurRadius: 1,
-    ),
+    BoxShadow(color: Color(0x1A211C15), offset: Offset(0, 6), blurRadius: 16),
+    BoxShadow(color: Color(0x1A211C15), offset: Offset(0, 12), blurRadius: 32),
+  ];
+
+  static const List<BoxShadow> xl = [
+    BoxShadow(color: Color(0x24211C15), offset: Offset(0, 12), blurRadius: 28),
+    BoxShadow(color: Color(0x29211C15), offset: Offset(0, 24), blurRadius: 64),
   ];
 
   // Sidebar drop shadow (2px right)
   static const List<BoxShadow> sidebar = [
-    BoxShadow(
-      color: Color(0x123C2814),
-      offset: Offset(2, 0),
-      blurRadius: 10,
-    ),
+    BoxShadow(color: Color(0x12211C15), offset: Offset(2, 0), blurRadius: 10),
   ];
 
   // Inverted (under tray)
   static const List<BoxShadow> trayTop = [
-    BoxShadow(
-      color: Color(0x0F3C2814),
-      offset: Offset(0, -2),
-      blurRadius: 10,
-    ),
+    BoxShadow(color: Color(0x0F211C15), offset: Offset(0, -2), blurRadius: 10),
   ];
 
   // Search header
   static const List<BoxShadow> searchHeader = [
-    BoxShadow(
-      color: Color(0x0F3C2814),
-      offset: Offset(0, 1),
-      blurRadius: 5,
-    ),
+    BoxShadow(color: Color(0x0F211C15), offset: Offset(0, 1), blurRadius: 5),
   ];
 
   // Controls bar (above tray)
   static const List<BoxShadow> controlsBar = [
-    BoxShadow(
-      color: Color(0x0D3C2814),
-      offset: Offset(0, -1),
-      blurRadius: 5,
-    ),
+    BoxShadow(color: Color(0x0D211C15), offset: Offset(0, -1), blurRadius: 5),
   ];
 
   // Floating button on controls bar
   static const List<BoxShadow> floatingButton = [
-    BoxShadow(
-      color: Color(0x1F3C2814),
-      offset: Offset(0, 1),
-      blurRadius: 4,
-    ),
+    BoxShadow(color: Color(0x1F211C15), offset: Offset(0, 1), blurRadius: 4),
   ];
 
-  // Sticky section header drop shadow (when the section is highlighted)
+  // Sticky/pinned section header drop shadow
   static const List<BoxShadow> stickyHighlight = [
-    BoxShadow(
-      color: Color(0x1B3C2814),
-      offset: Offset(0, 1),
-      blurRadius: 3,
-    ),
+    BoxShadow(color: Color(0x1B211C15), offset: Offset(0, 1), blurRadius: 3),
   ];
 
-  // Info panel (right side)
+  // Info / inspector panel (left edge)
   static const List<BoxShadow> infoPanel = [
-    BoxShadow(
-      color: Color(0x123C2814),
-      offset: Offset(-2, 0),
-      blurRadius: 10,
-    ),
+    BoxShadow(color: Color(0x12211C15), offset: Offset(-2, 0), blurRadius: 10),
   ];
+
+  /// Inset shadow for sunken wells (search field, slider track, thumb track).
+  static const BoxShadow inset = BoxShadow(
+    color: Color(0x14211C15),
+    offset: Offset(0, 1),
+    blurRadius: 2,
+    spreadRadius: -1,
+  );
 }
 
+/// Motion durations (Pablo DS motion.css — calm & quick).
 class PabloDurations {
   PabloDurations._();
-  static const Duration hover = Duration(milliseconds: 120);
-  static const Duration expand = Duration(milliseconds: 150);
-  static const Duration page = Duration(milliseconds: 180);
+  static const Duration instant = Duration(milliseconds: 80);
+  static const Duration fast = Duration(milliseconds: 140);
+  static const Duration base = Duration(milliseconds: 220);
+  static const Duration slow = Duration(milliseconds: 320);
+  static const Duration slower = Duration(milliseconds: 480);
+
+  // Back-compat semantic aliases used across features.
+  static const Duration hover = fast; // 140ms
+  static const Duration expand = base; // 220ms
+  static const Duration page = base; // 220ms
+}
+
+/// Motion easing curves (Pablo DS).
+class PabloEasing {
+  PabloEasing._();
+  static const Cubic standard = Cubic(0.2, 0, 0, 1); // enter/exit default
+  static const Cubic out = Cubic(0.16, 1, 0.3, 1); // decelerate
+  static const Cubic inn = Cubic(0.4, 0, 1, 1); // accelerate
+  static const Cubic spring = Cubic(0.34, 1.4, 0.64, 1); // slight overshoot — toggles
 }
 
 class PabloIcons {
@@ -255,10 +308,15 @@ class PabloIcons {
   static const double stroke = 2.0;
 }
 
-/// Centralized typography. Uses google_fonts so the three families resolve
-/// without bundled .ttf files; on first run they download once.
+/// Centralized typography — Pablo DS families via google_fonts (resolved at
+/// runtime, no bundled .ttf):
+///   • Bricolage Grotesque (display / headings / wordmark) -> [serif]
+///   • Hanken Grotesk (UI & body, ss01 on)                 -> [sans]
+///   • JetBrains Mono (EXIF, counts, paths, dimensions)    -> [mono]
 class PabloTypography {
   PabloTypography._();
+
+  static const List<FontFeature> _ss01 = [FontFeature.enable('ss01')];
 
   static TextStyle sans({
     double fontSize = 13,
@@ -267,7 +325,22 @@ class PabloTypography {
     double? height,
     double? letterSpacing,
   }) =>
-      GoogleFonts.dmSans(
+      GoogleFonts.hankenGrotesk(
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color,
+        height: height,
+        letterSpacing: letterSpacing,
+      ).copyWith(fontFeatures: _ss01);
+
+  static TextStyle serif({
+    double fontSize = 15,
+    FontWeight fontWeight = FontWeight.w600,
+    Color color = PabloColors.textPrimary,
+    double? height,
+    double? letterSpacing = -0.01 * 15, // DS display tracking ≈ -0.01em
+  }) =>
+      GoogleFonts.bricolageGrotesque(
         fontSize: fontSize,
         fontWeight: fontWeight,
         color: color,
@@ -275,42 +348,41 @@ class PabloTypography {
         letterSpacing: letterSpacing,
       );
 
-  static TextStyle serif({
-    double fontSize = 15,
-    FontWeight fontWeight = FontWeight.w600,
-    Color color = PabloColors.textPrimary,
-    double? height,
-  }) =>
-      GoogleFonts.lora(
-        fontSize: fontSize,
-        fontWeight: fontWeight,
-        color: color,
-        height: height,
-      );
-
   static TextStyle mono({
     double fontSize = 11,
     FontWeight fontWeight = FontWeight.w400,
     Color color = PabloColors.textMuted,
+    double? letterSpacing,
   }) =>
       GoogleFonts.jetBrainsMono(
         fontSize: fontSize,
         fontWeight: fontWeight,
         color: color,
+        letterSpacing: letterSpacing,
       );
 
   // Common pre-baked styles
   static TextStyle get bodySm => sans(fontSize: 12);
   static TextStyle get bodyMd => sans(fontSize: 13);
-  static TextStyle get label =>
-      sans(fontSize: 12, fontWeight: FontWeight.w500, color: PabloColors.textSecondary);
-  static TextStyle get menuItem => sans(fontSize: 12.5, fontWeight: FontWeight.w500);
-  static TextStyle get sectionTitle => serif(fontSize: 15, fontWeight: FontWeight.w600);
-  static TextStyle get sectionLabelUpper => sans(
+  static TextStyle get bodyLg => sans(fontSize: 15); // DS base body
+  static TextStyle get label => sans(
         fontSize: 12,
-        fontWeight: FontWeight.w700,
-        color: PabloColors.textPrimary,
-        letterSpacing: 0.4,
+        fontWeight: FontWeight.w500,
+        color: PabloColors.textSecondary,
+      );
+  static TextStyle get menuItem =>
+      sans(fontSize: 12.5, fontWeight: FontWeight.w500);
+  static TextStyle get sectionTitle =>
+      serif(fontSize: 17, fontWeight: FontWeight.w600);
+  static TextStyle get viewTitle =>
+      serif(fontSize: 21, fontWeight: FontWeight.w600);
+
+  /// ALL-CAPS micro label / section eyebrow (e.g. PEOPLE, ALBUMS).
+  static TextStyle get sectionLabelUpper => sans(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: PabloColors.textMuted,
+        letterSpacing: 0.04 * 11, // DS tracking-wide 0.04em
       );
   static TextStyle get count => mono(fontSize: 11);
   static TextStyle get caption =>

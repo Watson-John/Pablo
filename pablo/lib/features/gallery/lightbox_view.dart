@@ -178,7 +178,9 @@ class _LightboxViewState extends State<LightboxView> {
               ),
               child: SizedBox(
                 height: 52,
-                child: ListView.separated(
+                child: Stack(
+                  children: [
+                    ListView.separated(
                   controller: _filmCtl,
                   scrollDirection: Axis.horizontal,
                   itemCount: widget.photos.length,
@@ -201,8 +203,8 @@ class _LightboxViewState extends State<LightboxView> {
                               borderRadius: PabloRadius.mdAll,
                               border: Border.all(
                                 color: current
-                                    ? Colors.white.withValues(alpha: 0.85)
-                                    : Colors.white.withValues(alpha: 0.08),
+                                    ? PabloColors.selectionPrimary
+                                    : PabloColors.borderSubtle,
                                 width: 2,
                               ),
                             ),
@@ -211,6 +213,17 @@ class _LightboxViewState extends State<LightboxView> {
                       ),
                     );
                   },
+                ),
+                    // Edge fades so thumbnails dissolve into the chrome.
+                    const Positioned(
+                      left: 0, top: 0, bottom: 0,
+                      child: IgnorePointer(child: _FilmEdgeFade(left: true)),
+                    ),
+                    const Positioned(
+                      right: 0, top: 0, bottom: 0,
+                      child: IgnorePointer(child: _FilmEdgeFade(left: false)),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -228,8 +241,8 @@ class _LightboxViewState extends State<LightboxView> {
                     Center(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 80,
-                          vertical: PabloSpacing.xxl,
+                          horizontal: 40,
+                          vertical: PabloSpacing.xxxxl,
                         ),
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 900),
@@ -238,15 +251,34 @@ class _LightboxViewState extends State<LightboxView> {
                             child: Container(
                               decoration: BoxDecoration(
                                 gradient: _photo.gradient,
-                                borderRadius:
-                                    const BorderRadius.all(Radius.circular(14)),
+                                borderRadius: PabloRadius.lgAll,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.75),
-                                    offset: const Offset(0, 28),
-                                    blurRadius: 80,
+                                    color: Colors.black.withValues(alpha: 0.7),
+                                    offset: const Offset(0, 8),
+                                    blurRadius: 40,
                                   ),
                                 ],
+                              ),
+                              // Subtle glossy shine highlight (inset).
+                              child: Center(
+                                child: FractionallySizedBox(
+                                  widthFactor: 0.84,
+                                  heightFactor: 0.84,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      borderRadius: PabloRadius.mdAll,
+                                      gradient: RadialGradient(
+                                        center: const Alignment(-0.24, -0.44),
+                                        radius: 0.65,
+                                        colors: [
+                                          Colors.white.withValues(alpha: 0.14),
+                                          Colors.white.withValues(alpha: 0),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -256,12 +288,12 @@ class _LightboxViewState extends State<LightboxView> {
                     if (hasPrev)
                       _navArrow(
                           alignment: Alignment.centerLeft,
-                          label: '‹',
+                          icon: PabloIconName.arrowLeft,
                           onTap: () => _goTo(_idx - 1)),
                     if (hasNext)
                       _navArrow(
                           alignment: Alignment.centerRight,
-                          label: '›',
+                          icon: PabloIconName.arrowRight,
                           onTap: () => _goTo(_idx + 1)),
                   ],
                 ),
@@ -275,38 +307,80 @@ class _LightboxViewState extends State<LightboxView> {
 
   Widget _navArrow({
     required Alignment alignment,
-    required String label,
+    required PabloIconName icon,
     required VoidCallback onTap,
   }) {
     return Align(
       alignment: alignment,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.xxl),
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: onTap,
-            child: Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.15),
-                ),
-              ),
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.8),
-                  fontSize: 26,
-                  height: 1,
-                ),
-              ),
-            ),
+        child: _NavArrowButton(icon: icon, onTap: onTap),
+      ),
+    );
+  }
+}
+
+/// Lightbox prev/next arrow — borderless gray glyph that brightens into a dark
+/// well on hover (Pablo v4).
+class _NavArrowButton extends StatefulWidget {
+  const _NavArrowButton({required this.icon, required this.onTap});
+  final PabloIconName icon;
+  final VoidCallback onTap;
+  @override
+  State<_NavArrowButton> createState() => _NavArrowButtonState();
+}
+
+class _NavArrowButtonState extends State<_NavArrowButton> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: PabloDurations.hover,
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _hover
+                ? PabloColors.lightboxNavHoverBg
+                : Colors.transparent,
+            shape: BoxShape.circle,
           ),
+          child: PabloIcon(
+            widget.icon,
+            size: 20,
+            color: _hover
+                ? PabloColors.lightboxNavHoverIcon
+                : PabloColors.lightboxNavIcon,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Horizontal gradient that fades the filmstrip into the lightbox chrome at
+/// each edge.
+class _FilmEdgeFade extends StatelessWidget {
+  const _FilmEdgeFade({required this.left});
+  final bool left;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: left ? Alignment.centerLeft : Alignment.centerRight,
+          end: left ? Alignment.centerRight : Alignment.centerLeft,
+          colors: [
+            PabloColors.lightboxBackground,
+            PabloColors.lightboxBackground.withValues(alpha: 0),
+          ],
         ),
       ),
     );

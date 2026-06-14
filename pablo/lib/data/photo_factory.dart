@@ -1,11 +1,13 @@
 // Photo / EXIF / tag / suggestion factories.
 // Verbatim port of pablo3-foundation.jsx generator logic.
 
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../utils/hash.dart';
+import '../utils/image_dims.dart';
 import 'mock_data.dart';
 import 'models.dart';
 
@@ -96,7 +98,80 @@ final Map<String, List<Photo>> _photoSets = (() {
   return m;
 })();
 
-List<Photo> photosFor(String id) => _photoSets[id] ?? const [];
+// ── Dataset mode (Stage 2b) ──────────────────────────────────────────────
+// When PABLO_DATASET_DIR is provided, the gallery shows real image files from
+// that folder so the native libvips decoder (PABLO_NATIVE_THUMBS) renders real
+// thumbnails through the GPU TextureSlot seam — used to exercise the pipeline
+// on the Flickr30k set.
+const String kDatasetDir =
+    String.fromEnvironment('PABLO_DATASET_DIR', defaultValue: '');
+bool get kDatasetMode => kDatasetDir.isNotEmpty;
+const int _kDatasetMax = 5000;
+
+const LinearGradient _datasetPlaceholder = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [Color(0xFFEEECE6), Color(0xFFD6D1C6)],
+);
+
+List<Photo> _loadDatasetPhotos() {
+  try {
+    final dir = Directory(kDatasetDir);
+    if (!dir.existsSync()) return const [];
+    final files = dir
+        .listSync(followLinks: false)
+        .whereType<File>()
+        .where((f) {
+          final p = f.path.toLowerCase();
+          return p.endsWith('.jpg') ||
+              p.endsWith('.jpeg') ||
+              p.endsWith('.png');
+        })
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    final out = <Photo>[];
+    for (final f in files) {
+      if (out.length >= _kDatasetMax) break;
+      final name = f.path.split(Platform.pathSeparator).last;
+      // Header-only read (no pixel decode) so masonry can size tiles to the
+      // photo's true shape up front. Null -> masonry falls back to a ratio.
+      final dims = readImageDimensions(f.path);
+      out.add(Photo(
+        id: f.path,
+        label: name,
+        gradient: _datasetPlaceholder,
+        starred: false,
+        filePath: f.path,
+        aspect: dims?.aspect,
+      ));
+    }
+    return out;
+  } catch (_) {
+    return const [];
+  }
+}
+
+final List<Photo> _datasetPhotos =
+    kDatasetMode ? _loadDatasetPhotos() : const <Photo>[];
+
+List<Photo> photosFor(String id) {
+  if (kDatasetMode && _datasetPhotos.isNotEmpty) return _datasetPhotos;
+  return _photoSets[id] ?? const [];
+}
+
+// Stable per-photo aspect ratio (width / height) for the masonry layout.
+// Derived from the id hash so a photo keeps the same shape across rebuilds
+// (a shifting ratio would make the masonry columns jump on every repaint).
+// Real decoded dimensions could replace this later; for now this gives the
+// portrait/landscape/square variety masonry needs.
+const _kAspects = <double>[0.66, 0.75, 0.8, 1.0, 1.0, 1.33, 1.5, 0.7, 1.78, 1.0];
+
+double photoAspect(String id) => _kAspects[pabloHash(id) % _kAspects.length];
+
+/// Aspect ratio (width / height) to lay a photo's masonry tile out at: the
+/// real header-read ratio when known (dataset photos), else a stable
+/// hash-derived ratio (mockup photos).
+double aspectFor(Photo p) => p.aspect ?? photoAspect(p.id);
 
 // ── Suggestions per person ──
 class _SuggPreset {

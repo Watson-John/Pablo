@@ -1,0 +1,141 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 27, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "generator": "Ninja",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "20",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_CXX_EXTENSIONS": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+
+        "BUILD_SHARED_LIBS": "ON",
+
+        "PHOTO_BUILD_TESTS": "ON",
+        "PHOTO_BUILD_BENCHMARKS": "ON",
+
+        "PHOTO_LGPL_DYNAMIC_LIBVIPS": "ON",
+        "PHOTO_LGPL_DYNAMIC_LIBHEIF": "ON",
+        "PHOTO_LGPL_DYNAMIC_LIBRAW": "ON",
+        "PHOTO_LGPL_DYNAMIC_LIBEXIF": "ON"
+      }
+    },
+
+    {
+      "name": "debug-base",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PHOTO_ENABLE_ASAN": "ON",
+        "PHOTO_ENABLE_UBSAN": "ON"
+      }
+    },
+
+    {
+      "name": "release-base",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    },
+
+    {
+      "name": "macos-debug",
+      "displayName": "macOS Debug (ASAN+UBSAN)",
+      "inherits": "debug-base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0"
+      }
+    },
+    {
+      "name": "macos-release",
+      "displayName": "macOS Release",
+      "inherits": "release-base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0"
+      }
+    },
+
+    {
+      "name": "windows-debug",
+      "displayName": "Windows Debug (ASAN)",
+      "inherits": "debug-base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "PHOTO_ENABLE_UBSAN": "OFF"
+      }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows Release",
+      "inherits": "release-base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+
+    {
+      "name": "linux-debug",
+      "displayName": "Linux Debug (ASAN+UBSAN)",
+      "inherits": "debug-base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release",
+      "inherits": "release-base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    },
+    {
+      "name": "linux-tsan",
+      "displayName": "Linux ThreadSanitizer",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "PHOTO_ENABLE_TSAN": "ON",
+        "PHOTO_ENABLE_ASAN": "OFF",
+        "PHOTO_ENABLE_UBSAN": "OFF"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "macos-debug",     "configurePreset": "macos-debug" },
+    { "name": "macos-release",   "configurePreset": "macos-release" },
+    { "name": "windows-debug",   "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "linux-debug",     "configurePreset": "linux-debug" },
+    { "name": "linux-release",   "configurePreset": "linux-release" },
+    { "name": "linux-tsan",      "configurePreset": "linux-tsan" }
+  ],
+
+  "testPresets": [
+    {
+      "name": "base-test",
+      "hidden": true,
+      "output": { "outputOnFailure": true, "verbosity": "default" },
+      "execution": { "stopOnFailure": false, "jobs": 0 }
+    },
+    { "name": "macos-debug",     "inherits": "base-test", "configurePreset": "macos-debug" },
+    { "name": "macos-release",   "inherits": "base-test", "configurePreset": "macos-release" },
+    { "name": "windows-debug",   "inherits": "base-test", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "inherits": "base-test", "configurePreset": "windows-release" },
+    { "name": "linux-debug",     "inherits": "base-test", "configurePreset": "linux-debug" },
+    { "name": "linux-release",   "inherits": "base-test", "configurePreset": "linux-release" },
+    { "name": "linux-tsan",      "inherits": "base-test", "configurePreset": "linux-tsan" }
+  ]
+}

@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
+import '../../app/app_state.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/pablo_slider.dart';
@@ -68,6 +69,8 @@ class ControlsBar extends StatelessWidget {
                 ),
               ],
               const Spacer(),
+              _GridModeToggle(mode: st.gridMode, onChange: st.setGridMode),
+              const _MicroDivider(),
               GestureDetector(
                 onTap: () => st.setThumbSize(
                     (st.thumbSize - 20).clamp(60, 260).toDouble()),
@@ -117,6 +120,98 @@ class _MicroDivider extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.sm),
         color: PabloColors.borderSubtle,
       );
+}
+
+/// Grid ⇄ Masonry layout toggle for the gallery. Single-select (one mode is
+/// always active); mirrors the segmented look of the info-panel tabs.
+class _GridModeToggle extends StatelessWidget {
+  const _GridModeToggle({required this.mode, required this.onChange});
+  final String mode;
+  final ValueChanged<String> onChange;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: PabloRadius.pillAll,
+      child: Container(
+        color: PabloColors.controlsTabBackground,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _GridModeChip(
+              icon: PabloIconName.grid,
+              tip: 'Grid',
+              active: mode == GridMode.grid,
+              onTap: () => onChange(GridMode.grid),
+            ),
+            Container(
+              width: 1,
+              height: 16,
+              color: PabloColors.controlsTabDivider,
+            ),
+            _GridModeChip(
+              icon: PabloIconName.masonry,
+              tip: 'Masonry',
+              active: mode == GridMode.masonry,
+              onTap: () => onChange(GridMode.masonry),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GridModeChip extends StatefulWidget {
+  const _GridModeChip({
+    required this.icon,
+    required this.tip,
+    required this.active,
+    required this.onTap,
+  });
+  final PabloIconName icon;
+  final String tip;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  State<_GridModeChip> createState() => _GridModeChipState();
+}
+
+class _GridModeChipState extends State<_GridModeChip> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final bg = widget.active
+        ? PabloColors.whiteAlpha(0.9)
+        : _hover
+            ? PabloColors.controlsTabHover
+            : Colors.transparent;
+    final fg = widget.active
+        ? PabloColors.controlsTabActiveFg
+        : PabloColors.whiteAlpha(0.85);
+    return Tooltip(
+      message: widget.tip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedContainer(
+            duration: PabloDurations.hover,
+            color: bg,
+            padding: const EdgeInsets.symmetric(
+              horizontal: PabloSpacing.lg,
+              vertical: 7,
+            ),
+            child: PabloIcon(widget.icon, size: 15, color: fg),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _InfoPanelTabs extends StatelessWidget {

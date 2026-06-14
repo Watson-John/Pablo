@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../components/avatar.dart';
-import '../../components/pablo_badge.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/photo_factory.dart';
 import '../../theme/tokens.dart';
-import 'shared.dart';
 
 class PeopleTab extends StatefulWidget {
   const PeopleTab({required this.photoId, super.key});
@@ -32,28 +30,47 @@ class _PeopleTabState extends State<PeopleTab> {
     if (_people.isEmpty) {
       return _emptyState('No people tagged\nin this photo', PabloIconName.person);
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (confirmed.isNotEmpty) ...[
-          const InfoSectionHeader('Confirmed'),
-          for (final p in confirmed) _confirmedRow(p),
-          const SizedBox(height: PabloSpacing.lg),
+    return Padding(
+      padding: const EdgeInsets.only(top: PabloSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (confirmed.isNotEmpty) ...[
+            _groupLabel('Confirmed', PabloColors.textMuted),
+            for (final p in confirmed) _confirmedRow(p),
+          ],
+          if (unconfirmed.isNotEmpty) ...[
+            if (confirmed.isNotEmpty) const SizedBox(height: PabloSpacing.lg),
+            _groupLabel('Unconfirmed Suggestions', PabloColors.warningText),
+            for (final p in unconfirmed) _unconfirmedRow(p),
+          ],
         ],
-        if (unconfirmed.isNotEmpty) ...[
-          _unconfirmedHeader(),
-          for (final p in unconfirmed) _unconfirmedRow(p),
-        ],
-      ],
+      ),
     );
   }
+
+  Widget _groupLabel(String text, Color color) => Padding(
+        padding: const EdgeInsets.only(bottom: PabloSpacing.base),
+        child: Text(
+          text.toUpperCase(),
+          style: PabloTypography.sans(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            color: color,
+            letterSpacing: 0.05 * 10,
+          ),
+        ),
+      );
 
   Widget _emptyState(String text, PabloIconName icon) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
           child: Column(
             children: [
-              PabloIcon(icon, size: 28, color: PabloColors.textMuted),
+              Opacity(
+                opacity: 0.3,
+                child: PabloIcon(icon, size: 28, color: PabloColors.textMuted),
+              ),
               const SizedBox(height: PabloSpacing.base),
               Text(
                 text,
@@ -72,24 +89,24 @@ class _PeopleTabState extends State<PeopleTab> {
   Widget _confirmedRow(TaggedPerson p) => Container(
         margin: const EdgeInsets.only(bottom: PabloSpacing.md),
         padding: const EdgeInsets.symmetric(
-          horizontal: PabloSpacing.base,
-          vertical: PabloSpacing.sm + 1,
+          horizontal: PabloSpacing.lg,
+          vertical: PabloSpacing.md,
         ),
         decoration: BoxDecoration(
           color: PabloColors.successBackground,
           border: Border.all(color: PabloColors.successBorder),
-          borderRadius: BorderRadius.circular(7),
+          borderRadius: PabloRadius.mdAll,
         ),
         child: Row(
           children: [
-            PabloAvatar(name: p.name, hue: p.hue, size: 24),
-            const SizedBox(width: PabloSpacing.base),
+            PabloAvatar(name: p.name, hue: p.hue, size: 26),
+            const SizedBox(width: PabloSpacing.lg),
             Expanded(
               child: Text(
                 p.name,
                 overflow: TextOverflow.ellipsis,
                 style: PabloTypography.sans(
-                  fontSize: 12,
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -102,55 +119,33 @@ class _PeopleTabState extends State<PeopleTab> {
         ),
       );
 
-  Widget _unconfirmedHeader() => Padding(
-        padding: const EdgeInsets.only(bottom: PabloSpacing.base),
-        child: Row(
-          children: [
-            Text(
-              'UNCONFIRMED',
-              style: PabloTypography.sans(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: PabloColors.warningText,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(width: PabloSpacing.md),
-            PabloBadge.warning(),
-          ],
-        ),
-      );
-
   Widget _unconfirmedRow(TaggedPerson p) {
+    final isUnknown = p.name.contains('Unknown');
     return Container(
       margin: const EdgeInsets.only(bottom: PabloSpacing.base),
-      padding: const EdgeInsets.all(PabloSpacing.base),
+      padding: const EdgeInsets.all(PabloSpacing.md),
       decoration: BoxDecoration(
         color: PabloColors.warningBackground,
         border: Border.all(color: PabloColors.warningBorder),
-        borderRadius: PabloRadius.lgAll,
+        borderRadius: PabloRadius.mdAll,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              PabloAvatar(name: p.name, hue: p.hue, size: 24),
+              PabloAvatar(name: p.name, hue: p.hue, size: 26),
               const SizedBox(width: PabloSpacing.base),
               Expanded(
                 child: Text(
                   p.name,
                   overflow: TextOverflow.ellipsis,
                   style: PabloTypography.sans(
-                    fontSize: 12,
+                    fontSize: 12.5,
                     color: PabloColors.textSecondary,
-                    fontWeight: p.name.contains('Unknown')
-                        ? FontWeight.w400
-                        : FontWeight.w400,
                   ).copyWith(
-                    fontStyle: p.name.contains('Unknown')
-                        ? FontStyle.italic
-                        : FontStyle.normal,
+                    fontStyle:
+                        isUnknown ? FontStyle.italic : FontStyle.normal,
                   ),
                 ),
               ),
@@ -163,16 +158,16 @@ class _PeopleTabState extends State<PeopleTab> {
                 child: GestureDetector(
                   onTap: () => setState(() => p.confirmed = true),
                   child: Container(
-                    height: 24,
+                    height: 26,
                     alignment: Alignment.center,
                     decoration: const BoxDecoration(
                       color: PabloColors.assignGreen,
-                      borderRadius: PabloRadius.panelAll,
+                      borderRadius: PabloRadius.pillAll,
                     ),
                     child: Text(
-                      '✓ ${p.name.split(' ').first}',
+                      '✓ Confirm ${p.name.split(' ').first}',
                       style: PabloTypography.sans(
-                        fontSize: 11,
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w600,
                         color: PabloColors.textOnAccent,
                       ),
@@ -184,12 +179,12 @@ class _PeopleTabState extends State<PeopleTab> {
               GestureDetector(
                 onTap: () => setState(() => _people.remove(p)),
                 child: Container(
-                  width: 30,
-                  height: 24,
+                  width: 34,
+                  height: 26,
                   alignment: Alignment.center,
                   decoration: const BoxDecoration(
                     color: PabloColors.ignoreRed,
-                    borderRadius: PabloRadius.panelAll,
+                    borderRadius: PabloRadius.pillAll,
                   ),
                   child: Text(
                     '✕',

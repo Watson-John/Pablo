@@ -86,36 +86,32 @@ class _TagsTabState extends State<TagsTab> {
               children: tags
                   .map((t) => Container(
                         padding: const EdgeInsets.only(
-                          left: PabloSpacing.lg,
-                          right: PabloSpacing.base,
+                          left: 9,
+                          right: PabloSpacing.md,
                           top: 3,
                           bottom: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: PabloColors.accentBackground,
-                          border: Border.all(color: PabloColors.accentSoft),
-                          borderRadius: PabloRadius.mdAll,
+                          color: PabloColors.backgroundSurfaceAlt,
+                          border: Border.all(color: PabloColors.borderSubtle),
+                          borderRadius: PabloRadius.smAll,
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               t,
-                              style: PabloTypography.sans(
-                                fontSize: 11,
-                                color: PabloColors.accentPrimary,
-                              ),
+                              style: PabloTypography.sans(fontSize: 11.5),
                             ),
                             const SizedBox(width: PabloSpacing.sm),
                             GestureDetector(
                               onTap: () => _remove(t),
-                              child: Text(
+                              child: const Text(
                                 '✕',
-                                style: PabloTypography.sans(
+                                style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w600,
-                                  color: PabloColors.accentPrimary
-                                      .withValues(alpha: 0.5),
+                                  color: PabloColors.textMuted,
                                 ),
                               ),
                             ),

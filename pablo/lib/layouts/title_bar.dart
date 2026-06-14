@@ -32,8 +32,8 @@ class TitleBar extends StatelessWidget {
               child: Text(
                 'Pablo',
                 style: PabloTypography.serif(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                   color: PabloColors.textSecondary,
                 ),
               ),

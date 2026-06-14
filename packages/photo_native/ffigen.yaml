@@ -1,0 +1,38 @@
+# ffigen — generates lib/src/ffi/bindings_generated.dart from photo_core.h.
+#
+# Run after any change to native/core/include/photo_core.h:
+#
+#   cd packages/photo_native
+#   dart run ffigen --config ffigen.yaml
+#
+# CI verifies the generated file is up to date.
+
+name: PhotoBindings
+description: Generated Dart bindings for photo_core.h (the Pablo native ABI).
+output: lib/src/ffi/bindings_generated.dart
+
+headers:
+  entry-points:
+    - ../../native/core/include/photo_core.h
+  include-directives:
+    - ../../native/core/include/photo_core.h
+    - ../../native/core/include/photo_core_version.h
+
+compiler-opts:
+  - '-I../../native/core/include'
+
+# Treat enums as int constants so we can pass photo_priority_t etc. by
+# its uint32 representation in the scalar-arg hot path.
+enums:
+  style: int
+
+# Strip the C-namespace prefix on the Dart side for ergonomics.
+preamble: |
+  // GENERATED FILE — DO NOT EDIT.
+  // Regenerate with: `dart run ffigen --config ffigen.yaml`.
+  // ignore_for_file: type=lint, unused_field, camel_case_types,
+  // ignore_for_file: non_constant_identifier_names
+
+comments:
+  style: any
+  length: full
