@@ -37,7 +37,7 @@ except ImportError:
     HAVE_INFOMAP = False
 
 DB = "/tmp/full_db/manifest.csv"
-EMB = ["auraface", "sface", "buffalo_l", "ensemble(auraface+sface)"]
+EMB = ["auraface", "sface", "vit_cosface", "buffalo_l", "ensemble(auraface+sface)"]
 SEED = 1234
 
 

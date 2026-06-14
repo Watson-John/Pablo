@@ -27,6 +27,9 @@ models:
   - {name: sface,     type: sface,        path: ./models/face_recognition_sface_2021dec.onnx, metric: cosine, role: candidate}
   - {name: dlib,      type: dlib_resnet,  path: ./models/dlib_face_recognition_resnet_model_v1.dat, predictor: ./models/shape_predictor_5_face_landmarks.dat, metric: l2, role: candidate}
   - {name: buffalo_l, type: arcface_onnx, path: ./models/w600k_r50.onnx,    color: rgb, norm: arcface, metric: cosine, role: ceiling}
+  # ViT-Small (patch8, GAP), CosFace loss, MS1MV3 — a transformer ceiling
+  # (non-commercial: MS1MV3 training data).
+  - {name: vit_cosface, type: timm_face, hf_hub: "hf_hub:gaunernst/vit_small_patch8_gap_112.cosface_ms1mv3", metric: cosine, role: ceiling}
   - {name: adaface,   type: arcface_onnx, path: ./models/adaface_ir101.onnx, color: bgr, norm: adaface, metric: cosine, role: ceiling}
 
 eval:

@@ -58,4 +58,7 @@ def build_embedder(model_cfg: Dict[str, Any]) -> Embedder:
     if t == "eigenface":
         from embed.eigenface import EigenFaceEmbedder
         return EigenFaceEmbedder(model_cfg)
+    if t == "timm_face":
+        from embed.timm_face import TimmFaceEmbedder
+        return TimmFaceEmbedder(model_cfg)
     raise ValueError(f"unknown embedder type: {t!r}")
