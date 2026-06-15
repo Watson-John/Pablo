@@ -28,6 +28,11 @@ import 'people_scope.dart';
 
 enum _Verdict { pending, accepted, rejected }
 
+// Live-mode render caps — each FaceThumb holds a native texture slot, so we
+// bound how many a single person section instantiates at once.
+const int _kMaxFacesPerSection = 24;
+const int _kMaxSuggestionsPerSection = 12;
+
 class PeopleScrollView extends StatefulWidget {
   const PeopleScrollView({this.onPhotoSecondary, super.key});
   final void Function(Offset, String photoId)? onPhotoSecondary;
@@ -154,6 +159,11 @@ class _PeopleScrollViewState extends State<PeopleScrollView> {
         suggs.where((f) => pc.tierOf(f) == FaceTier.low).length;
     final isSelected = st.selectedItem == person.id;
     final tile = st.thumbSize * 0.82;
+    // Each FaceThumb allocates a native texture slot, so cap how many we
+    // render per section (the header still shows the true totals; Accept-All
+    // still acts on every suggestion).
+    final shownFaces = faces.take(_kMaxFacesPerSection).toList();
+    final shownSuggs = suggs.take(_kMaxSuggestionsPerSection).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -179,15 +189,22 @@ class _PeopleScrollViewState extends State<PeopleScrollView> {
             child: Wrap(
               spacing: PabloSpacing.base,
               runSpacing: PabloSpacing.base,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                for (final f in faces) FaceThumb(face: f, size: tile, hue: person.hue),
+                for (final f in shownFaces)
+                  FaceThumb(face: f, size: tile, hue: person.hue),
+                if (faces.length > shownFaces.length)
+                  Text(
+                    '+${faces.length - shownFaces.length} more',
+                    style: PabloTypography.caption,
+                  ),
               ],
             ),
           ),
         if (suggs.isNotEmpty)
           _LiveSuggestionStrip(
             tile: tile,
-            suggestions: suggs,
+            suggestions: shownSuggs,
             hue: person.hue,
             onAccept: (f) => pc.approve(clusterId: f.clusterId, faceId: f.faceId),
             onReject: (f) => pc.reject(clusterId: f.clusterId, faceId: f.faceId),

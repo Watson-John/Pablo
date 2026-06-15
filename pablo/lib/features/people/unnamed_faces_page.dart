@@ -388,6 +388,7 @@ class _GroupsTab extends StatelessWidget {
           runSpacing: PabloSpacing.base,
           children: [
             ...active.map((f) => _GroupCard(
+                  key: ValueKey(f.id),
                   face: f,
                   done: false,
                   name: names[f.id],
@@ -396,6 +397,7 @@ class _GroupsTab extends StatelessWidget {
                   onIgnore: () => onIgnore(f.id),
                 )),
             ...done.map((f) => _GroupCard(
+                  key: ValueKey(f.id),
                   face: f,
                   done: true,
                   name: names[f.id],
@@ -412,6 +414,7 @@ class _GroupsTab extends StatelessWidget {
 
 class _GroupCard extends StatefulWidget {
   const _GroupCard({
+    super.key,
     required this.face,
     required this.done,
     required this.name,

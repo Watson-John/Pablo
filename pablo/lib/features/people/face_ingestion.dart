@@ -49,34 +49,54 @@ class FaceIngestion {
 
     var scanned = 0;
     var rebuilt = false;
+    var done = false;
     StreamSubscription<PhotoEvent>? sub;
-    Timer? quiesce;
+    Timer? quiesce; // debounce: have the scans stopped arriving?
+    Timer? watchdog; // overall / post-rebuild safety timer
 
-    // Re-cluster once, after the whole scan batch lands. We can't rely on the
-    // job lanes alone (a scan can complete after an eagerly-enqueued rebuild,
-    // leaving it unclustered), so we trigger the rebuild when every asset has
-    // reported, with a debounce fallback in case some emit no progress event.
+    void terminate() {
+      if (done) return;
+      done = true;
+      quiesce?.cancel();
+      watchdog?.cancel();
+      sub?.cancel();
+      _running = false;
+    }
+
+    // Re-cluster once, after the whole scan batch lands. The job lanes alone
+    // don't guarantee ordering (a scan can finish after an eagerly-enqueued
+    // rebuild), so we rebuild when every asset has reported — with a debounce
+    // fallback if some emit no progress event. If the rebuild can't run (no
+    // engine / request id 0) or clusterUpdated never arrives, a watchdog still
+    // tears down so a later scan isn't blocked by a stuck `_running`.
     void finishRebuild() {
-      if (rebuilt) return;
+      if (rebuilt || done) return;
       rebuilt = true;
-      controller.rebuildClusters();
+      quiesce?.cancel();
+      final req = controller.rebuildClusters();
+      appState.updateTaskPercent(_taskId, req == 0 ? 100 : 96);
+      watchdog?.cancel();
+      watchdog = Timer(Duration(seconds: req == 0 ? 0 : 30), () {
+        appState.updateTaskPercent(_taskId, 100);
+        terminate();
+      });
     }
 
     sub = backend.events.listen((e) {
+      if (done) return;
       if (e.kind == PhotoEventKind.scanProgress) {
         scanned++;
         // Scans take 0..95%; the cluster rebuild finishes the bar.
-        appState.updateTaskPercent(_taskId, scanned / total * 95);
+        appState.updateTaskPercent(_taskId, (scanned / total * 95).clamp(1, 95));
         quiesce?.cancel();
         if (scanned >= total) {
           finishRebuild();
         } else {
           quiesce = Timer(const Duration(seconds: 3), finishRebuild);
         }
-      } else if (e.kind == PhotoEventKind.clusterUpdated) {
+      } else if (e.kind == PhotoEventKind.clusterUpdated && rebuilt) {
         appState.updateTaskPercent(_taskId, 100); // tickTasks() retires it
-        sub?.cancel();
-        _running = false;
+        terminate();
       }
     });
 
@@ -84,13 +104,8 @@ class FaceIngestion {
       controller.scan(assetId: path.hashCode.abs(), path: path);
     }
 
-    // Safety net: stop listening after a generous window even if the final
-    // clusterUpdated never arrives.
-    Timer(const Duration(minutes: 10), () {
-      finishRebuild();
-      sub?.cancel();
-      _running = false;
-    });
+    // Safety net: if no scanProgress ever arrives, still rebuild + tear down.
+    watchdog = Timer(const Duration(minutes: 10), finishRebuild);
   }
 
   List<String> _listImages(String dir, int cap) {
