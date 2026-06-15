@@ -104,6 +104,61 @@ endif()
 #   _assert_dynamic_link(VIPS)  # macro defined in cmake/lgpl_guard.cmake
 
 # ------------------------------------------------------------------
+# M6/M7: face subsystem (detect -> align -> embed -> cluster)
+#
+# Desktop-only. OpenCV is required for the pipeline (image ops, warp, NMS);
+# ONNX Runtime is optional — without it the face sources compile but submit()s
+# report unavailable (FACES_HAVE_ORT gates the real model paths, mirroring how
+# thumb_service.cpp gates on PHOTO_HAVE_VIPS). Models chosen by the eval
+# bake-off (scrfd_10g + auraface + agglomerative); see native/models/MANIFEST.md.
+# ------------------------------------------------------------------
+
+option(PHOTO_BUILD_FACES "Build the M6/M7 face subsystem (needs OpenCV)" ON)
+
+if(PHOTO_BUILD_FACES)
+    list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+    find_package(OpenCV CONFIG QUIET COMPONENTS core imgproc imgcodecs dnn)
+    if(OpenCV_FOUND)
+        target_sources(photo_core PRIVATE
+            src/faces/detector.cpp
+            src/faces/align.cpp
+            src/faces/embed.cpp
+            src/faces/cluster.cpp
+            src/faces/prototype.cpp
+            src/faces/store.cpp
+            src/faces/face_service.cpp
+        )
+        target_compile_definitions(photo_core PRIVATE PHOTO_HAVE_FACES=1)
+        target_link_libraries(photo_core PRIVATE ${OpenCV_LIBS})
+        target_include_directories(photo_core PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+        find_package(OnnxRuntime QUIET)  # cmake/FindOnnxRuntime.cmake
+        if(OnnxRuntime_FOUND)
+            target_compile_definitions(photo_core PRIVATE FACES_HAVE_ORT=1)
+            target_link_libraries(photo_core PRIVATE OnnxRuntime::OnnxRuntime)
+            message(STATUS "photo_core: faces ENABLED with ONNX Runtime "
+                           "${OnnxRuntime_VERSION} (scrfd_10g + auraface)")
+        else()
+            message(STATUS "photo_core: faces compiled but ONNX Runtime absent "
+                           "-> face scan reports unavailable")
+        endif()
+
+        # SQLite backs face/person persistence in the Pablo catalog. Optional at
+        # this milestone (M5 brings the catalog); without it FaceStore throws.
+        find_package(unofficial-sqlite3 CONFIG QUIET)
+        if(unofficial-sqlite3_FOUND)
+            target_compile_definitions(photo_core PRIVATE FACES_HAVE_SQLITE=1)
+            target_link_libraries(photo_core PRIVATE unofficial::sqlite3::sqlite3)
+            message(STATUS "photo_core: faces persistence ENABLED (SQLite)")
+        else()
+            message(STATUS "photo_core: SQLite absent -> face persistence stubbed")
+        endif()
+    else()
+        message(STATUS "photo_core: OpenCV not found -> face subsystem skipped")
+    endif()
+endif()
+
+# ------------------------------------------------------------------
 # Tests + benchmarks
 # ------------------------------------------------------------------
 

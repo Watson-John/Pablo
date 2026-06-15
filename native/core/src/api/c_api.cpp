@@ -201,30 +201,97 @@ PHOTO_API int32_t photo_provider_probe(photo_engine_t* /*engine*/,
     return PHOTO_STATUS_UNSUPPORTED;
 }
 
-PHOTO_API uint64_t photo_face_scan(photo_engine_t* /*engine*/,
-                                   uint64_t /*asset_id*/, uint32_t /*flags*/) {
+PHOTO_API uint64_t photo_face_scan(photo_engine_t* engine,
+                                   uint64_t asset_id, uint32_t flags) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try {
+        // TODO(M5): resolve asset_id -> source path via the catalog. Until the
+        // catalog lands, callers drive the pipeline through the
+        // photo_face_scan_path test hook below.
+        return cast(engine)->faces().submit_scan(asset_id, nullptr, flags);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_scan: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id; (void)flags;
     return 0;
+#endif
 }
 
 // ---------------------------------------------------------------------------
-// Clustering — M7 implements.
+// Clustering — M7.
 // ---------------------------------------------------------------------------
 
-PHOTO_API uint64_t photo_face_approve(photo_engine_t* /*engine*/,
-                                      uint64_t /*cluster_id*/,
-                                      uint64_t /*embedding_id*/) {
+PHOTO_API uint64_t photo_face_approve(photo_engine_t* engine,
+                                      uint64_t cluster_id,
+                                      uint64_t embedding_id) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try { return cast(engine)->faces().approve(cluster_id, embedding_id); }
+    catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_approve: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)cluster_id; (void)embedding_id;
     return 0;
+#endif
 }
 
-PHOTO_API uint64_t photo_face_reject(photo_engine_t* /*engine*/,
-                                     uint64_t /*cluster_id*/,
-                                     uint64_t /*embedding_id*/) {
+PHOTO_API uint64_t photo_face_reject(photo_engine_t* engine,
+                                     uint64_t cluster_id,
+                                     uint64_t embedding_id) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try { return cast(engine)->faces().reject(cluster_id, embedding_id); }
+    catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_reject: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)cluster_id; (void)embedding_id;
     return 0;
+#endif
 }
 
-PHOTO_API uint64_t photo_cluster_rebuild(photo_engine_t* /*engine*/,
-                                         uint32_t /*flags*/) {
+PHOTO_API uint64_t photo_cluster_rebuild(photo_engine_t* engine,
+                                         uint32_t flags) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try { return cast(engine)->faces().rebuild_clusters(flags); }
+    catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_cluster_rebuild: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)flags;
     return 0;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// TEST-ONLY hook: scan a face by explicit path, bypassing the (not-yet-built)
+// catalog asset lookup. Lets the end-to-end face validation run before M5.
+// Not declared in photo_core.h; removed once photo_face_scan resolves paths.
+// ---------------------------------------------------------------------------
+
+extern "C" PHOTO_API uint64_t photo_face_scan_path(photo_engine_t* engine,
+                                                   uint64_t asset_id,
+                                                   const char* path_utf8,
+                                                   uint32_t flags) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try { return cast(engine)->faces().submit_scan(asset_id, path_utf8, flags); }
+    catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_scan_path: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id; (void)path_utf8; (void)flags;
+    return 0;
+#endif
 }
 
 // ---------------------------------------------------------------------------

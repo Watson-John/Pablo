@@ -91,6 +91,11 @@ Engine::Engine(fs::path catalog_path,
                uint32_t decode_threads)
     : jobs_(decode_threads),
       thumbs_(&slots_, &events_, &jobs_),
+#ifdef PHOTO_HAVE_FACES
+      // Pass the path parameters by lvalue (copied) so the catalog_path_/
+      // models_path_ members below can still move-from them.
+      faces_(&events_, &jobs_, models_path, catalog_path),
+#endif
       catalog_path_(std::move(catalog_path)),
       cache_path_(std::move(cache_path)),
       models_path_(std::move(models_path)),
