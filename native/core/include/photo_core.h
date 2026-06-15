@@ -390,6 +390,71 @@ PHOTO_API uint64_t photo_face_reject(photo_engine_t* engine,
  */
 PHOTO_API uint64_t photo_cluster_rebuild(photo_engine_t* engine, uint32_t flags);
 
+/* ------------------------------------------------------------------------- */
+/* Face read-back (UI queries) — synchronous, metadata only.                 */
+/*                                                                           */
+/* No image bytes cross the boundary (the app invariant): a face carries its */
+/* asset_id + source-pixel box, and the UI renders it by clipping the asset  */
+/* thumbnail to that box via the existing texture pipeline. All list_* calls */
+/* fill up to `cap` rows into the caller's buffer and return the TOTAL count */
+/* available (which may exceed `cap` — grow and re-call), mirroring          */
+/* photo_poll_events.                                                        */
+/* ------------------------------------------------------------------------- */
+
+/* A person = a confirmed/named cluster. `name` is NUL-terminated UTF-8. */
+typedef struct {
+    uint64_t person_id;
+    int64_t  cluster_id;        /* representative cluster, -1 if none        */
+    uint64_t cover_face_id;     /* best face for the avatar (highest quality)*/
+    int32_t  face_count;
+    int32_t  confirmed_count;
+    int32_t  confirmed;         /* 0/1                                       */
+    int32_t  _pad;
+    char     name[128];
+} photo_person_t;
+
+/* One face row: detection metadata + cluster/person links. */
+typedef struct {
+    uint64_t face_id;
+    uint64_t asset_id;
+    int64_t  cluster_id;        /* -1 = unassigned                           */
+    int64_t  person_id;         /* -1 = unconfirmed                          */
+    float    box_x, box_y, box_w, box_h;   /* source-image pixels            */
+    float    det_score;
+    float    quality;
+    int32_t  confirmed;         /* 0 = suggestion, 1 = user-confirmed        */
+    int32_t  _pad;
+} photo_face_t;
+
+/* Confirmed/named people. */
+PHOTO_API size_t photo_face_list_people(photo_engine_t* engine,
+                                        photo_person_t* out, size_t cap);
+
+/* Unconfirmed cluster buckets (the "unnamed faces" groups), as person rows
+ * (person_id == 0, cluster_id set, name empty). */
+PHOTO_API size_t photo_face_list_clusters(photo_engine_t* engine,
+                                          photo_person_t* out, size_t cap);
+
+/* Members of one cluster (confirmed + suggested), highest quality first. */
+PHOTO_API size_t photo_face_list_cluster_faces(photo_engine_t* engine,
+                                               int64_t cluster_id,
+                                               photo_face_t* out, size_t cap);
+
+/* Unconfirmed (suggested) faces for a person — the suggest-and-confirm queue. */
+PHOTO_API size_t photo_face_list_suggestions(photo_engine_t* engine,
+                                             uint64_t person_id,
+                                             photo_face_t* out, size_t cap);
+
+/* Faces detected in one asset (drives the info-panel People tab). */
+PHOTO_API size_t photo_face_list_for_asset(photo_engine_t* engine,
+                                           uint64_t asset_id,
+                                           photo_face_t* out, size_t cap);
+
+/* Name (or rename) a person. Returns photo_status_t. */
+PHOTO_API int32_t photo_face_name_person(photo_engine_t* engine,
+                                         uint64_t person_id,
+                                         const char* name_utf8);
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif
