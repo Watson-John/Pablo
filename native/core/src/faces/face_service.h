@@ -18,6 +18,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "photo_core.h"
 #include "runtime/event_ring.h"
@@ -51,6 +52,16 @@ public:
     // photo_cluster_rebuild: full agglomerative re-cluster (idle lane).
     uint64_t rebuild_clusters(uint32_t flags);
 
+    // --- read-back (UI queries). Synchronous; thread-safe against workers.
+    // Return POD rows ready for the C-ABI (photo_core.h types). Empty if the
+    // store/models are unavailable. ---
+    std::vector<photo_person_t> list_people();
+    std::vector<photo_person_t> list_clusters();      // unconfirmed buckets
+    std::vector<photo_face_t>   list_cluster_faces(int64_t cluster_id);
+    std::vector<photo_face_t>   list_suggestions(uint64_t person_id);
+    std::vector<photo_face_t>   list_for_asset(uint64_t asset_id);
+    bool name_person(uint64_t person_id, const std::string& name);
+
     static bool available();  // FACES_HAVE_ORT
 
 private:
@@ -70,6 +81,8 @@ private:
 
     std::once_flag models_once_;
     bool models_ok_ = false;
+    // Serializes all FaceStore access: UI read queries vs. worker writes.
+    std::mutex store_mu_;
     std::unique_ptr<Detector> detector_;
     std::unique_ptr<Embedder> embedder_;
     std::unique_ptr<FaceStore> store_;

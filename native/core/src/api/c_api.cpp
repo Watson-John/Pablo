@@ -13,6 +13,7 @@
 //     functions treat NULL engine as a misuse and return a sentinel.
 
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "photo_core.h"
@@ -268,6 +269,113 @@ PHOTO_API uint64_t photo_cluster_rebuild(photo_engine_t* engine,
 #else
     (void)engine; (void)flags;
     return 0;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Face read-back (UI queries). Each fills up to `cap` POD rows and returns the
+// total count available (mirrors photo_poll_events). Synchronous.
+// ---------------------------------------------------------------------------
+
+#ifdef PHOTO_HAVE_FACES
+namespace {
+template <typename Row, typename Fn>
+size_t fill_rows(photo_engine_t* engine, Row* out, size_t cap, Fn query,
+                 const char* what) {
+    if (!engine) return 0;
+    try {
+        const auto rows = query(cast(engine));
+        const size_t n = rows.size();
+        if (out) for (size_t i = 0; i < n && i < cap; ++i) out[i] = rows[i];
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "%s: %s", what, e.what());
+        return 0;
+    }
+}
+}  // namespace
+#endif
+
+PHOTO_API size_t photo_face_list_people(photo_engine_t* engine,
+                                        photo_person_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_FACES
+    return fill_rows(engine, out, cap,
+                     [](photo::Engine* e) { return e->faces().list_people(); },
+                     "photo_face_list_people");
+#else
+    (void)engine; (void)out; (void)cap; return 0;
+#endif
+}
+
+PHOTO_API size_t photo_face_list_clusters(photo_engine_t* engine,
+                                          photo_person_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_FACES
+    return fill_rows(engine, out, cap,
+                     [](photo::Engine* e) { return e->faces().list_clusters(); },
+                     "photo_face_list_clusters");
+#else
+    (void)engine; (void)out; (void)cap; return 0;
+#endif
+}
+
+PHOTO_API size_t photo_face_list_cluster_faces(photo_engine_t* engine,
+                                               int64_t cluster_id,
+                                               photo_face_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_FACES
+    return fill_rows(engine, out, cap,
+                     [cluster_id](photo::Engine* e) {
+                         return e->faces().list_cluster_faces(cluster_id);
+                     },
+                     "photo_face_list_cluster_faces");
+#else
+    (void)engine; (void)cluster_id; (void)out; (void)cap; return 0;
+#endif
+}
+
+PHOTO_API size_t photo_face_list_suggestions(photo_engine_t* engine,
+                                             uint64_t person_id,
+                                             photo_face_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_FACES
+    return fill_rows(engine, out, cap,
+                     [person_id](photo::Engine* e) {
+                         return e->faces().list_suggestions(person_id);
+                     },
+                     "photo_face_list_suggestions");
+#else
+    (void)engine; (void)person_id; (void)out; (void)cap; return 0;
+#endif
+}
+
+PHOTO_API size_t photo_face_list_for_asset(photo_engine_t* engine,
+                                           uint64_t asset_id,
+                                           photo_face_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_FACES
+    return fill_rows(engine, out, cap,
+                     [asset_id](photo::Engine* e) {
+                         return e->faces().list_for_asset(asset_id);
+                     },
+                     "photo_face_list_for_asset");
+#else
+    (void)engine; (void)asset_id; (void)out; (void)cap; return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_face_name_person(photo_engine_t* engine,
+                                         uint64_t person_id,
+                                         const char* name_utf8) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        const bool ok = cast(engine)->faces().name_person(
+            person_id, name_utf8 ? std::string(name_utf8) : std::string{});
+        return ok ? PHOTO_STATUS_OK : PHOTO_STATUS_BAD_STATE;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_name_person: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)person_id; (void)name_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
 #endif
 }
 

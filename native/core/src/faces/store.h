@@ -63,10 +63,22 @@ public:
     bool asset_scanned(int64_t asset_id) const;
     void set_cluster(int64_t face_id, int64_t cluster_id);
     void set_person(int64_t face_id, int64_t person_id);
+    void set_confirmed(int64_t face_id, bool confirmed);
     std::optional<FaceRecord> face_by_id(int64_t face_id) const;
 
     // All faces with embeddings, vec_row populated (for a full re-cluster).
     std::vector<FaceRecord> all_faces() const;
+
+    // --- read-back queries (UI) ---
+    // Members of one cluster, ordered by quality desc.
+    std::vector<FaceRecord> faces_for_cluster(int64_t cluster_id) const;
+    // Faces assigned to a person, optionally only suggestions (confirmed=0).
+    std::vector<FaceRecord> faces_for_person(int64_t person_id, bool only_suggestions) const;
+    // One summary row per unconfirmed cluster: {cluster_id, count, cover_face_id}.
+    struct ClusterSummary { int64_t cluster_id; int32_t count; int64_t cover_face_id; };
+    std::vector<ClusterSummary> unconfirmed_clusters() const;
+    // Highest-quality face id for a person (avatar cover); -1 if none.
+    int64_t cover_face_for_person(int64_t person_id) const;
 
     // --- people ---
     int64_t create_person();                         // returns new person id

@@ -104,11 +104,11 @@ void exec(sqlite3* db, const char* sql) {
     }
 }
 
-// face columns: id,asset_id,x,y,w,h,lm0..lm9,det_score,quality,vec_row,cluster_id,person_id
+// face columns (positional; keep in sync with read_face):
 constexpr const char* kFaceCols =
     "id,asset_id,x,y,w,h,"
     "lm0,lm1,lm2,lm3,lm4,lm5,lm6,lm7,lm8,lm9,"
-    "det_score,quality,vec_row,cluster_id,person_id";
+    "det_score,quality,vec_row,cluster_id,person_id,confirmed";
 
 FaceRecord read_face(const Stmt& q) {
     FaceRecord r;
@@ -122,6 +122,7 @@ FaceRecord read_face(const Stmt& q) {
     r.vec_row = q.col_int(18);
     r.cluster_id = q.col_int(19);
     r.person_id = q.col_int(20);
+    r.confirmed = q.col_int(21) != 0;
     return r;
 }
 
@@ -150,9 +151,11 @@ void FaceStore::init_schema() {
          " det_score REAL, quality REAL,"
          " vec_row INTEGER DEFAULT -1,"
          " cluster_id INTEGER DEFAULT -1,"
-         " person_id INTEGER DEFAULT -1);"
+         " person_id INTEGER DEFAULT -1,"
+         " confirmed INTEGER DEFAULT 0);"
          "CREATE INDEX IF NOT EXISTS face_asset ON face(asset_id);"
          "CREATE INDEX IF NOT EXISTS face_person ON face(person_id);"
+         "CREATE INDEX IF NOT EXISTS face_cluster ON face(cluster_id);"
          "CREATE TABLE IF NOT EXISTS person("
          " id INTEGER PRIMARY KEY,"
          " name TEXT DEFAULT '',"
@@ -167,14 +170,15 @@ void FaceStore::insert_face(FaceRecord& rec, const float* vec) {
     Stmt q(db_,
            "INSERT INTO face(asset_id,x,y,w,h,"
            "lm0,lm1,lm2,lm3,lm4,lm5,lm6,lm7,lm8,lm9,"
-           "det_score,quality,vec_row,cluster_id,person_id)"
-           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+           "det_score,quality,vec_row,cluster_id,person_id,confirmed)"
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     q.bind(1, rec.asset_id);
     q.bind(2, (double)rec.box.x).bind(3, (double)rec.box.y)
      .bind(4, (double)rec.box.w).bind(5, (double)rec.box.h);
     for (int k = 0; k < 10; ++k) q.bind(6 + k, (double)rec.landmarks[k]);
     q.bind(16, (double)rec.det_score).bind(17, (double)rec.quality)
-     .bind(18, rec.vec_row).bind(19, rec.cluster_id).bind(20, rec.person_id);
+     .bind(18, rec.vec_row).bind(19, rec.cluster_id).bind(20, rec.person_id)
+     .bind(21, (int64_t)(rec.confirmed ? 1 : 0));
     q.run();
     rec.id = sqlite3_last_insert_rowid(db_);
 }
@@ -201,6 +205,53 @@ void FaceStore::set_cluster(int64_t face_id, int64_t cluster_id) {
 void FaceStore::set_person(int64_t face_id, int64_t person_id) {
     Stmt q(db_, "UPDATE face SET person_id=? WHERE id=?");
     q.bind(1, person_id).bind(2, face_id).run();
+}
+
+void FaceStore::set_confirmed(int64_t face_id, bool confirmed) {
+    Stmt q(db_, "UPDATE face SET confirmed=? WHERE id=?");
+    q.bind(1, (int64_t)(confirmed ? 1 : 0)).bind(2, face_id).run();
+}
+
+std::vector<FaceRecord> FaceStore::faces_for_cluster(int64_t cluster_id) const {
+    std::vector<FaceRecord> out;
+    Stmt q(db_, (std::string("SELECT ") + kFaceCols +
+                 " FROM face WHERE cluster_id=? ORDER BY quality DESC").c_str());
+    q.bind(1, cluster_id);
+    while (q.step()) out.push_back(read_face(q));
+    return out;
+}
+
+std::vector<FaceRecord> FaceStore::faces_for_person(int64_t person_id,
+                                                    bool only_suggestions) const {
+    std::vector<FaceRecord> out;
+    const std::string sql = std::string("SELECT ") + kFaceCols +
+        " FROM face WHERE person_id=?" +
+        (only_suggestions ? " AND confirmed=0" : "") + " ORDER BY quality DESC";
+    Stmt q(db_, sql.c_str());
+    q.bind(1, person_id);
+    while (q.step()) out.push_back(read_face(q));
+    return out;
+}
+
+std::vector<FaceStore::ClusterSummary> FaceStore::unconfirmed_clusters() const {
+    // One row per cluster that has no confirmed person, with its size and the
+    // highest-quality member as the cover.
+    std::vector<ClusterSummary> out;
+    Stmt q(db_,
+           "SELECT cluster_id, COUNT(*) AS n, "
+           "       (SELECT id FROM face f2 WHERE f2.cluster_id=f.cluster_id "
+           "        ORDER BY quality DESC LIMIT 1) AS cover "
+           "FROM face f WHERE cluster_id>=0 AND confirmed=0 "
+           "GROUP BY cluster_id ORDER BY n DESC");
+    while (q.step())
+        out.push_back({q.col_int(0), static_cast<int32_t>(q.col_int(1)), q.col_int(2)});
+    return out;
+}
+
+int64_t FaceStore::cover_face_for_person(int64_t person_id) const {
+    Stmt q(db_, "SELECT id FROM face WHERE person_id=? ORDER BY quality DESC LIMIT 1");
+    q.bind(1, person_id);
+    return q.step() ? q.col_int(0) : -1;
 }
 
 std::optional<FaceRecord> FaceStore::face_by_id(int64_t face_id) const {
@@ -271,8 +322,13 @@ std::vector<FaceRecord> FaceStore::faces_for_asset(int64_t) const { return {}; }
 bool FaceStore::asset_scanned(int64_t) const { return false; }
 void FaceStore::set_cluster(int64_t, int64_t) {}
 void FaceStore::set_person(int64_t, int64_t) {}
+void FaceStore::set_confirmed(int64_t, bool) {}
 std::optional<FaceRecord> FaceStore::face_by_id(int64_t) const { return std::nullopt; }
 std::vector<FaceRecord> FaceStore::all_faces() const { return {}; }
+std::vector<FaceRecord> FaceStore::faces_for_cluster(int64_t) const { return {}; }
+std::vector<FaceRecord> FaceStore::faces_for_person(int64_t, bool) const { return {}; }
+std::vector<FaceStore::ClusterSummary> FaceStore::unconfirmed_clusters() const { return {}; }
+int64_t FaceStore::cover_face_for_person(int64_t) const { return -1; }
 int64_t FaceStore::create_person() { return -1; }
 void FaceStore::rename_person(int64_t, const std::string&) {}
 void FaceStore::set_person_count(int64_t, int32_t, int32_t) {}

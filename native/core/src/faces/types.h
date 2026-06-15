@@ -46,6 +46,7 @@ struct FaceRecord {
     int64_t vec_row = -1;      // row in the flat embedding store (-1 = none)
     int64_t cluster_id = -1;   // -1 = unassigned / singleton
     int64_t person_id = -1;    // -1 = unconfirmed
+    bool    confirmed = false; // false = online-assign suggestion, true = user-confirmed
 };
 
 // A person = a confirmed cluster, with a prototype template (mean of its best
