@@ -22,6 +22,8 @@
 #include <thread>
 #include <vector>
 
+#include <sys/types.h>  // ssize_t (getline)
+
 #include <opencv2/imgcodecs.hpp>
 
 #include "faces/align.h"
@@ -76,12 +78,151 @@ std::vector<Sample> gather(const fs::path& db, int per, int people) {
 
 const char* ok(bool b) { return b ? "PASS" : "FAIL"; }
 
+float iou(const Box& a, const Box& b) {
+    const float x1 = std::max(a.x, b.x), y1 = std::max(a.y, b.y);
+    const float x2 = std::min(a.x + a.w, b.x + b.w), y2 = std::min(a.y + a.h, b.y + b.h);
+    const float iw = std::max(0.0f, x2 - x1), ih = std::max(0.0f, y2 - y1);
+    const float inter = iw * ih, uni = a.w * a.h + b.w * b.h - inter;
+    return uni > 0 ? inter / uni : 0.0f;
+}
+
+struct GtFace { std::string person; Box box; };
+
+// Part C: detection recall + in-context clustering against the full-res
+// originals, driven by a TSV of ground-truth boxes (image \t person \t
+// x1 \t y1 \t x2 \t y2, grouped by image).
+int run_fullres(const fs::path& models, const fs::path& tsv, int maxImages) {
+    const fs::path scrfd = models / "scrfd_10g_bnkps.onnx";
+    const fs::path aura = models / "auraface_glintr100.onnx";
+    std::printf("=== faces_probe : FULL-RES ===\n models=%s\n tsv=%s  maxImages=%d\n",
+                models.c_str(), tsv.c_str(), maxImages);
+
+    Detector det(scrfd.string(), 0.5f, 0.45f);
+    Embedder emb(aura.string(), 127.5f, 127.5f);
+
+    // Parse TSV grouped by image, preserving file order.
+    std::vector<std::string> order;
+    std::map<std::string, std::vector<GtFace>> byImage;
+    {
+        FILE* f = std::fopen(tsv.string().c_str(), "r");
+        if (!f) { std::printf("cannot open tsv\n"); return 2; }
+        char* line = nullptr; size_t cap = 0; ssize_t len;
+        while ((len = getline(&line, &cap, f)) != -1) {
+            std::string s(line, len > 0 && line[len - 1] == '\n' ? len - 1 : len);
+            // split on tabs: img, person, x1,y1,x2,y2
+            std::vector<std::string> col; size_t p = 0;
+            while (true) { size_t t = s.find('\t', p); col.push_back(s.substr(p, t - p));
+                           if (t == std::string::npos) break; p = t + 1; }
+            if (col.size() < 6) continue;
+            const float x1 = std::atof(col[2].c_str()), y1 = std::atof(col[3].c_str());
+            const float x2 = std::atof(col[4].c_str()), y2 = std::atof(col[5].c_str());
+            if (byImage.find(col[0]) == byImage.end()) order.push_back(col[0]);
+            byImage[col[0]].push_back({col[1], Box{x1, y1, x2 - x1, y2 - y1}});
+        }
+        std::free(line); std::fclose(f);
+    }
+    std::printf("ground truth: %zu faces across %zu images\n",
+                [&] { size_t n = 0; for (auto& kv : byImage) n += kv.second.size(); return n; }(),
+                order.size());
+
+    int images = 0, readable = 0, gtTotal = 0, gtHit = 0, extra = 0;
+    int hit30 = 0, hit50 = 0, hitCenter = 0;
+    int bucket[6] = {0, 0, 0, 0, 0, 0};  // bestIoU in [0,.1),[.1,.2),...,[.5,1]
+    std::vector<Embedding> embs; std::vector<std::string> labels;
+    const auto t0 = std::chrono::steady_clock::now();
+    for (const auto& img : order) {
+        if (images >= maxImages) break;
+        ++images;
+        cv::Mat bgr = cv::imread(img, cv::IMREAD_COLOR);
+        if (bgr.empty()) { std::printf("  [unreadable] %s\n", img.c_str()); continue; }
+        ++readable;
+        auto dets = det.detect(bgr);
+        std::vector<char> used(dets.size(), 0);
+        for (const auto& gt : byImage[img]) {
+            ++gtTotal;
+            // best IoU over ALL dets (diagnostic), plus center-containment (a
+            // looser "face was found" test that ignores box-tightness convention).
+            int arg = -1; float bestIoU = 0.0f; bool center = false;
+            const float gcx = gt.box.x + gt.box.w * 0.5f, gcy = gt.box.y + gt.box.h * 0.5f;
+            for (size_t i = 0; i < dets.size(); ++i) {
+                float v = iou(gt.box, dets[i].box);
+                if (v > bestIoU) { bestIoU = v; arg = int(i); }
+                const float dcx = dets[i].box.x + dets[i].box.w * 0.5f;
+                const float dcy = dets[i].box.y + dets[i].box.h * 0.5f;
+                if (dcx >= gt.box.x && dcx <= gt.box.x + gt.box.w &&
+                    dcy >= gt.box.y && dcy <= gt.box.y + gt.box.h) center = true;
+                // also: GT center inside a det box (handles SCRFD-tighter case)
+                if (gcx >= dets[i].box.x && gcx <= dets[i].box.x + dets[i].box.w &&
+                    gcy >= dets[i].box.y && gcy <= dets[i].box.y + dets[i].box.h) center = true;
+            }
+            { int bi = int(bestIoU * 10); if (bi > 5) bi = 5; if (bi < 0) bi = 0; bucket[bi]++; }
+            if (bestIoU >= 0.50f) ++hit50;
+            if (bestIoU >= 0.30f) ++hit30;
+            if (center) ++hitCenter;
+            if (bestIoU >= 0.40f && arg >= 0 && !used[size_t(arg)]) {
+                ++gtHit; used[size_t(arg)] = 1;
+                cv::Mat al = align_arcface(bgr, dets[size_t(arg)].landmarks);
+                embs.push_back(emb.embed(al, true));
+                labels.push_back(gt.person);
+            }
+        }
+        for (size_t i = 0; i < dets.size(); ++i) if (!used[i]) ++extra;
+        if (images % 25 == 0) {
+            std::printf("  ...%d images, recall@0.4 %d/%d (%.1f%%)\n", images, gtHit, gtTotal,
+                        gtTotal ? 100.0 * gtHit / gtTotal : 0.0);
+            std::fflush(stdout);
+        }
+    }
+    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+    std::printf("\nprocessed %d images (%d readable) in %.1fs\n", images, readable, secs);
+    auto pct = [&](int h) { return gtTotal ? 100.0 * h / gtTotal : 0.0; };
+    std::printf("DETECTION RECALL (vs Picasa boxes):\n");
+    std::printf("  IoU>=0.50 : %d/%d = %.1f%%\n", hit50, gtTotal, pct(hit50));
+    std::printf("  IoU>=0.40 : %d/%d = %.1f%%\n", gtHit, gtTotal, pct(gtHit));
+    std::printf("  IoU>=0.30 : %d/%d = %.1f%%\n", hit30, gtTotal, pct(hit30));
+    std::printf("  face-found (center-in-box, tightness-agnostic): %d/%d = %.1f%%\n",
+                hitCenter, gtTotal, pct(hitCenter));
+    std::printf("  bestIoU buckets [0,.1) .. [.5,1]: %d %d %d %d %d %d\n",
+                bucket[0], bucket[1], bucket[2], bucket[3], bucket[4], bucket[5]);
+    std::printf("  extra unmatched dets (likely real untagged faces): %d\n", extra);
+    const double recall = pct(hitCenter);
+
+    // Cluster the in-context faces and measure purity against ground truth.
+    ClusterParams cp; cp.merge_distance = 0.45f;
+    auto cl = cluster_agglomerative(embs, cp);
+    std::map<int64_t, std::map<std::string, int>> votes;
+    for (size_t i = 0; i < cl.size(); ++i) votes[cl[i]][labels[i]]++;
+    int clusters = 0, pure = 0, correctlyGrouped = 0, total = int(embs.size());
+    for (auto& [cid, v] : votes) {
+        int top = 0, sum = 0; for (auto& [k, n] : v) { sum += n; top = std::max(top, n); }
+        if (sum >= 2) { ++clusters; if (top == sum) ++pure; }
+        correctlyGrouped += top;  // faces matching their cluster's majority
+    }
+    const double purity = total ? 100.0 * correctlyGrouped / total : 0.0;
+    std::printf("CLUSTERING: %d multi-face clusters, %d 100%%-pure; weighted purity %.1f%% "
+                "over %d embedded faces\n", clusters, pure, purity, total);
+
+    const bool pass = recall >= 85.0 && purity >= 95.0;
+    std::printf("\n=== FULL-RES %s (recall %.1f%%, purity %.1f%%) ===\n",
+                pass ? "PASS" : "REVIEW", recall, purity);
+    return pass ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::printf("usage: %s <models_dir> <test_db_dir> [per=8] [people=3]\n", argv[0]);
+        std::printf("usage:\n"
+                    "  %s <models_dir> <test_db_dir> [per=8] [people=3]   # crops A+B\n"
+                    "  %s fullres <models_dir> <faces.tsv> [maxImages=150] # full-res C\n",
+                    argv[0], argv[0]);
         return 2;
+    }
+    if (std::string(argv[1]) == "fullres") {
+        if (argc < 4) { std::printf("usage: %s fullres <models_dir> <faces.tsv> [maxImages]\n",
+                                    argv[0]); return 2; }
+        return run_fullres(argv[2], argv[3], argc > 4 ? std::atoi(argv[4]) : 150);
     }
     const fs::path models = argv[1];
     const fs::path db = argv[2];
