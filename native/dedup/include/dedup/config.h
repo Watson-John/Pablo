@@ -28,10 +28,12 @@ struct Config {
     std::string quarantine_dir = "./quarantine";
 
     // Embedding.
+    bool embed_enabled = true;      // false = hash-only mode (skip SSCD; no model
+                                    // / GPU needed — for low-end PCs or a fast pass)
     std::string model_path = "./models/sscd_disc_mixup.onnx";
     int input_size = 288;
     int batch_size = 64;
-    std::string provider = "cpu";   // "cpu" | "cuda"
+    std::string provider = "cpu";   // "cpu" | "cuda" | "coreml"
     int intra_op_threads = 0;       // 0 = ORT default
 
     // Indexing.
@@ -50,7 +52,14 @@ struct Config {
 
     // Exact-duplicate pre-filter.
     bool exact_content_hash = true;
-    int phash_hamming = 6;
+    // Perceptual-hash algorithm for trivial re-saves. All are Hamming-compared.
+    //   phash    — 64-bit DCT (default; robust to gamma/compression)
+    //   blockmean— 256-bit block-mean (finer; fewer false collisions)
+    //   average  — 64-bit mean (fastest, weakest)
+    //   marr     — 576-bit Marr-Hildreth (edge-based, very fine)
+    std::string phash_algo = "phash";
+    int phash_hamming = 6;          // absolute Hamming cutoff; scale up for wider
+                                    // hashes (≈ phash 6 / blockmean 24 / marr 50)
 
     // Review server.
     std::string server_host = "127.0.0.1";

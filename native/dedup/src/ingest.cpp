@@ -4,7 +4,6 @@
 #include "dedup/ingest.h"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -13,6 +12,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include <xxhash.h>
 
@@ -139,42 +139,46 @@ ExactGroups exact_duplicate_pass(std::vector<ImageRecord>& records, const Config
         const int threads = resolve_threads(cfg.decode_threads);
         parallel_for(representatives.size(), threads, [&](size_t r) {
             size_t idx = representatives[r];
-            if (auto ph = perceptual_hash(records[idx].path)) {
-                records[idx].phash = *ph;
+            if (auto ph = perceptual_hash(records[idx].path, cfg.phash_algo)) {
+                records[idx].phash = std::move(*ph);
                 records[idx].phash_valid = true;
             }
         });
 
-        // Pigeonhole band-LSH: split the 64-bit hash into 8 one-byte bands.
-        // Two hashes within Hamming d<=7 must agree on at least one band, so we
-        // only ever compare within a shared band bucket (near-linear).
-        std::array<std::unordered_map<uint8_t, std::vector<size_t>>, 8> bands;
+        // Hash width (bytes) is set by the chosen algorithm — discover it from
+        // the first valid hash (phash/average=8, blockmean=32, marr=72).
+        size_t width = 0;
         for (size_t idx : representatives) {
-            if (!records[idx].phash_valid) continue;
-            uint64_t h = records[idx].phash;
-            for (int b = 0; b < 8; ++b) {
-                uint8_t key = static_cast<uint8_t>((h >> (b * 8)) & 0xff);
-                bands[b][key].push_back(idx);
+            if (records[idx].phash_valid) { width = records[idx].phash.size(); break; }
+        }
+        if (width > 0) {
+            // Pigeonhole band-LSH: one band per byte. Two hashes within Hamming d
+            // must share >=1 identical band iff d < (#bands == width). So we only
+            // ever compare within a shared bucket (near-linear), and the cutoff is
+            // clamped to width-1 to keep that guarantee. (SSCD catches the rest.)
+            std::vector<std::unordered_map<uint8_t, std::vector<size_t>>> bands(width);
+            for (size_t idx : representatives) {
+                if (!records[idx].phash_valid || records[idx].phash.size() != width) continue;
+                for (size_t b = 0; b < width; ++b) {
+                    bands[b][records[idx].phash[b]].push_back(idx);
+                }
             }
-        }
-        // The 8 one-byte bands guarantee "within Hamming d share >=1 identical
-        // band" only for d <= 7 (pigeonhole). Beyond that, a true pair could
-        // differ in every band and never land in a shared bucket, silently
-        // missing it — so clamp the LSH cutoff to 7. (SSCD catches the rest.)
-        const int max_h = std::min(cfg.phash_hamming, 7);
-        if (cfg.phash_hamming > 7) {
-            LOG_WARN("phash_hamming=" << cfg.phash_hamming << " exceeds the band-LSH "
-                     "completeness limit; clamping the exact-pass cutoff to 7");
-        }
-        for (auto& band : bands) {
-            for (auto& [key, bucket] : band) {
-                for (size_t a = 0; a < bucket.size(); ++a) {
-                    for (size_t c = a + 1; c < bucket.size(); ++c) {
-                        size_t i = bucket[a], j = bucket[c];
-                        if (uf.find(i) == uf.find(j)) continue;
-                        if (hamming64(records[i].phash, records[j].phash) <= max_h) {
-                            uf.unite(i, j);
-                            ++result.phash_pairs;
+            const int max_h = std::min<int>(cfg.phash_hamming, static_cast<int>(width) - 1);
+            if (cfg.phash_hamming > static_cast<int>(width) - 1) {
+                LOG_WARN("phash_hamming=" << cfg.phash_hamming << " exceeds the band-LSH "
+                         "completeness limit (" << (width - 1) << ") for " << cfg.phash_algo
+                         << "; clamping the exact-pass cutoff to " << (width - 1));
+            }
+            for (auto& band : bands) {
+                for (auto& [key, bucket] : band) {
+                    for (size_t a = 0; a < bucket.size(); ++a) {
+                        for (size_t c = a + 1; c < bucket.size(); ++c) {
+                            size_t i = bucket[a], j = bucket[c];
+                            if (uf.find(i) == uf.find(j)) continue;
+                            if (hamming(records[i].phash, records[j].phash) <= max_h) {
+                                uf.unite(i, j);
+                                ++result.phash_pairs;
+                            }
                         }
                     }
                 }

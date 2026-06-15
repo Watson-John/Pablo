@@ -67,6 +67,7 @@ Config load_config(const std::string& path) {
         get(ws, "quarantine", cfg.quarantine_dir);
     }
     if (const auto em = root["embed"]) {
+        get(em, "enabled", cfg.embed_enabled);
         get(em, "model", cfg.model_path);
         get(em, "input_size", cfg.input_size);
         get(em, "batch_size", cfg.batch_size);
@@ -89,6 +90,7 @@ Config load_config(const std::string& path) {
     }
     if (const auto ex = root["exact"]) {
         get(ex, "content_hash", cfg.exact_content_hash);
+        get(ex, "algorithm", cfg.phash_algo);
         get(ex, "phash_hamming", cfg.phash_hamming);
     }
     if (const auto sv = root["server"]) {

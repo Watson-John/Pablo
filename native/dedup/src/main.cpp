@@ -97,6 +97,10 @@ void apply_overrides(Config& cfg, const Args& a) {
     if (a.has("port"))       cfg.server_port = a.integer("port", cfg.server_port);
     if (a.has("host"))       cfg.server_host = a.str("host");
     if (a.has("mutual-knn")) cfg.mutual_knn = a.str("mutual-knn") != "0";
+    if (a.has("algorithm"))  cfg.phash_algo = a.str("algorithm");
+    if (a.has("hamming"))    cfg.phash_hamming = a.integer("hamming", cfg.phash_hamming);
+    if (a.has("hash-only"))  cfg.embed_enabled = false;   // skip SSCD (low-end PCs)
+    if (a.has("no-embed"))   cfg.embed_enabled = false;   // alias
 }
 
 int usage() {
@@ -107,7 +111,9 @@ int usage() {
         "  dedup calibrate  [--config f] [--from 0.70] [--to 0.90] [--step 0.02]\n"
         "  dedup serve      [--config f] [--host 127.0.0.1] [--port 8755]\n\n"
         "Common flags: --db --vectors --quarantine --k --batch-size --provider\n"
-        "              --extensions jpg,png,cr2 --threads --mutual-knn 0|1 --verbose --quiet\n\n"
+        "              --extensions jpg,png,cr2 --threads --mutual-knn 0|1 --verbose --quiet\n"
+        "Pre-filter:   --algorithm phash|blockmean|average|marr  --hamming N\n"
+        "Low-end PCs:  --hash-only   (skip SSCD entirely — no model/GPU needed)\n\n"
         "Never deletes: discards are MOVED to the quarantine directory.\n";
     return 2;
 }

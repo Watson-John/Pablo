@@ -30,9 +30,12 @@ namespace dedup {
 // unsupported). Thread-safe; safe to call from a decode worker pool.
 std::optional<cv::Mat> decode_for_embedding(const ImageRecord& rec, const Config& cfg);
 
-// Compute the 64-bit pHash of an already-decoded (or freshly decoded) image.
-// Returns std::nullopt if the file can't be decoded. Uses OpenCV's img_hash.
-std::optional<uint64_t> perceptual_hash(const std::string& path);
+// Compute the perceptual hash of `path` using `algo` (one of "phash",
+// "blockmean", "average", "marr"). Returns the raw hash bytes (width depends on
+// the algorithm) or std::nullopt if the file can't be decoded. All returned
+// hashes are Hamming-comparable. Uses OpenCV's img_hash.
+std::optional<std::vector<uint8_t>> perceptual_hash(const std::string& path,
+                                                    const std::string& algo);
 
 // Decode `path` (incl. RAW via embedded thumbnail) and re-encode as a JPEG that
 // fits within `max_dim` on its long side, preserving aspect. Lets the review UI

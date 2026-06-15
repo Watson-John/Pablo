@@ -17,6 +17,10 @@ workspace:
 
 # --- Embedding (SSCD via ONNX Runtime) --------------------------------------
 embed:
+  enabled: true             # false = HASH-ONLY mode: skip SSCD entirely (no model
+                            #   or GPU needed). ~10x faster, but only catches near-
+                            #   identical images — for low-end PCs or a fast first
+                            #   pass. The harder gamma/crop variants need SSCD.
   model: ./models/sscd_disc_mixup.onnx
   input_size: 288           # short-side resize before center context; ImageNet norm
   batch_size: 64            # 32–256; tune to RAM/VRAM
@@ -45,7 +49,14 @@ decode:
 # --- Exact-duplicate pre-filter ---------------------------------------------
 exact:
   content_hash: true        # xxh3-128 byte-identical detection
-  phash_hamming: 6          # group near-identical re-saves within this Hamming distance
+  algorithm: phash          # perceptual hash for trivial re-saves:
+                            #   phash     64-bit DCT  (default; gamma/compression-robust)
+                            #   blockmean 256-bit     (finer, catches more — Czkawka-style)
+                            #   average   64-bit       (fastest, weakest)
+                            #   marr      576-bit       (edge-based, very fine)
+  phash_hamming: 6          # group re-saves within this Hamming distance. Scale to the
+                            #   hash width:  phash/average ~6,  blockmean ~24,  marr ~50
+                            #   (auto-clamped to width-1 to keep the LSH exact)
 
 # --- Review server ----------------------------------------------------------
 server:

@@ -134,6 +134,32 @@ invariance.
 ./dedup serve --config config.yaml
 ```
 
+### Tuning for the machine (low-end PCs)
+
+The SSCD embedding is the only heavy stage. Two knobs trade accuracy for speed:
+
+```bash
+# HASH-ONLY: skip SSCD entirely — no model, no GPU. ~10x faster; catches
+# near-identical re-saves but NOT hard gamma/crop variants. Great first pass.
+./dedup scan --config config.yaml --hash-only --algorithm blockmean --hamming 24
+
+# Pick the perceptual hash:  phash (default) | blockmean | average | marr
+./dedup scan --config config.yaml --algorithm blockmean
+```
+
+Measured on a 2k-image DISC21 subset (recall = labeled pairs co-clustered):
+
+| Mode | Algorithm | Speed | Recall | Needs model/GPU |
+|---|---|---|---|---|
+| hash-only | phash-64 | ~9x | ~11% | no |
+| hash-only | blockmean-256 | ~9x | ~22% | no |
+| full | phash + SSCD | 1x | ~66% | yes |
+
+So: **hash-only blockmean** for a fast, dependency-light pass on a weak PC;
+**full SSCD** when you need the hard "same photo, very different pixels" cases.
+A bigger perceptual hash (blockmean/marr) catches more in hash-only mode at the
+cost of a larger Hamming budget.
+
 ## Calibration & pitfalls
 
 - **Calibrate the threshold.** Hand-label ~20 known dup pairs and ~20 hard

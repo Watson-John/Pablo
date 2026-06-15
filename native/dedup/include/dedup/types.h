@@ -22,8 +22,8 @@ struct ImageRecord {
     std::string format;         // lowercase extension without dot ("jpg", "cr2")
 
     // Stage 2 — exact-duplicate pre-filter.
-    std::string content_hash;   // XXH3-128 hex (32 chars); byte-identical detection
-    uint64_t phash = 0;         // 64-bit pHash; 0 = not computed
+    std::string content_hash;     // XXH3-128 hex (32 chars); byte-identical detection
+    std::vector<uint8_t> phash;   // perceptual hash bytes (width depends on algorithm)
     bool phash_valid = false;
 
     // Stage 4 — embedding bookkeeping.

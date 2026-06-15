@@ -160,18 +160,28 @@ std::optional<std::vector<uint8_t>> encode_preview_jpeg(const std::string& path,
     return out;
 }
 
-std::optional<uint64_t> perceptual_hash(const std::string& path) {
+namespace {
+cv::Ptr<cv::img_hash::ImgHashBase> make_hasher(const std::string& algo) {
+    if (algo == "blockmean") return cv::img_hash::BlockMeanHash::create();   // 256-bit
+    if (algo == "average")   return cv::img_hash::AverageHash::create();     // 64-bit
+    if (algo == "marr")      return cv::img_hash::MarrHildrethHash::create();// 576-bit
+    return cv::img_hash::PHash::create();                                    // 64-bit (default)
+}
+}  // namespace
+
+std::optional<std::vector<uint8_t>> perceptual_hash(const std::string& path,
+                                                    const std::string& algo) {
     cv::Mat img = load_bgr(path, /*reduced=*/true);
     if (img.empty()) return std::nullopt;
-    static thread_local cv::Ptr<cv::img_hash::PHash> hasher = cv::img_hash::PHash::create();
-    cv::Mat hash;  // 1x8 CV_8U
+    // One hasher per thread per algorithm (img_hash objects are not thread-safe).
+    static thread_local std::string cached_algo;
+    static thread_local cv::Ptr<cv::img_hash::ImgHashBase> hasher;
+    if (!hasher || cached_algo != algo) { hasher = make_hasher(algo); cached_algo = algo; }
+    cv::Mat hash;  // 1xN CV_8U
     hasher->compute(img, hash);
-    if (hash.total() < 8) return std::nullopt;
-    uint64_t v = 0;
-    for (int i = 0; i < 8; ++i) {
-        v |= static_cast<uint64_t>(hash.at<uchar>(0, i)) << (8 * i);
-    }
-    return v;
+    if (hash.empty() || hash.type() != CV_8U) return std::nullopt;
+    const uint8_t* p = hash.ptr<uint8_t>(0);
+    return std::vector<uint8_t>(p, p + hash.total());
 }
 
 }  // namespace dedup

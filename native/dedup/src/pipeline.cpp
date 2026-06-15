@@ -37,34 +37,36 @@ size_t pick_representative(const std::vector<size_t>& group,
 // Index the embedded representatives and cluster (SSCD edges + exact-group
 // edges). Shared by run_scan and recluster_only.
 void recluster(const Config& cfg, Store& store, ScanStats& stats) {
+    std::vector<Neighbor> edges;
+
+    // SSCD edges — only when embeddings exist. In hash-only mode (embed disabled)
+    // there are none, and clustering proceeds purely from the exact/perceptual
+    // hash groups below.
     auto embedded = store.embedded_images();
-    const int dim = store.vectors().dim();
-    if (embedded.empty()) {
-        LOG_WARN("recluster: no embeddings present — nothing to cluster");
-        store.replace_clusters({});
-        return;
+    if (!embedded.empty()) {
+        const int dim = store.vectors().dim();
+        std::vector<float> matrix = store.vectors().load_all();
+        std::vector<float> packed(static_cast<size_t>(embedded.size()) * dim);
+        std::vector<int64_t> ids(embedded.size());
+        size_t m = 0;
+        for (const auto& r : embedded) {
+            const size_t off = static_cast<size_t>(r.vec_row) * dim;
+            if (r.vec_row < 0 || off + dim > matrix.size()) continue;  // skip orphan
+            std::copy_n(matrix.data() + off, dim, packed.data() + m * dim);
+            ids[m] = r.id;
+            ++m;
+        }
+        packed.resize(m * dim);
+        ids.resize(m);
+
+        auto index = make_index(dim);
+        index->add(packed.data(), static_cast<int64_t>(m));
+        edges = build_neighbor_edges(*index, packed.data(), ids, cfg.k,
+                                     static_cast<float>(cfg.threshold), cfg.mutual_knn);
+    } else {
+        LOG_INFO("recluster: no embeddings — clustering from exact/perceptual-hash "
+                 "groups only (hash-only mode)");
     }
-
-    std::vector<float> matrix = store.vectors().load_all();
-    std::vector<float> packed(static_cast<size_t>(embedded.size()) * dim);
-    std::vector<int64_t> ids(embedded.size());
-    size_t m = 0;
-    for (const auto& r : embedded) {
-        const size_t off = static_cast<size_t>(r.vec_row) * dim;
-        if (r.vec_row < 0 || off + dim > matrix.size()) continue;  // skip orphan
-        std::copy_n(matrix.data() + off, dim, packed.data() + m * dim);
-        ids[m] = r.id;
-        ++m;
-    }
-    packed.resize(m * dim);
-    ids.resize(m);
-
-    auto index = make_index(dim);
-    index->add(packed.data(), static_cast<int64_t>(m));
-
-    std::vector<Neighbor> edges = build_neighbor_edges(
-        *index, packed.data(), ids, cfg.k, static_cast<float>(cfg.threshold),
-        cfg.mutual_knn);
 
     // Fold exact duplicates back in: a star edge from each duplicate to its
     // representative (score 1.0 so the time-guard never drops them).
@@ -175,10 +177,15 @@ ScanStats run_scan(const Config& cfg, Store& store) {
         }
     }
 
-    // Stages 3–4 — decode + embed the representatives (resumable).
-    std::vector<ImageRecord> needing = store.images_needing_embedding();
-    stats.already_embedded = store.embedded_images().size();
-    embed_missing(cfg, store, needing, stats);
+    // Stages 3–4 — decode + embed the representatives (resumable). Skipped in
+    // hash-only mode (embed.enabled=false) — for low-end PCs / a fast first pass.
+    if (cfg.embed_enabled) {
+        std::vector<ImageRecord> needing = store.images_needing_embedding();
+        stats.already_embedded = store.embedded_images().size();
+        embed_missing(cfg, store, needing, stats);
+    } else {
+        LOG_INFO("scan: hash-only mode (embed disabled) — skipping SSCD embedding");
+    }
 
     // Stages 5–6 — index + cluster.
     recluster(cfg, store, stats);

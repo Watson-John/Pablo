@@ -30,6 +30,10 @@ public:
     Stmt& bind(int i, const std::string& v) {
         sqlite3_bind_text(s_, i, v.c_str(), -1, SQLITE_TRANSIENT); return *this;
     }
+    Stmt& bind(int i, const std::vector<uint8_t>& v) {
+        sqlite3_bind_blob(s_, i, v.data(), static_cast<int>(v.size()), SQLITE_TRANSIENT);
+        return *this;
+    }
     bool step() {  // true while a row is available
         int rc = sqlite3_step(s_);
         if (rc == SQLITE_ROW) return true;
@@ -43,6 +47,11 @@ public:
     std::string col_text(int i) const {
         const unsigned char* t = sqlite3_column_text(s_, i);
         return t ? reinterpret_cast<const char*>(t) : std::string{};
+    }
+    std::vector<uint8_t> col_blob(int i) const {
+        const auto* p = static_cast<const uint8_t*>(sqlite3_column_blob(s_, i));
+        const int n = sqlite3_column_bytes(s_, i);
+        return p ? std::vector<uint8_t>(p, p + n) : std::vector<uint8_t>{};
     }
     sqlite3_stmt* raw() { return s_; }
 
@@ -68,8 +77,8 @@ ImageRecord read_row(const Stmt& q) {
     r.mtime_ns = q.col_int(3);
     r.format = q.col_text(4);
     r.content_hash = q.col_text(5);
-    r.phash = static_cast<uint64_t>(q.col_int(6));
-    r.phash_valid = r.phash != 0;
+    r.phash = q.col_blob(6);
+    r.phash_valid = !r.phash.empty();
     r.vec_row = q.col_int(7);
     r.embedded = r.vec_row >= 0;
     return r;
@@ -143,7 +152,7 @@ void Store::init_schema() {
         "  id INTEGER PRIMARY KEY,"
         "  path TEXT UNIQUE NOT NULL,"
         "  size INTEGER, mtime INTEGER, format TEXT,"
-        "  content_hash TEXT, phash INTEGER DEFAULT 0,"
+        "  content_hash TEXT, phash BLOB,"
         "  vec_row INTEGER DEFAULT -1,"
         "  dup_of INTEGER DEFAULT -1);"
         "CREATE INDEX IF NOT EXISTS idx_images_vec ON images(vec_row);"
@@ -185,9 +194,9 @@ void Store::update_hash(int64_t id, const std::string& content_hash) {
     s.bind(1, content_hash).bind(2, id).run();
 }
 
-void Store::update_phash(int64_t id, uint64_t phash) {
+void Store::update_phash(int64_t id, const std::vector<uint8_t>& phash) {
     Stmt s(db_, "UPDATE images SET phash=? WHERE id=?");
-    s.bind(1, static_cast<int64_t>(phash)).bind(2, id).run();
+    s.bind(1, phash).bind(2, id).run();
 }
 
 void Store::set_embedding(int64_t id, const float* vec, int dim) {

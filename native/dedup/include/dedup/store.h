@@ -63,7 +63,7 @@ public:
     // call with the same path/size/mtime is a no-op for the heavy columns.
     void upsert_image(ImageRecord& rec);
     void update_hash(int64_t id, const std::string& content_hash);
-    void update_phash(int64_t id, uint64_t phash);
+    void update_phash(int64_t id, const std::vector<uint8_t>& phash);
 
     // Records the embedding: stores the vector and links image -> vec_row.
     void set_embedding(int64_t id, const float* vec, int dim);

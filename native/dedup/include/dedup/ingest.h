@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <string>
@@ -49,7 +50,13 @@ struct ExactGroups {
 // computes pHash on demand for the survivors.
 ExactGroups exact_duplicate_pass(std::vector<ImageRecord>& records, const Config& cfg);
 
-// Hamming distance between two 64-bit pHashes (portable; std::popcount).
-inline int hamming64(uint64_t a, uint64_t b) { return std::popcount(a ^ b); }
+// Hamming distance between two equal-width perceptual hashes (byte-wise popcount;
+// compares min(len) bytes so mixed widths degrade gracefully).
+inline int hamming(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+    const size_t n = std::min(a.size(), b.size());
+    int d = 0;
+    for (size_t i = 0; i < n; ++i) d += std::popcount(static_cast<unsigned>(a[i] ^ b[i]));
+    return d;
+}
 
 }  // namespace dedup
