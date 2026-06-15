@@ -79,7 +79,8 @@ struct Detector::Impl {
     std::vector<DetectedFace> detect(const cv::Mat& bgr) {
         const int sz = input_size;
         const float scale = static_cast<float>(sz) / std::max(bgr.cols, bgr.rows);
-        const int rw = std::lround(bgr.cols * scale), rh = std::lround(bgr.rows * scale);
+        const int rw = static_cast<int>(std::lround(bgr.cols * scale));
+        const int rh = static_cast<int>(std::lround(bgr.rows * scale));
         cv::Mat resized;
         cv::resize(bgr, resized, cv::Size(rw, rh));
         cv::Mat canvas = cv::Mat::zeros(sz, sz, CV_8UC3);
@@ -103,12 +104,14 @@ struct Detector::Impl {
             else if (last == 4) bb.push_back(i);
             else if (last == 10) kp.push_back(i);
         }
-        auto pts = [&](int i) { return outs[i].GetTensorTypeAndShapeInfo().GetShape(); };
+        // Sort each group by concrete element count desc (stride 8 has the most
+        // anchors, then 16, then 32). ElementCount is always concrete post-Run,
+        // unlike GetShape() whose anchor axis can be a symbolic -1.
+        auto count = [&](int i) {
+            return outs[i].GetTensorTypeAndShapeInfo().GetElementCount();
+        };
         auto bypoints = [&](std::vector<int>& v) {
-            std::sort(v.begin(), v.end(), [&](int a, int b) {
-                auto da = pts(a), db = pts(b);
-                return da[da.size() - 2] > db[db.size() - 2];
-            });
+            std::sort(v.begin(), v.end(), [&](int a, int b) { return count(a) > count(b); });
         };
         bypoints(sc); bypoints(bb); bypoints(kp);
         if (sc.size() < 3 || bb.size() < 3 || kp.size() < 3) return {};

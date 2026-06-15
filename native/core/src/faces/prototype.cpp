@@ -72,11 +72,16 @@ void PrototypeIndex::remove(int64_t person_id, const Embedding& v) {
 }
 
 PrototypeIndex::Match PrototypeIndex::nearest(const Embedding& v) const {
+    // Seed below the cosine floor [-1,1] so the first real candidate always
+    // wins — otherwise an all-negative-cosine index would report "no match"
+    // (person_id == -1) even when non-empty, violating the header contract and
+    // hiding the true nearest person from the caller's own threshold.
     Match best;
+    float best_sim = -2.0f;
     for (const auto& [pid, e] : by_person_) {
         if (e.mean.empty()) continue;
         const float s = cosine(v, e.mean);
-        if (s > best.similarity) best = {pid, s};
+        if (s > best_sim) { best_sim = s; best = {pid, s}; }
     }
     return best;
 }

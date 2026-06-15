@@ -15,8 +15,8 @@
 #include "faces/store.h"
 #include "util/log.h"
 
-#ifdef PHOTO_HAVE_FACES
-#include <opencv2/imgcodecs.hpp>
+#if defined(PHOTO_HAVE_FACES) && defined(FACES_HAVE_ORT)
+#include <opencv2/imgcodecs.hpp>  // cv::imread, used only on the real-scan path
 #endif
 
 namespace photo::faces {
