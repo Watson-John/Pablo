@@ -17,8 +17,8 @@ namespace {
 // RAII prepared statement with a few typed binders/getters.
 class Stmt {
 public:
-    Stmt(sqlite3* db, const char* sql) {
-        if (sqlite3_prepare_v2(db, sql, -1, &s_, nullptr) != SQLITE_OK) {
+    Stmt(sqlite3* db, const std::string& sql) {
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &s_, nullptr) != SQLITE_OK) {
             throw std::runtime_error(std::string("sqlite prepare: ") + sqlite3_errmsg(db));
         }
     }
@@ -191,10 +191,12 @@ void Store::update_phash(int64_t id, uint64_t phash) {
 }
 
 void Store::set_embedding(int64_t id, const float* vec, int dim) {
-    // First embedding on a fresh store: adopt the model's dim (the Store opened
-    // the vector file at the default before the model was known).
-    if (vectors_->rows() == 0 && dim != vectors_->dim()) {
-        vectors_ = std::make_unique<VectorStore>(vectors_path_, dim);
+    // First embedding on a fresh store: record the model's dim (and adopt it for
+    // the vector file, which was opened at the default before the model loaded).
+    if (vectors_->rows() == 0) {
+        if (dim != vectors_->dim()) {
+            vectors_ = std::make_unique<VectorStore>(vectors_path_, dim);
+        }
         Stmt m(db_, "INSERT OR REPLACE INTO meta(key,value) VALUES('embed_dim',?)");
         m.bind(1, std::to_string(dim)).run();
     }

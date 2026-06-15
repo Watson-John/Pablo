@@ -37,7 +37,13 @@ endif()
 # Required (always present via vcpkg manifest):
 find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc imgcodecs img_hash)
 find_package(xxHash CONFIG REQUIRED)
-find_package(unofficial-sqlite3 CONFIG REQUIRED)
+# SQLite: vcpkg exports the package 'unofficial-sqlite3'; system/Homebrew provide
+# CMake's builtin FindSQLite3 (SQLite::SQLite3). Support both behind one target.
+find_package(unofficial-sqlite3 CONFIG QUIET)
+if(NOT TARGET unofficial::sqlite3::sqlite3)
+  find_package(SQLite3 REQUIRED)
+  add_library(unofficial::sqlite3::sqlite3 ALIAS SQLite::SQLite3)
+endif()
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(httplib CONFIG REQUIRED)
