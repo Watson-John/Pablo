@@ -9,7 +9,7 @@ import 'package:photo_native/photo_native.dart';
 
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
-import '../../native/native_backend.dart';
+import '../../backend/native_backend.dart';
 import '../../theme/tokens.dart';
 
 class PhotoThumb extends StatefulWidget {

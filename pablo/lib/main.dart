@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app/pablo_app.dart';
-import 'native/native_backend.dart';
+import 'backend/native_backend.dart';
 import 'utils/window_setup.dart';
 
 Future<void> main() async {

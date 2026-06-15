@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../components/autocomplete_input.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/mock_data.dart';
+import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 

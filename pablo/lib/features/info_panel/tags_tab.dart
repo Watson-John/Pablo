@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../components/pablo_button.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 
 class TagsTab extends StatefulWidget {

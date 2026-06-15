@@ -7,15 +7,15 @@ import '../../app/app_state.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/section_header.dart';
-import '../../data/mock_data.dart';
+import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import 'album_row.dart';
 import 'folder_group.dart';
 import 'folder_leaf.dart';
-import 'person_row.dart';
+import '../people/person_row.dart';
 import 'timeline_tree_node.dart';
-import 'unnamed_faces_row.dart';
+import '../people/unnamed_faces_row.dart';
 
 class Sidebar extends StatelessWidget {
   const Sidebar({super.key});

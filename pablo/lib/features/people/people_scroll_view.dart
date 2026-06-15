@@ -8,11 +8,11 @@ import '../../components/avatar.dart';
 import '../../components/pablo_badge.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/mock_data.dart';
+import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
-import 'photo_thumb.dart';
+import '../gallery/photo_thumb.dart';
 
 enum _Verdict { pending, accepted, rejected }
 

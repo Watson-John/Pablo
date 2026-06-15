@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 import '../components/context_menu.dart';
 import '../components/resize_handle.dart';
 import '../data/models.dart';
-import '../data/photo_factory.dart';
+import '../data/mock/photo_factory.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/photo_edit_panel.dart';
 import '../features/gallery/lightbox_view.dart';

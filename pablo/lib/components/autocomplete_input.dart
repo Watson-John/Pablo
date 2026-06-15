@@ -3,7 +3,7 @@
 
 import 'package:flutter/material.dart';
 
-import '../data/mock_data.dart';
+import '../data/mock/mock_data.dart';
 import '../theme/tokens.dart';
 
 class AutocompleteInput extends StatefulWidget {

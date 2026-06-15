@@ -8,7 +8,7 @@ import '../../components/pablo_checkbox.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/pablo_radio.dart';
-import '../../data/mock_data.dart';
+import '../../data/mock/mock_data.dart';
 import '../../theme/tokens.dart';
 
 class AdvancedSearchModal extends StatefulWidget {

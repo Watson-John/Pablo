@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../components/avatar.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 
 class PeopleTab extends StatefulWidget {
