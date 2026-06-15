@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
 import '../app/app_state.dart';
+import '../backend/native_backend.dart';
+import '../data/mock/photo_factory.dart';
+import '../features/people/face_ingestion.dart';
+import '../features/people/people_scope.dart';
 import '../theme/tokens.dart';
 
 class _MenuEntry {
@@ -35,7 +39,10 @@ class PabloMenuBar extends StatefulWidget {
 class _PabloMenuBarState extends State<PabloMenuBar> {
   String? _open;
 
-  Map<String, List<_MenuEntry>> _menus(PabloAppState st) => {
+  Map<String, List<_MenuEntry>> _menus(
+    PabloAppState st,
+    VoidCallback? onScanFaces,
+  ) => {
         'File': const [
           _MenuEntry(label: 'Add Folder to Pablo…'),
           _MenuEntry(label: 'Import From…'),
@@ -71,9 +78,14 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           const _MenuEntry(label: 'Show Sidebar', checked: true),
           const _MenuEntry(label: 'Show Photo Tray', checked: true),
         ],
-        'People': const [
-          _MenuEntry(label: 'Show People Panel'),
-          _MenuEntry(label: 'Scan for Faces'),
+        'People': [
+          const _MenuEntry(label: 'Show People Panel'),
+          _MenuEntry(
+            label: onScanFaces == null
+                ? 'Scan for Faces (needs native backend)'
+                : 'Scan for Faces',
+            onTap: onScanFaces,
+          ),
         ],
         'Albums': const [
           _MenuEntry(label: 'New Album…'),
@@ -93,7 +105,19 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
-    final menus = _menus(st);
+    final backend = NativeBackendScope.maybeOf(context);
+    final pc = PeopleScope.read(context);
+    // Enable "Scan for Faces" only with a live engine; scan the displayed
+    // dataset folder so the imported photos and detected faces line up.
+    VoidCallback? onScanFaces;
+    if (backend != null && pc.isLive && kDatasetDir.isNotEmpty) {
+      onScanFaces = () => FaceIngestion(
+            backend: backend,
+            controller: pc,
+            appState: st,
+          ).ingestFolder(kDatasetDir);
+    }
+    final menus = _menus(st, onScanFaces);
     return Container(
       height: 30,
       padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),

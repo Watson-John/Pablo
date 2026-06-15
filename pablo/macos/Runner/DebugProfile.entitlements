@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Debug-only: sandbox disabled in dev builds so the app can read ML
+	     models, image datasets, and Homebrew dylibs (libvips modules) from
+	     arbitrary local paths given via the PABLO_MODELS_DIR / PABLO_DATASET_DIR
+	     dart-defines. Release.entitlements keeps the sandbox ENABLED. -->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 	<key>com.apple.security.network.server</key>

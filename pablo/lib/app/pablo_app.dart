@@ -15,6 +15,7 @@ import '../features/editor/photo_edit_panel.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/info_panel/info_panel.dart';
+import '../features/people/face_ingestion.dart';
 import '../features/people/people_controller.dart';
 import '../features/people/people_scope.dart';
 import '../features/photo_tray/photo_tray.dart';
@@ -43,6 +44,13 @@ class _PabloAppState extends State<PabloApp> {
   PeopleController? _people;
   Timer? _ticker;
 
+  /// Debug hook: when PABLO_AUTOSCAN is set (and a live backend + dataset are
+  /// present), kick off a face scan of the dataset folder on first frame.
+  /// Lets the live pipeline be exercised headlessly without the menu.
+  static const bool _autoScan =
+      bool.fromEnvironment('PABLO_AUTOSCAN', defaultValue: false);
+  bool _autoScanned = false;
+
   @override
   void initState() {
     super.initState();
@@ -55,13 +63,25 @@ class _PabloAppState extends State<PabloApp> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _people ??= () {
-      final backend = NativeBackendScope.maybeOf(context);
-      return PeopleController(
-        backend?.faces ?? const MockFaceRepository(),
-        engine: backend?.engine,
-      );
-    }();
+    final backend = NativeBackendScope.maybeOf(context);
+    _people ??= PeopleController(
+      backend?.faces ?? const MockFaceRepository(),
+      engine: backend?.engine,
+    );
+    if (_autoScan &&
+        !_autoScanned &&
+        backend != null &&
+        _people!.isLive &&
+        kDatasetDir.isNotEmpty) {
+      _autoScanned = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        FaceIngestion(
+          backend: backend,
+          controller: _people!,
+          appState: _state,
+        ).ingestFolder(kDatasetDir);
+      });
+    }
   }
 
   @override

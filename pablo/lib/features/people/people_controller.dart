@@ -135,6 +135,10 @@ class PeopleController extends ChangeNotifier {
     return _repo.scan(assetId: assetId, path: path);
   }
 
+  /// Re-cluster all unconfirmed faces (full recompute on the idle lane).
+  /// No-op without a live engine.
+  int rebuildClusters() => _engine?.rebuildClusters() ?? 0;
+
   // ── Asset registry (populated by ingestion) ────────────────────────────────
 
   /// Records the path and (header-parsed) source dimensions for an asset so
