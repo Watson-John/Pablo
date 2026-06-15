@@ -5,6 +5,7 @@
 // when ffigen runs and `bindings_generated.dart` becomes real, this file is
 // refactored to delegate to PhotoBindings and only keep the typed wrappers.
 
+import 'dart:convert';
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
@@ -112,6 +113,54 @@ final class NativeEvent extends Struct {
   external Array<Uint32> reserved;
 }
 
+/// photo_person_t mirror (face read-back).
+final class _NativePerson extends Struct {
+  @Uint64()
+  external int person_id;
+  @Int64()
+  external int cluster_id;
+  @Uint64()
+  external int cover_face_id;
+  @Int32()
+  external int face_count;
+  @Int32()
+  external int confirmed_count;
+  @Int32()
+  external int confirmed;
+  @Int32()
+  external int pad;
+  @Array(128)
+  external Array<Uint8> name;
+}
+
+/// photo_face_t mirror (face read-back).
+final class _NativeFace extends Struct {
+  @Uint64()
+  external int face_id;
+  @Uint64()
+  external int asset_id;
+  @Int64()
+  external int cluster_id;
+  @Int64()
+  external int person_id;
+  @Float()
+  external double box_x;
+  @Float()
+  external double box_y;
+  @Float()
+  external double box_w;
+  @Float()
+  external double box_h;
+  @Float()
+  external double det_score;
+  @Float()
+  external double quality;
+  @Int32()
+  external int confirmed;
+  @Int32()
+  external int pad;
+}
+
 // ---------------------------------------------------------------------------
 // FFI function typedefs
 // ---------------------------------------------------------------------------
@@ -199,6 +248,25 @@ typedef _ClusterRebuildDart = int Function(Pointer<Void>, int);
 
 typedef _ProviderProbeC = Int32 Function(Pointer<Void>, Int32);
 typedef _ProviderProbeDart = int Function(Pointer<Void>, int);
+
+// Face read-back: fill up to `cap` rows, return total count available.
+typedef _ListPeopleC =
+    IntPtr Function(Pointer<Void>, Pointer<_NativePerson>, IntPtr);
+typedef _ListPeopleDart =
+    int Function(Pointer<Void>, Pointer<_NativePerson>, int);
+
+typedef _ListClusterFacesC =
+    IntPtr Function(Pointer<Void>, Int64, Pointer<_NativeFace>, IntPtr);
+typedef _ListClusterFacesDart =
+    int Function(Pointer<Void>, int, Pointer<_NativeFace>, int);
+
+typedef _ListFacesByIdC =
+    IntPtr Function(Pointer<Void>, Uint64, Pointer<_NativeFace>, IntPtr);
+typedef _ListFacesByIdDart =
+    int Function(Pointer<Void>, int, Pointer<_NativeFace>, int);
+
+typedef _NamePersonC = Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _NamePersonDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
 
 // ---------------------------------------------------------------------------
 // EngineConfig (Dart-side, immutable)
@@ -371,6 +439,84 @@ final class Engine {
   int probeProvider(int provider) =>
       _Bindings.providerProbe(_handle, provider);
 
+  // -------------------------------------------------------------------------
+  // Face read-back (UI queries). Synchronous; metadata only — no image bytes
+  // cross the boundary. A returned [FaceRow] carries its asset id + source
+  // box; the UI clips the asset thumbnail to render the face.
+  // -------------------------------------------------------------------------
+
+  /// Confirmed/named people.
+  List<FacePerson> listPeople() =>
+      _readPeople((b, c) => _Bindings.listPeople(_handle, b, c));
+
+  /// Unconfirmed cluster buckets (the "unnamed faces" groups).
+  List<FacePerson> listClusters() =>
+      _readPeople((b, c) => _Bindings.listClusters(_handle, b, c));
+
+  /// Members of one cluster, highest quality first.
+  List<FaceRow> listClusterFaces(int clusterId) => _readFaces(
+        (b, c) => _Bindings.listClusterFaces(_handle, clusterId, b, c),
+      );
+
+  /// Unconfirmed (suggested) faces for a person — the confirm queue.
+  List<FaceRow> listSuggestions(int personId) => _readFaces(
+        (b, c) => _Bindings.listSuggestions(_handle, personId, b, c),
+      );
+
+  /// Faces detected in one asset (info-panel People tab).
+  List<FaceRow> listFacesForAsset(int assetId) => _readFaces(
+        (b, c) => _Bindings.listForAsset(_handle, assetId, b, c),
+      );
+
+  /// Name (or rename) a person. Returns a photo_status_t (0 == OK).
+  int namePerson(int personId, String name) {
+    final p = name.toNativeUtf8();
+    try {
+      return _Bindings.namePerson(_handle, personId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  // Grow-and-retry read into a native buffer; the C side returns the total
+  // count, so a single re-call covers the case where the first buffer was
+  // too small.
+  List<FacePerson> _readPeople(int Function(Pointer<_NativePerson>, int) call) {
+    var cap = 64;
+    var buf = calloc<_NativePerson>(cap);
+    try {
+      var n = call(buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativePerson>(cap);
+        n = call(buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [for (var i = 0; i < count; i++) FacePerson._(buf[i])];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  List<FaceRow> _readFaces(int Function(Pointer<_NativeFace>, int) call) {
+    var cap = 128;
+    var buf = calloc<_NativeFace>(cap);
+    try {
+      var n = call(buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeFace>(cap);
+        n = call(buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [for (var i = 0; i < count; i++) FaceRow._(buf[i])];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
   /// **M1 TEST HOOK** — publishes a solid BGRA color as the slot's current
   /// frame. Replaced in M2 by the real `requestThumbnail` pipeline that
   /// dispatches actual decode jobs. Kept on Engine so that integration
@@ -427,6 +573,69 @@ final class FrameView {
   final int height;
   final int stride;
   final Pointer<Void> releaseCtx;
+}
+
+/// A person (confirmed/named cluster) or an unnamed cluster bucket
+/// (personId == 0, name empty). Immutable projection of photo_person_t.
+final class FacePerson {
+  FacePerson._(_NativePerson p)
+    : personId = p.person_id,
+      clusterId = p.cluster_id,
+      coverFaceId = p.cover_face_id,
+      faceCount = p.face_count,
+      confirmedCount = p.confirmed_count,
+      confirmed = p.confirmed != 0,
+      name = _readCName(p.name, 128);
+
+  final int personId;
+  final int clusterId;
+  final int coverFaceId;
+  final int faceCount;
+  final int confirmedCount;
+  final bool confirmed;
+  final String name;
+
+  bool get isUnnamed => personId == 0 || name.isEmpty;
+}
+
+/// One face: detection metadata + cluster/person links. Immutable projection
+/// of photo_face_t. Render by clipping the asset thumbnail to the box.
+final class FaceRow {
+  FaceRow._(_NativeFace f)
+    : faceId = f.face_id,
+      assetId = f.asset_id,
+      clusterId = f.cluster_id,
+      personId = f.person_id,
+      boxX = f.box_x,
+      boxY = f.box_y,
+      boxW = f.box_w,
+      boxH = f.box_h,
+      score = f.det_score,
+      quality = f.quality,
+      confirmed = f.confirmed != 0;
+
+  final int faceId;
+  final int assetId;
+  final int clusterId;
+  final int personId;
+  final double boxX;
+  final double boxY;
+  final double boxW;
+  final double boxH;
+  final double score;
+  final double quality;
+  final bool confirmed;
+}
+
+/// Decode a NUL-terminated UTF-8 name out of a fixed-size native char array.
+String _readCName(Array<Uint8> arr, int maxLen) {
+  final bytes = <int>[];
+  for (var i = 0; i < maxLen; i++) {
+    final c = arr[i];
+    if (c == 0) break;
+    bytes.add(c);
+  }
+  return utf8.decode(bytes, allowMalformed: true);
 }
 
 // ---------------------------------------------------------------------------
@@ -510,4 +719,28 @@ final class _Bindings {
       .lookupFunction<_ProviderProbeC, _ProviderProbeDart>(
         'photo_provider_probe',
       );
+
+  static final _ListPeopleDart listPeople = _dylib
+      .lookupFunction<_ListPeopleC, _ListPeopleDart>('photo_face_list_people');
+
+  static final _ListPeopleDart listClusters = _dylib
+      .lookupFunction<_ListPeopleC, _ListPeopleDart>('photo_face_list_clusters');
+
+  static final _ListClusterFacesDart listClusterFaces = _dylib
+      .lookupFunction<_ListClusterFacesC, _ListClusterFacesDart>(
+        'photo_face_list_cluster_faces',
+      );
+
+  static final _ListFacesByIdDart listSuggestions = _dylib
+      .lookupFunction<_ListFacesByIdC, _ListFacesByIdDart>(
+        'photo_face_list_suggestions',
+      );
+
+  static final _ListFacesByIdDart listForAsset = _dylib
+      .lookupFunction<_ListFacesByIdC, _ListFacesByIdDart>(
+        'photo_face_list_for_asset',
+      );
+
+  static final _NamePersonDart namePerson = _dylib
+      .lookupFunction<_NamePersonC, _NamePersonDart>('photo_face_name_person');
 }
