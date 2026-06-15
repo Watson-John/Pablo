@@ -52,6 +52,13 @@ public:
     // photo_cluster_rebuild: full agglomerative re-cluster (idle lane).
     uint64_t rebuild_clusters(uint32_t flags);
 
+    // photo_face_name_cluster: promote an unconfirmed cluster into a named
+    // person. Finds an existing person with the same name (merge) or creates a
+    // new one, then confirms every face in the cluster into it (folding their
+    // embeddings into the prototype). Returns a request id; emits
+    // PHOTO_EVT_CLUSTER_UPDATED on completion.
+    uint64_t name_cluster(int64_t cluster_id, const std::string& name);
+
     // --- read-back (UI queries). Synchronous; thread-safe against workers.
     // Return POD rows ready for the C-ABI (photo_core.h types). Empty if the
     // store/models are unavailable. ---

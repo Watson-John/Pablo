@@ -18,6 +18,7 @@ import 'package:photo_native/photo_native.dart';
 import '../../app/app_state.dart';
 import '../../backend/native_backend.dart';
 import '../../data/models.dart';
+import '../../utils/asset_id.dart';
 import 'people_controller.dart';
 
 class FaceIngestion {
@@ -101,7 +102,7 @@ class FaceIngestion {
     });
 
     for (final path in files) {
-      controller.scan(assetId: path.hashCode.abs(), path: path);
+      controller.scan(assetId: assetIdFor(path), path: path);
     }
 
     // Safety net: if no scanProgress ever arrives, still rebuild + tear down.

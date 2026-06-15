@@ -48,6 +48,10 @@ abstract interface class FaceRepository {
   /// Name (or rename) a person. Returns a photo_status_t (0 == OK).
   int namePerson(int personId, String name);
 
+  /// Promote an unconfirmed cluster into a named person (confirm-all, merging
+  /// into an existing person of the same name). Returns a request id (0 in mock).
+  int nameCluster(int clusterId, String name);
+
   /// Fires when the clustering changes (scan completed / approve / reject /
   /// rebuild), so the UI can re-query. Never fires in mock mode.
   Stream<void> get changes;
@@ -98,6 +102,9 @@ class MockFaceRepository implements FaceRepository {
 
   @override
   int namePerson(int personId, String name) => 0;
+
+  @override
+  int nameCluster(int clusterId, String name) => 0;
 
   @override
   Stream<void> get changes => const Stream<void>.empty();
@@ -174,6 +181,10 @@ class NativeFaceRepository implements FaceRepository {
   @override
   int namePerson(int personId, String name) =>
       _engine.namePerson(personId, name);
+
+  @override
+  int nameCluster(int clusterId, String name) =>
+      _engine.nameCluster(clusterId, name);
 
   @override
   Stream<void> get changes => _changes.stream;

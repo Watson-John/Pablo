@@ -168,6 +168,36 @@ uint64_t FaceService::reject(uint64_t /*cluster_id*/, uint64_t embedding_id) {
     return request_id;
 }
 
+uint64_t FaceService::name_cluster(int64_t cluster_id, const std::string& name) {
+    const uint64_t request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_->submit(kFaceLane, [this, request_id, cluster_id, name]() {
+        if (!ensure_models() || !store_ || !prototypes_) {
+            emit_cluster_updated(request_id);
+            return;
+        }
+        if (!name.empty()) {
+            std::lock_guard lk(store_mu_);
+            // Merge into an existing person with the same name, else create one.
+            int64_t person = -1;
+            for (const auto& p : store_->all_people()) {
+                if (p.name == name) { person = p.id; break; }
+            }
+            if (person < 0) person = store_->create_person();
+            store_->rename_person(person, name);
+            // Confirm every face in the cluster into that person.
+            for (const auto& f : store_->faces_for_cluster(cluster_id)) {
+                const Embedding v = store_->vectors().row(f.vec_row);
+                store_->set_person(f.id, person);
+                store_->set_cluster(f.id, person);
+                store_->set_confirmed(f.id, true);
+                prototypes_->add_confirmed(person, v);
+            }
+        }
+        emit_cluster_updated(request_id);
+    });
+    return request_id;
+}
+
 void FaceService::run_scan(uint64_t request_id, uint64_t asset_id, std::string path) {
 #if defined(PHOTO_HAVE_FACES) && defined(FACES_HAVE_ORT)
     if (!ensure_models() || !models_ok_) {

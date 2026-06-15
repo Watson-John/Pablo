@@ -130,6 +130,11 @@ class PeopleController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Promote an unconfirmed cluster into a named person (confirm-all + merge by
+  /// name). Async in the engine; the resulting clusterUpdated event re-queries.
+  void assignCluster(int clusterId, String name) =>
+      _repo.nameCluster(clusterId, name);
+
   int scan({required int assetId, required String path}) {
     registerAsset(assetId, path);
     return _repo.scan(assetId: assetId, path: path);

@@ -390,6 +390,16 @@ PHOTO_API uint64_t photo_face_reject(photo_engine_t* engine,
  */
 PHOTO_API uint64_t photo_cluster_rebuild(photo_engine_t* engine, uint32_t flags);
 
+/*
+ * Promote an unconfirmed cluster into a named person: confirms every face in
+ * `cluster_id` into a person named `name_utf8`, merging into an existing person
+ * of the same name or creating a new one. Runs in the idle lane; emits
+ * PHOTO_EVT_CLUSTER_UPDATED on completion. Returns a request id.
+ */
+PHOTO_API uint64_t photo_face_name_cluster(photo_engine_t* engine,
+                                           int64_t cluster_id,
+                                           const char* name_utf8);
+
 /* ------------------------------------------------------------------------- */
 /* Face read-back (UI queries) — synchronous, metadata only.                 */
 /*                                                                           */

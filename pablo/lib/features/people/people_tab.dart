@@ -5,6 +5,7 @@ import '../../components/avatar.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
 import 'face_thumb.dart';
 import 'people_controller.dart';
 import 'people_scope.dart';
@@ -58,7 +59,7 @@ class _PeopleTabState extends State<PeopleTab> {
   // ── Live: faces detected in this asset, from the pipeline ──────────────────
 
   Widget _liveBody(PeopleController pc) {
-    final assetId = widget.photoId.hashCode.abs();
+    final assetId = assetIdFor(widget.photoId);
     final faces = pc.facesForAsset(assetId);
     if (faces.isEmpty) {
       return _emptyState('No faces detected\nin this photo', PabloIconName.person);

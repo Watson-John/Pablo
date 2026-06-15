@@ -272,6 +272,24 @@ PHOTO_API uint64_t photo_cluster_rebuild(photo_engine_t* engine,
 #endif
 }
 
+PHOTO_API uint64_t photo_face_name_cluster(photo_engine_t* engine,
+                                           int64_t cluster_id,
+                                           const char* name_utf8) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try {
+        return cast(engine)->faces().name_cluster(
+            cluster_id, name_utf8 ? std::string(name_utf8) : std::string{});
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_name_cluster: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)cluster_id; (void)name_utf8;
+    return 0;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // Face read-back (UI queries). Each fills up to `cap` POD rows and returns the
 // total count available (mirrors photo_poll_events). Synchronous.

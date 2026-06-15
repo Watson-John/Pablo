@@ -268,6 +268,9 @@ typedef _ListFacesByIdDart =
 typedef _NamePersonC = Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
 typedef _NamePersonDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
 
+typedef _NameClusterC = Uint64 Function(Pointer<Void>, Int64, Pointer<Utf8>);
+typedef _NameClusterDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+
 // ---------------------------------------------------------------------------
 // EngineConfig (Dart-side, immutable)
 // ---------------------------------------------------------------------------
@@ -473,6 +476,19 @@ final class Engine {
     final p = name.toNativeUtf8();
     try {
       return _Bindings.namePerson(_handle, personId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Promote an unconfirmed cluster into a named person: confirms every face in
+  /// the cluster into a person named [name] (merging into an existing person of
+  /// the same name, else creating one). Returns a request id; emits
+  /// PHOTO_EVT_CLUSTER_UPDATED on completion.
+  int nameCluster(int clusterId, String name) {
+    final p = name.toNativeUtf8();
+    try {
+      return _Bindings.nameCluster(_handle, clusterId, p);
     } finally {
       calloc.free(p);
     }
@@ -743,4 +759,7 @@ final class _Bindings {
 
   static final _NamePersonDart namePerson = _dylib
       .lookupFunction<_NamePersonC, _NamePersonDart>('photo_face_name_person');
+
+  static final _NameClusterDart nameCluster = _dylib
+      .lookupFunction<_NameClusterC, _NameClusterDart>('photo_face_name_cluster');
 }

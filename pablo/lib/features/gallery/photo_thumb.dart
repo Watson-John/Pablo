@@ -8,6 +8,7 @@ import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
 import '../../backend/native_backend.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
 import 'native_asset_texture.dart';
 
 class PhotoThumb extends StatefulWidget {
@@ -249,12 +250,10 @@ class _ThumbBackdrop extends StatelessWidget {
       decoration: BoxDecoration(gradient: photo.gradient),
     );
     if (backend == null) return gradient;
-    // assetId is a stable per-photo number derived from the id string.
-    // Real asset ids come from the catalog in M5.
     return NativeAssetTexture(
       engine: backend.engine,
       events: backend.events,
-      assetId: photo.id.hashCode.abs(),
+      assetId: assetIdFor(photo.id),
       // Real file path drives the libvips decode; falls back to the synthetic
       // id (solid color) for gradient-mock photos.
       path: photo.filePath ?? photo.id,

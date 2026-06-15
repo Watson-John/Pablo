@@ -43,9 +43,18 @@ class _UnnamedFacesPageState extends State<UnnamedFacesPage> {
   }
 
   void _assign(String id, String name) {
-    if (name.trim().isEmpty) return;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    // Live: promote the cluster into a named person (confirm-all + merge). The
+    // clusterUpdated re-query drops it from listClusters; the overlay below
+    // shows it as "assigned" until then.
+    final pc = PeopleScope.read(context);
+    if (pc.isLive) {
+      final clusterId = PeopleController.nativeClusterId(id);
+      if (clusterId != null) pc.assignCluster(clusterId, trimmed);
+    }
     setState(() {
-      _names[id] = name;
+      _names[id] = trimmed;
       _assigned.add(id);
     });
   }
@@ -226,42 +235,40 @@ class _UnnamedFacesPageState extends State<UnnamedFacesPage> {
             ),
           ),
 
-          // Content
+          // Content — each tab is its own lazy CustomScrollView (cards, and the
+          // native texture slots their cover crops hold, build on demand).
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(PabloSpacing.xxl),
-              child: switch (_tab) {
-                _UnnamedTab.groups => _GroupsTab(
-                    active: activeClusters,
-                    done: assignedClusters,
-                    names: _names,
-                    coverOf: coverOf,
-                    onAssign: _assign,
-                    onIgnore: _toggleIgnore,
-                  ),
-                _UnnamedTab.unclustered => _UnclusteredTab(
-                    active: activeSolos,
-                    selectedIds: _selectedSolos,
-                    bulkCtl: _bulkCtl,
-                    onToggleSelect: _toggleSelectSolo,
-                    onBulkAssign: _bulkAssign,
-                    onBulkIgnore: _bulkIgnore,
-                    onIgnoreSolo: _toggleIgnoreSolo,
-                  ),
-                _UnnamedTab.ignored => _IgnoredTab(
-                    ignoredClusters: ignoredClusters,
-                    ignoredSolos: ignoredSolos,
-                    onRestoreCluster: _toggleIgnore,
-                    onRestoreSolo: _toggleIgnoreSolo,
-                    onRestoreAll: () {
-                      setState(() {
-                        _ignored.clear();
-                        _ignoredSolo.clear();
-                      });
-                    },
-                  ),
-              },
-            ),
+            child: switch (_tab) {
+              _UnnamedTab.groups => _GroupsTab(
+                  active: activeClusters,
+                  done: assignedClusters,
+                  names: _names,
+                  coverOf: coverOf,
+                  onAssign: _assign,
+                  onIgnore: _toggleIgnore,
+                ),
+              _UnnamedTab.unclustered => _UnclusteredTab(
+                  active: activeSolos,
+                  selectedIds: _selectedSolos,
+                  bulkCtl: _bulkCtl,
+                  onToggleSelect: _toggleSelectSolo,
+                  onBulkAssign: _bulkAssign,
+                  onBulkIgnore: _bulkIgnore,
+                  onIgnoreSolo: _toggleIgnoreSolo,
+                ),
+              _UnnamedTab.ignored => _IgnoredTab(
+                  ignoredClusters: ignoredClusters,
+                  ignoredSolos: ignoredSolos,
+                  onRestoreCluster: _toggleIgnore,
+                  onRestoreSolo: _toggleIgnoreSolo,
+                  onRestoreAll: () {
+                    setState(() {
+                      _ignored.clear();
+                      _ignoredSolo.clear();
+                    });
+                  },
+                ),
+            },
           ),
         ],
       ),
@@ -372,40 +379,49 @@ class _GroupsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Grouped by similarity. Type a name below each face — suggestions appear as you type. Click ✕ to ignore.',
-          style: PabloTypography.sans(
-            fontSize: 12,
-            color: PabloColors.textSecondary,
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(PabloSpacing.xxl, PabloSpacing.xxl,
+              PabloSpacing.xxl, PabloSpacing.xl),
+          sliver: SliverToBoxAdapter(
+            child: Text(
+              'Grouped by similarity. Type a name below each face — suggestions appear as you type. Click ✕ to ignore.',
+              style: PabloTypography.sans(
+                fontSize: 12,
+                color: PabloColors.textSecondary,
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: PabloSpacing.xl),
-        Wrap(
-          spacing: PabloSpacing.base,
-          runSpacing: PabloSpacing.base,
-          children: [
-            ...active.map((f) => _GroupCard(
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(
+              PabloSpacing.xxl, 0, PabloSpacing.xxl, PabloSpacing.xxl),
+          sliver: SliverGrid.builder(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 126,
+              mainAxisExtent: 152,
+              crossAxisSpacing: PabloSpacing.base,
+              mainAxisSpacing: PabloSpacing.base,
+            ),
+            itemCount: active.length + done.length,
+            itemBuilder: (context, i) {
+              final inActive = i < active.length;
+              final f = inActive ? active[i] : done[i - active.length];
+              return Align(
+                alignment: Alignment.topLeft,
+                child: _GroupCard(
                   key: ValueKey(f.id),
                   face: f,
-                  done: false,
+                  done: !inActive,
                   name: names[f.id],
                   cover: coverOf(f),
-                  onAssign: (n) => onAssign(f.id, n),
-                  onIgnore: () => onIgnore(f.id),
-                )),
-            ...done.map((f) => _GroupCard(
-                  key: ValueKey(f.id),
-                  face: f,
-                  done: true,
-                  name: names[f.id],
-                  cover: coverOf(f),
-                  onAssign: (_) {},
-                  onIgnore: () {},
-                )),
-          ],
+                  onAssign: inActive ? (n) => onAssign(f.id, n) : (_) {},
+                  onIgnore: inActive ? () => onIgnore(f.id) : () {},
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -583,93 +599,106 @@ class _UnclusteredTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: PabloSpacing.lg,
-            vertical: PabloSpacing.base,
+    final toolbar = Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: PabloSpacing.lg,
+        vertical: PabloSpacing.base,
+      ),
+      decoration: BoxDecoration(
+        color: PabloColors.backgroundSurfaceAlt,
+        border: Border.all(color: PabloColors.borderSubtle),
+        borderRadius: PabloRadius.lgAll,
+      ),
+      child: Row(
+        children: [
+          Text(
+            selectedIds.isNotEmpty
+                ? '${selectedIds.length} selected'
+                : 'Click to select · Ctrl+click multi',
+            style: PabloTypography.sans(
+              fontSize: 12,
+              fontWeight:
+                  selectedIds.isNotEmpty ? FontWeight.w600 : FontWeight.w400,
+              color: selectedIds.isNotEmpty
+                  ? PabloColors.accentPrimary
+                  : PabloColors.textMuted,
+            ),
           ),
-          decoration: BoxDecoration(
-            color: PabloColors.backgroundSurfaceAlt,
-            border: Border.all(color: PabloColors.borderSubtle),
-            borderRadius: PabloRadius.lgAll,
+          const SizedBox(width: PabloSpacing.base),
+          Expanded(
+            child: AutocompleteInput(
+              controller: bulkCtl,
+              placeholder: 'Assign name…',
+              onSubmit: (_) => onBulkAssign(),
+            ),
           ),
-          child: Row(
-            children: [
-              Text(
-                selectedIds.isNotEmpty
-                    ? '${selectedIds.length} selected'
-                    : 'Click to select · Ctrl+click multi',
-                style: PabloTypography.sans(
-                  fontSize: 12,
-                  fontWeight: selectedIds.isNotEmpty
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                  color: selectedIds.isNotEmpty
-                      ? PabloColors.accentPrimary
-                      : PabloColors.textMuted,
-                ),
-              ),
-              const SizedBox(width: PabloSpacing.base),
-              Expanded(
-                child: AutocompleteInput(
-                  controller: bulkCtl,
-                  placeholder: 'Assign name…',
-                  onSubmit: (_) => onBulkAssign(),
-                ),
-              ),
-              const SizedBox(width: PabloSpacing.base),
-              PabloButton(
-                label: '✓ Assign',
-                variant: PabloButtonVariant.success,
-                size: PabloButtonSize.xs,
-                onPressed:
-                    bulkCtl.text.trim().isNotEmpty && selectedIds.isNotEmpty
-                        ? onBulkAssign
-                        : null,
-                disabled:
-                    bulkCtl.text.trim().isEmpty || selectedIds.isEmpty,
-              ),
-              const SizedBox(width: PabloSpacing.sm),
-              PabloButton(
-                label: 'Ignore',
-                variant: PabloButtonVariant.danger,
-                size: PabloButtonSize.xs,
-                onPressed: selectedIds.isNotEmpty ? onBulkIgnore : null,
-                disabled: selectedIds.isEmpty,
-              ),
-            ],
+          const SizedBox(width: PabloSpacing.base),
+          PabloButton(
+            label: '✓ Assign',
+            variant: PabloButtonVariant.success,
+            size: PabloButtonSize.xs,
+            onPressed: bulkCtl.text.trim().isNotEmpty && selectedIds.isNotEmpty
+                ? onBulkAssign
+                : null,
+            disabled: bulkCtl.text.trim().isEmpty || selectedIds.isEmpty,
           ),
+          const SizedBox(width: PabloSpacing.sm),
+          PabloButton(
+            label: 'Ignore',
+            variant: PabloButtonVariant.danger,
+            size: PabloButtonSize.xs,
+            onPressed: selectedIds.isNotEmpty ? onBulkIgnore : null,
+            disabled: selectedIds.isEmpty,
+          ),
+        ],
+      ),
+    );
+
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(PabloSpacing.xxl, PabloSpacing.xxl,
+              PabloSpacing.xxl, PabloSpacing.xl),
+          sliver: SliverToBoxAdapter(child: toolbar),
         ),
-        const SizedBox(height: PabloSpacing.xl),
         if (active.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(28),
-            child: Center(
-              child: Text(
-                'All unclustered faces have been assigned or ignored.',
-                style: PabloTypography.sans(
-                  fontSize: 13,
-                  color: PabloColors.textMuted,
-                ).copyWith(fontStyle: FontStyle.italic),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Center(
+                child: Text(
+                  'All unclustered faces have been assigned or ignored.',
+                  style: PabloTypography.sans(
+                    fontSize: 13,
+                    color: PabloColors.textMuted,
+                  ).copyWith(fontStyle: FontStyle.italic),
+                ),
               ),
             ),
           )
         else
-          Wrap(
-            spacing: PabloSpacing.md,
-            runSpacing: PabloSpacing.md,
-            children: active.map((f) {
-              final sel = selectedIds.contains(f.id);
-              return _SoloCard(
-                face: f,
-                selected: sel,
-                onTap: (multi) => onToggleSelect(f.id, multi),
-                onIgnore: () => onIgnoreSolo(f.id),
-              );
-            }).toList(),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+                PabloSpacing.xxl, 0, PabloSpacing.xxl, PabloSpacing.xxl),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 88,
+                mainAxisExtent: 76,
+                crossAxisSpacing: PabloSpacing.md,
+                mainAxisSpacing: PabloSpacing.md,
+              ),
+              itemCount: active.length,
+              itemBuilder: (context, i) {
+                final f = active[i];
+                return _SoloCard(
+                  key: ValueKey(f.id),
+                  face: f,
+                  selected: selectedIds.contains(f.id),
+                  onTap: (multi) => onToggleSelect(f.id, multi),
+                  onIgnore: () => onIgnoreSolo(f.id),
+                );
+              },
+            ),
           ),
       ],
     );
@@ -678,6 +707,7 @@ class _UnclusteredTab extends StatelessWidget {
 
 class _SoloCard extends StatelessWidget {
   const _SoloCard({
+    super.key,
     required this.face,
     required this.selected,
     required this.onTap,
@@ -782,56 +812,76 @@ class _IgnoredTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final total = ignoredClusters.length + ignoredSolos.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final header = Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Ignored faces are excluded from your library.',
-                style: PabloTypography.sans(
-                  fontSize: 12,
-                  color: PabloColors.textSecondary,
-                ),
-              ),
+        Expanded(
+          child: Text(
+            'Ignored faces are excluded from your library.',
+            style: PabloTypography.sans(
+              fontSize: 12,
+              color: PabloColors.textSecondary,
             ),
-            if (total > 0)
-              PabloButton(
-                label: 'Restore All',
-                size: PabloButtonSize.xs,
-                onPressed: onRestoreAll,
-              ),
-          ],
+          ),
         ),
-        const SizedBox(height: PabloSpacing.xl),
+        if (total > 0)
+          PabloButton(
+            label: 'Restore All',
+            size: PabloButtonSize.xs,
+            onPressed: onRestoreAll,
+          ),
+      ],
+    );
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(PabloSpacing.xxl, PabloSpacing.xxl,
+              PabloSpacing.xxl, PabloSpacing.xl),
+          sliver: SliverToBoxAdapter(child: header),
+        ),
         if (total == 0)
-          Padding(
-            padding: const EdgeInsets.all(28),
-            child: Center(
-              child: Text(
-                'No ignored faces yet.',
-                style: PabloTypography.sans(
-                  fontSize: 13,
-                  color: PabloColors.textMuted,
-                ).copyWith(fontStyle: FontStyle.italic),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Center(
+                child: Text(
+                  'No ignored faces yet.',
+                  style: PabloTypography.sans(
+                    fontSize: 13,
+                    color: PabloColors.textMuted,
+                  ).copyWith(fontStyle: FontStyle.italic),
+                ),
               ),
             ),
           )
         else
-          Wrap(
-            spacing: PabloSpacing.base,
-            runSpacing: PabloSpacing.base,
-            children: [
-              ...ignoredClusters.map((f) => _IgnoredCard(
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(
+                PabloSpacing.xxl, 0, PabloSpacing.xxl, PabloSpacing.xxl),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 96,
+                mainAxisExtent: 116,
+                crossAxisSpacing: PabloSpacing.base,
+                mainAxisSpacing: PabloSpacing.base,
+              ),
+              itemCount: total,
+              itemBuilder: (context, i) {
+                final inClusters = i < ignoredClusters.length;
+                final f = inClusters
+                    ? ignoredClusters[i]
+                    : ignoredSolos[i - ignoredClusters.length];
+                return Align(
+                  alignment: Alignment.topLeft,
+                  child: _IgnoredCard(
+                    key: ValueKey(f.id),
                     face: f,
-                    onRestore: () => onRestoreCluster(f.id),
-                  )),
-              ...ignoredSolos.map((f) => _IgnoredCard(
-                    face: f,
-                    onRestore: () => onRestoreSolo(f.id),
-                  )),
-            ],
+                    onRestore: () => inClusters
+                        ? onRestoreCluster(f.id)
+                        : onRestoreSolo(f.id),
+                  ),
+                );
+              },
+            ),
           ),
       ],
     );
@@ -839,7 +889,7 @@ class _IgnoredTab extends StatelessWidget {
 }
 
 class _IgnoredCard extends StatelessWidget {
-  const _IgnoredCard({required this.face, required this.onRestore});
+  const _IgnoredCard({super.key, required this.face, required this.onRestore});
   final UnnamedFace face;
   final VoidCallback onRestore;
   @override
