@@ -32,9 +32,9 @@ BlazeFace placeholders (kept as fallbacks).
 
 | `model_id` | `file` | `purpose` | `inputs` | `outputs` | `license` | `commercial` | `source_url` | `sha256` | `added` |
 |---|---|---|---|---|---|---|---|---|---|
-| `scrfd_10g` | `scrfd_10g_bnkps.onnx` | detection (bbox + 5 landmarks) | `1x3xHxW float32, RGB, (x-127.5)/128` | strides 8/16/32: score + bbox + kps | Apache 2.0 (fal re-release) | true | https://huggingface.co/fal/AuraFace-v1 | TBD (LFS commit) | 2026-06-14 |
-| `auraface` | `auraface_glintr100.onnx` | 512-d face embedding | `1x3x112x112 float32, RGB, (x-127.5)/127.5` | `1x512 float32 (L2-normalize after)` | Apache 2.0 | true | https://huggingface.co/fal/AuraFace-v1 | TBD (LFS commit) | 2026-06-14 |
-| `sface` | `face_recognition_sface_2021dec.onnx` | 128-d embedding (lightweight fallback) | `1x3x112x112 BGR (alignCrop)` | `1x128 float32 (L2-normalize)` | Apache 2.0 | true | https://github.com/opencv/opencv_zoo | TBD | 2026-06-14 |
+| `scrfd_10g` | `scrfd_10g.onnx` | detection (bbox + 5 landmarks) | `1x3xHxW float32, RGB, (x-127.5)/128` | strides 8/16/32: score + bbox + kps | Apache 2.0 (fal re-release) | true | https://huggingface.co/fal/AuraFace-v1 | `5838f7fe053675b1c7a08b633df49e7af5495cee0493c7dcf6697200b85b5b91` | 2026-06-14 |
+| `auraface` | `auraface.onnx` | 512-d face embedding | `1x3x112x112 float32, RGB, (x-127.5)/127.5` | `1x512 float32 (L2-normalize after)` | Apache 2.0 | true | https://huggingface.co/fal/AuraFace-v1 | `a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60` | 2026-06-14 |
+| `sface` | `sface.onnx` | 128-d embedding (lightweight fallback) | `1x3x112x112 BGR (alignCrop)` | `1x128 float32 (L2-normalize)` | Apache 2.0 | true | https://github.com/opencv/opencv_zoo | `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79` | 2026-06-14 |
 | `blazeface_short` | `blazeface_short.onnx` | detection fallback (license-safe, recall untested) | `1x3x128x128 float32, [-1,1]` | anchors + scores | Apache 2.0 | true | https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/ (ONNX) | TBD | TBD |
 
 ### Bake-off results (the M7 cluster_replay decision, run early in `eval/`)
