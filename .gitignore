@@ -25,3 +25,4 @@ target/
 **/faces_db/
 **/crops/
 **/manifest.csv
+/.testdata/
