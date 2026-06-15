@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart';
 
 import '../../components/avatar.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
+import 'face_thumb.dart';
+import 'people_controller.dart';
+import 'people_scope.dart';
 
 class PeopleTab extends StatefulWidget {
   const PeopleTab({required this.photoId, super.key});
@@ -25,6 +29,8 @@ class _PeopleTabState extends State<PeopleTab> {
 
   @override
   Widget build(BuildContext context) {
+    final pc = PeopleScope.of(context);
+    if (pc.isLive) return _liveBody(pc);
     final confirmed = _people.where((p) => p.confirmed).toList();
     final unconfirmed = _people.where((p) => !p.confirmed).toList();
     if (_people.isEmpty) {
@@ -48,6 +54,149 @@ class _PeopleTabState extends State<PeopleTab> {
       ),
     );
   }
+
+  // ── Live: faces detected in this asset, from the pipeline ──────────────────
+
+  Widget _liveBody(PeopleController pc) {
+    final assetId = widget.photoId.hashCode.abs();
+    final faces = pc.facesForAsset(assetId);
+    if (faces.isEmpty) {
+      return _emptyState('No faces detected\nin this photo', PabloIconName.person);
+    }
+    final confirmed = faces.where((f) => f.confirmed).toList();
+    final unconfirmed = faces.where((f) => !f.confirmed).toList();
+    return Padding(
+      padding: const EdgeInsets.only(top: PabloSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (confirmed.isNotEmpty) ...[
+            _groupLabel('Confirmed', PabloColors.textMuted),
+            for (final f in confirmed)
+              _liveConfirmedRow(pc.personNameFor(f.personId) ?? 'Person ${f.personId}', f),
+          ],
+          if (unconfirmed.isNotEmpty) ...[
+            if (confirmed.isNotEmpty) const SizedBox(height: PabloSpacing.lg),
+            _groupLabel('Unconfirmed Suggestions', PabloColors.warningText),
+            for (final f in unconfirmed) _liveUnconfirmedRow(pc, f),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _liveConfirmedRow(String name, FaceRow f) => Container(
+        margin: const EdgeInsets.only(bottom: PabloSpacing.md),
+        padding: const EdgeInsets.symmetric(
+          horizontal: PabloSpacing.lg,
+          vertical: PabloSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: PabloColors.successBackground,
+          border: Border.all(color: PabloColors.successBorder),
+          borderRadius: PabloRadius.mdAll,
+        ),
+        child: Row(
+          children: [
+            FaceThumb(face: f, size: 26, borderRadius: BorderRadius.circular(13)),
+            const SizedBox(width: PabloSpacing.lg),
+            Expanded(
+              child: Text(
+                name,
+                overflow: TextOverflow.ellipsis,
+                style: PabloTypography.sans(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const Text('✓',
+                style: TextStyle(color: PabloColors.success, fontSize: 13)),
+          ],
+        ),
+      );
+
+  Widget _liveUnconfirmedRow(PeopleController pc, FaceRow f) => Container(
+        margin: const EdgeInsets.only(bottom: PabloSpacing.base),
+        padding: const EdgeInsets.all(PabloSpacing.md),
+        decoration: BoxDecoration(
+          color: PabloColors.warningBackground,
+          border: Border.all(color: PabloColors.warningBorder),
+          borderRadius: PabloRadius.mdAll,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                FaceThumb(
+                    face: f, size: 26, borderRadius: BorderRadius.circular(13)),
+                const SizedBox(width: PabloSpacing.base),
+                Expanded(
+                  child: Text(
+                    pc.tierOf(f) == FaceTier.high
+                        ? 'Likely match'
+                        : 'Possible match',
+                    style: PabloTypography.sans(
+                      fontSize: 12.5,
+                      color: PabloColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: PabloSpacing.base),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () =>
+                        pc.approve(clusterId: f.clusterId, faceId: f.faceId),
+                    child: Container(
+                      height: 26,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: PabloColors.assignGreen,
+                        borderRadius: PabloRadius.pillAll,
+                      ),
+                      child: Text(
+                        '✓ Confirm',
+                        style: PabloTypography.sans(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: PabloColors.textOnAccent,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: PabloSpacing.sm),
+                GestureDetector(
+                  onTap: () =>
+                      pc.reject(clusterId: f.clusterId, faceId: f.faceId),
+                  child: Container(
+                    width: 34,
+                    height: 26,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: PabloColors.ignoreRed,
+                      borderRadius: PabloRadius.pillAll,
+                    ),
+                    child: Text(
+                      '✕',
+                      style: PabloTypography.sans(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: PabloColors.textOnAccent,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
 
   Widget _groupLabel(String text, Color color) => Padding(
         padding: const EdgeInsets.only(bottom: PabloSpacing.base),

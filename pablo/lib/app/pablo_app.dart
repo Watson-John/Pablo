@@ -4,15 +4,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../backend/native_backend.dart';
 import '../components/context_menu.dart';
 import '../components/resize_handle.dart';
 import '../data/models.dart';
 import '../data/mock/photo_factory.dart';
+import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/photo_edit_panel.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/info_panel/info_panel.dart';
+import '../features/people/people_controller.dart';
+import '../features/people/people_scope.dart';
 import '../features/photo_tray/photo_tray.dart';
 import '../features/sidebar/sidebar.dart';
 import '../layouts/shell.dart';
@@ -30,6 +34,13 @@ class PabloApp extends StatefulWidget {
 
 class _PabloAppState extends State<PabloApp> {
   late final PabloAppState _state = PabloAppState();
+
+  /// People-feature state, derived from the native backend if one is mounted
+  /// above us (live), else the mock repository. Built here (not in main) so
+  /// the app — and widget tests that pump it directly — always has a
+  /// PeopleScope. Initialized in didChangeDependencies where the backend
+  /// InheritedWidget is reachable.
+  PeopleController? _people;
   Timer? _ticker;
 
   @override
@@ -42,8 +53,21 @@ class _PabloAppState extends State<PabloApp> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _people ??= () {
+      final backend = NativeBackendScope.maybeOf(context);
+      return PeopleController(
+        backend?.faces ?? const MockFaceRepository(),
+        engine: backend?.engine,
+      );
+    }();
+  }
+
+  @override
   void dispose() {
     _ticker?.cancel();
+    _people?.dispose();
     _state.dispose();
     super.dispose();
   }
@@ -56,7 +80,10 @@ class _PabloAppState extends State<PabloApp> {
       theme: buildPabloTheme(),
       home: AppScope(
         notifier: _state,
-        child: const _Home(),
+        child: PeopleScope(
+          notifier: _people!,
+          child: const _Home(),
+        ),
       ),
     );
   }

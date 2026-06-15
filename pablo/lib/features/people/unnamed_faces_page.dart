@@ -2,13 +2,16 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:photo_native/photo_native.dart';
 
 import '../../components/autocomplete_input.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import 'face_thumb.dart';
+import 'people_controller.dart';
+import 'people_scope.dart';
 
 enum _UnnamedTab { groups, unclustered, ignored }
 
@@ -109,17 +112,27 @@ class _UnnamedFacesPageState extends State<UnnamedFacesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final activeClusters = kUnnamedFaces
+    final pc = PeopleScope.of(context);
+    final clusters = pc.unnamedFaces();
+    // Live clusters come through listClusters; there's no separate "solo"
+    // (unclustered) concept, so that tab is mock-only.
+    final solos = pc.isLive ? const <UnnamedFace>[] : _solos;
+    FaceRow? coverOf(UnnamedFace f) {
+      final cid = PeopleController.nativeClusterId(f.id);
+      return cid == null ? null : pc.coverFace(cid);
+    }
+
+    final activeClusters = clusters
         .where((f) => !_ignored.contains(f.id) && !_assigned.contains(f.id))
         .toList();
     final assignedClusters =
-        kUnnamedFaces.where((f) => _assigned.contains(f.id)).toList();
+        clusters.where((f) => _assigned.contains(f.id)).toList();
     final ignoredClusters =
-        kUnnamedFaces.where((f) => _ignored.contains(f.id)).toList();
+        clusters.where((f) => _ignored.contains(f.id)).toList();
     final activeSolos =
-        _solos.where((f) => !_ignoredSolo.contains(f.id)).toList();
+        solos.where((f) => !_ignoredSolo.contains(f.id)).toList();
     final ignoredSolos =
-        _solos.where((f) => _ignoredSolo.contains(f.id)).toList();
+        solos.where((f) => _ignoredSolo.contains(f.id)).toList();
     final totalIgnored = ignoredClusters.length + ignoredSolos.length;
 
     final tabs = [
@@ -222,6 +235,7 @@ class _UnnamedFacesPageState extends State<UnnamedFacesPage> {
                     active: activeClusters,
                     done: assignedClusters,
                     names: _names,
+                    coverOf: coverOf,
                     onAssign: _assign,
                     onIgnore: _toggleIgnore,
                   ),
@@ -345,12 +359,14 @@ class _GroupsTab extends StatelessWidget {
     required this.active,
     required this.done,
     required this.names,
+    required this.coverOf,
     required this.onAssign,
     required this.onIgnore,
   });
   final List<UnnamedFace> active;
   final List<UnnamedFace> done;
   final Map<String, String> names;
+  final FaceRow? Function(UnnamedFace) coverOf;
   final void Function(String, String) onAssign;
   final ValueChanged<String> onIgnore;
 
@@ -375,6 +391,7 @@ class _GroupsTab extends StatelessWidget {
                   face: f,
                   done: false,
                   name: names[f.id],
+                  cover: coverOf(f),
                   onAssign: (n) => onAssign(f.id, n),
                   onIgnore: () => onIgnore(f.id),
                 )),
@@ -382,6 +399,7 @@ class _GroupsTab extends StatelessWidget {
                   face: f,
                   done: true,
                   name: names[f.id],
+                  cover: coverOf(f),
                   onAssign: (_) {},
                   onIgnore: () {},
                 )),
@@ -397,12 +415,14 @@ class _GroupCard extends StatefulWidget {
     required this.face,
     required this.done,
     required this.name,
+    required this.cover,
     required this.onAssign,
     required this.onIgnore,
   });
   final UnnamedFace face;
   final bool done;
   final String? name;
+  final FaceRow? cover;
   final ValueChanged<String> onAssign;
   final VoidCallback onIgnore;
 
@@ -453,14 +473,25 @@ class _GroupCardState extends State<_GroupCard> {
               aspectRatio: 1,
               child: Stack(
                 children: [
-                  Container(decoration: BoxDecoration(gradient: tile)),
-                  const Center(
-                    child: PabloIcon(
-                      PabloIconName.person,
-                      size: 28,
-                      color: PabloColors.tileGlyph,
+                  if (widget.cover != null)
+                    Positioned.fill(
+                      child: FaceThumb(
+                        face: widget.cover!,
+                        size: 110,
+                        borderRadius: BorderRadius.zero,
+                        hue: widget.face.hue,
+                      ),
+                    )
+                  else ...[
+                    Container(decoration: BoxDecoration(gradient: tile)),
+                    const Center(
+                      child: PabloIcon(
+                        PabloIconName.person,
+                        size: 28,
+                        color: PabloColors.tileGlyph,
+                      ),
                     ),
-                  ),
+                  ],
                   if (widget.done)
                     Positioned(
                       left: 0,
