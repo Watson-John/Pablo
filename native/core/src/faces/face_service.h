@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -30,6 +31,7 @@ class Detector;
 class Embedder;
 class FaceStore;
 class PrototypeIndex;
+struct FaceRecord;
 
 class FaceService {
 public:
@@ -72,6 +74,16 @@ public:
     static bool available();  // FACES_HAVE_ORT
 
 private:
+    // Allocate a request id, submit `fn(request_id)` on `lane`, and uniformly
+    // track the in-flight job in request_to_job_ (erasing on completion). Every
+    // submit_*/approve/reject/rebuild/name_cluster routes through this so the
+    // bookkeeping can't drift and a future cancel sees all of them.
+    uint64_t submit_face_job(int lane, std::function<void(uint64_t request_id)> fn);
+
+    // The single definition of "confirm a face into a person": link + mark
+    // confirmed + fold the embedding into the prototype. REQUIRES store_mu_ held.
+    void confirm_face_locked(const FaceRecord& f, int64_t person);
+
     void run_scan(uint64_t request_id, uint64_t asset_id, std::string path);
     void run_rebuild(uint64_t request_id);
     void emit_scan_progress(uint64_t request_id, uint64_t asset_id, int32_t status,

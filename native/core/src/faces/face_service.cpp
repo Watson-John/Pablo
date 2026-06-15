@@ -94,18 +94,13 @@ bool FaceService::ensure_models() {
     return models_ok_;
 }
 
-uint64_t FaceService::submit_scan(uint64_t asset_id, const char* path_utf8,
-                                  uint32_t flags) {
-    (void)flags;  // reserved (e.g. force-rescan); the pipeline runs on the idle lane.
+uint64_t FaceService::submit_face_job(int lane, std::function<void(uint64_t)> fn) {
     const uint64_t request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
-    std::string path = path_utf8 ? std::string(path_utf8) : std::string{};
-
-    auto handle = jobs_->submit(kFaceLane,
-        [this, request_id, asset_id, p = std::move(path)]() mutable {
-            run_scan(request_id, asset_id, std::move(p));
-            std::lock_guard lk(req_mu_);
-            request_to_job_.erase(request_id);
-        });
+    auto handle = jobs_->submit(lane, [this, request_id, fn = std::move(fn)]() mutable {
+        fn(request_id);
+        std::lock_guard lk(req_mu_);
+        request_to_job_.erase(request_id);
+    });
     {
         std::lock_guard lk(req_mu_);
         request_to_job_.emplace(request_id, handle.id);
@@ -113,46 +108,52 @@ uint64_t FaceService::submit_scan(uint64_t asset_id, const char* path_utf8,
     return request_id;
 }
 
+void FaceService::confirm_face_locked(const FaceRecord& f, int64_t person) {
+    const Embedding v = store_->vectors().row(f.vec_row);
+    store_->set_person(f.id, person);
+    store_->set_cluster(f.id, person);
+    store_->set_confirmed(f.id, true);
+    prototypes_->add_confirmed(person, v);
+}
+
+uint64_t FaceService::submit_scan(uint64_t asset_id, const char* path_utf8,
+                                  uint32_t flags) {
+    (void)flags;  // reserved (e.g. force-rescan); the pipeline runs on the idle lane.
+    std::string path = path_utf8 ? std::string(path_utf8) : std::string{};
+    return submit_face_job(kFaceLane,
+        [this, asset_id, p = std::move(path)](uint64_t request_id) mutable {
+            run_scan(request_id, asset_id, std::move(p));
+        });
+}
+
 uint64_t FaceService::rebuild_clusters(uint32_t /*flags*/) {
-    const uint64_t request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
-    auto handle = jobs_->submit(kFaceLane + 1,  // lowest priority
-        [this, request_id]() { run_rebuild(request_id); });
-    {
-        std::lock_guard lk(req_mu_);
-        request_to_job_.emplace(request_id, handle.id);
-    }
-    return request_id;
+    return submit_face_job(kFaceLane + 1,  // lowest priority
+        [this](uint64_t request_id) { run_rebuild(request_id); });
 }
 
 uint64_t FaceService::approve(uint64_t /*cluster_id*/, uint64_t embedding_id) {
     // Confirm a face's membership: fold its embedding into the person prototype
-    // and persist the person link. cluster_id maps to a person; for the scaffold
-    // we treat the cluster_id as the person_id (1:1 until split/merge UI lands).
-    const uint64_t request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
-    jobs_->submit(kFaceLane, [this, request_id, embedding_id]() {
-        if (!ensure_models() || !store_ || !prototypes_) return;
-        {
+    // and persist the person link. NOTE: cluster_id is currently IGNORED — the
+    // face is confirmed into its own stored person_id (1:1 person<->cluster
+    // scaffold), creating a person if it had none.
+    return submit_face_job(kFaceLane, [this, embedding_id](uint64_t request_id) {
+        if (ensure_models() && store_ && prototypes_) {
             std::lock_guard lk(store_mu_);
             if (auto f = store_->face_by_id(static_cast<int64_t>(embedding_id))) {
-                const Embedding v = store_->vectors().row(f->vec_row);
                 int64_t person = f->person_id;
                 if (person < 0) person = store_->create_person();
-                store_->set_person(f->id, person);
-                store_->set_cluster(f->id, person);
-                store_->set_confirmed(f->id, true);
-                prototypes_->add_confirmed(person, v);
+                confirm_face_locked(*f, person);
             }
         }
         emit_cluster_updated(request_id);
     });
-    return request_id;
 }
 
 uint64_t FaceService::reject(uint64_t /*cluster_id*/, uint64_t embedding_id) {
-    const uint64_t request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
-    jobs_->submit(kFaceLane, [this, request_id, embedding_id]() {
-        if (!ensure_models() || !store_ || !prototypes_) return;
-        {
+    // NOTE: cluster_id is currently IGNORED — reject clears the face's own
+    // person link (mirrors approve's scaffold semantics).
+    return submit_face_job(kFaceLane, [this, embedding_id](uint64_t request_id) {
+        if (ensure_models() && store_ && prototypes_) {
             std::lock_guard lk(store_mu_);
             if (auto f = store_->face_by_id(static_cast<int64_t>(embedding_id))) {
                 if (f->person_id >= 0 && f->confirmed) {
@@ -165,37 +166,21 @@ uint64_t FaceService::reject(uint64_t /*cluster_id*/, uint64_t embedding_id) {
         }
         emit_cluster_updated(request_id);
     });
-    return request_id;
 }
 
 uint64_t FaceService::name_cluster(int64_t cluster_id, const std::string& name) {
-    const uint64_t request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
-    jobs_->submit(kFaceLane, [this, request_id, cluster_id, name]() {
-        if (!ensure_models() || !store_ || !prototypes_) {
-            emit_cluster_updated(request_id);
-            return;
-        }
-        if (!name.empty()) {
+    return submit_face_job(kFaceLane, [this, cluster_id, name](uint64_t request_id) {
+        if (ensure_models() && store_ && prototypes_ && !name.empty()) {
             std::lock_guard lk(store_mu_);
-            // Merge into an existing person with the same name, else create one.
-            int64_t person = -1;
-            for (const auto& p : store_->all_people()) {
-                if (p.name == name) { person = p.id; break; }
-            }
-            if (person < 0) person = store_->create_person();
-            store_->rename_person(person, name);
+            // Merge into an existing person of the same name, else create one.
+            const int64_t person = store_->find_or_create_person(name);
             // Confirm every face in the cluster into that person.
             for (const auto& f : store_->faces_for_cluster(cluster_id)) {
-                const Embedding v = store_->vectors().row(f.vec_row);
-                store_->set_person(f.id, person);
-                store_->set_cluster(f.id, person);
-                store_->set_confirmed(f.id, true);
-                prototypes_->add_confirmed(person, v);
+                confirm_face_locked(f, person);
             }
         }
         emit_cluster_updated(request_id);
     });
-    return request_id;
 }
 
 void FaceService::run_scan(uint64_t request_id, uint64_t asset_id, std::string path) {

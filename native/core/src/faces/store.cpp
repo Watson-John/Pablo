@@ -275,6 +275,17 @@ int64_t FaceStore::create_person() {
     return sqlite3_last_insert_rowid(db_);
 }
 
+int64_t FaceStore::find_or_create_person(const std::string& name) {
+    if (!name.empty()) {
+        Stmt q(db_, "SELECT id FROM person WHERE name=? LIMIT 1");
+        q.bind(1, name);
+        if (q.step()) return q.col_int(0);
+    }
+    const int64_t id = create_person();
+    rename_person(id, name);
+    return id;
+}
+
 void FaceStore::rename_person(int64_t person_id, const std::string& name) {
     Stmt q(db_, "UPDATE person SET name=? WHERE id=?");
     q.bind(1, name).bind(2, person_id).run();
@@ -330,6 +341,7 @@ std::vector<FaceRecord> FaceStore::faces_for_person(int64_t, bool) const { retur
 std::vector<FaceStore::ClusterSummary> FaceStore::unconfirmed_clusters() const { return {}; }
 int64_t FaceStore::cover_face_for_person(int64_t) const { return -1; }
 int64_t FaceStore::create_person() { return -1; }
+int64_t FaceStore::find_or_create_person(const std::string&) { return -1; }
 void FaceStore::rename_person(int64_t, const std::string&) {}
 void FaceStore::set_person_count(int64_t, int32_t, int32_t) {}
 std::vector<Person> FaceStore::all_people() const { return {}; }

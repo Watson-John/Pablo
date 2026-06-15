@@ -82,6 +82,9 @@ public:
 
     // --- people ---
     int64_t create_person();                         // returns new person id
+    // Returns the id of the (first) person with this exact name, creating and
+    // naming a new person if none exists. An empty name always creates a new one.
+    int64_t find_or_create_person(const std::string& name);
     void rename_person(int64_t person_id, const std::string& name);
     void set_person_count(int64_t person_id, int32_t total, int32_t confirmed);
     std::vector<Person> all_people() const;
