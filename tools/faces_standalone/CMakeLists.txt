@@ -10,8 +10,10 @@
 #   cmake -S tools/faces_standalone -B build/faces -DCMAKE_BUILD_TYPE=Release
 # Build:
 #   cmake --build build/faces -j
-# Run:
-#   ./build/faces/faces_probe <models_dir> <test_db_dir>
+# Run (reproducible from the repo: vendored LFS models + the gitignored
+# .testdata snapshot; full-res additionally needs the X9 Pro drive mounted):
+#   ./build/faces/faces_probe native/models .testdata/full_db 15 8
+#   ./build/faces/faces_probe fullres native/models .testdata/full_db/faces.tsv 120
 
 cmake_minimum_required(VERSION 3.27)
 project(faces_standalone CXX)

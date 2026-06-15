@@ -9,7 +9,11 @@
 //   (list_clusters / list_cluster_faces / list_people / approve), confirming
 //   the clusters recover the ground-truth people.
 //
-// Usage: faces_probe <models_dir> <test_db_dir> [faces_per_person] [num_people]
+// Usage (reproducible from the repo root after building):
+//   faces_probe <models_dir> <test_db_dir> [faces_per_person] [num_people]
+//   faces_probe fullres <models_dir> <faces.tsv> [maxImages]
+// e.g. faces_probe native/models .testdata/full_db 15 8
+// Models are the canonical vendored names (native/models/{scrfd_10g,auraface}.onnx).
 
 #include <algorithm>
 #include <chrono>
@@ -92,8 +96,8 @@ struct GtFace { std::string person; Box box; };
 // originals, driven by a TSV of ground-truth boxes (image \t person \t
 // x1 \t y1 \t x2 \t y2, grouped by image).
 int run_fullres(const fs::path& models, const fs::path& tsv, int maxImages) {
-    const fs::path scrfd = models / "scrfd_10g_bnkps.onnx";
-    const fs::path aura = models / "auraface_glintr100.onnx";
+    const fs::path scrfd = models / "scrfd_10g.onnx";
+    const fs::path aura = models / "auraface.onnx";
     std::printf("=== faces_probe : FULL-RES ===\n models=%s\n tsv=%s  maxImages=%d\n",
                 models.c_str(), tsv.c_str(), maxImages);
 
@@ -229,8 +233,8 @@ int main(int argc, char** argv) {
     const int per = argc > 3 ? std::atoi(argv[3]) : 8;
     const int people = argc > 4 ? std::atoi(argv[4]) : 3;
 
-    const fs::path scrfd = models / "scrfd_10g_bnkps.onnx";
-    const fs::path aura = models / "auraface_glintr100.onnx";
+    const fs::path scrfd = models / "scrfd_10g.onnx";
+    const fs::path aura = models / "auraface.onnx";
 
     std::printf("=== faces_probe ===\n");
     std::printf("models=%s\n db=%s  per=%d people=%d\n", models.c_str(), db.c_str(), per, people);
