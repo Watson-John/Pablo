@@ -36,6 +36,12 @@ abstract interface class FaceRepository {
   /// Faces detected in one asset (info-panel People tab).
   List<FaceRow> facesForAsset(int assetId);
 
+  /// A person's confirmed faces (highest quality first). Empty in mock mode.
+  List<FaceRow> confirmedFacesForPerson(int personId);
+
+  /// Display name for a person id, or null if not found / unnamed.
+  String? personName(int personId);
+
   /// Confirm a face into a cluster/person. Returns a request id (0 in mock).
   int approve({required int clusterId, required int faceId});
 
@@ -44,6 +50,10 @@ abstract interface class FaceRepository {
 
   /// Schedule a face scan for an asset by path. Returns a request id.
   int scan({required int assetId, required String path});
+
+  /// Re-cluster all unconfirmed faces (full recompute). Returns a request id
+  /// (0 in mock).
+  int rebuildClusters();
 
   /// Name (or rename) a person. Returns a photo_status_t (0 == OK).
   int namePerson(int personId, String name);
@@ -92,6 +102,12 @@ class MockFaceRepository implements FaceRepository {
   List<FaceRow> facesForAsset(int assetId) => const [];
 
   @override
+  List<FaceRow> confirmedFacesForPerson(int personId) => const [];
+
+  @override
+  String? personName(int personId) => null;
+
+  @override
   int approve({required int clusterId, required int faceId}) => 0;
 
   @override
@@ -99,6 +115,9 @@ class MockFaceRepository implements FaceRepository {
 
   @override
   int scan({required int assetId, required String path}) => 0;
+
+  @override
+  int rebuildClusters() => 0;
 
   @override
   int namePerson(int personId, String name) => 0;
@@ -167,6 +186,27 @@ class NativeFaceRepository implements FaceRepository {
       _engine.listFacesForAsset(assetId);
 
   @override
+  List<FaceRow> confirmedFacesForPerson(int personId) {
+    for (final p in _engine.listPeople()) {
+      if (p.personId == personId) {
+        return _engine
+            .listClusterFaces(p.clusterId)
+            .where((f) => f.confirmed)
+            .toList();
+      }
+    }
+    return const [];
+  }
+
+  @override
+  String? personName(int personId) {
+    for (final p in _engine.listPeople()) {
+      if (p.personId == personId) return p.name.isEmpty ? null : p.name;
+    }
+    return null;
+  }
+
+  @override
   int approve({required int clusterId, required int faceId}) =>
       _engine.approveFace(clusterId: clusterId, embeddingId: faceId);
 
@@ -177,6 +217,9 @@ class NativeFaceRepository implements FaceRepository {
   @override
   int scan({required int assetId, required String path}) =>
       _engine.scanFacePath(assetId: assetId, path: path);
+
+  @override
+  int rebuildClusters() => _engine.rebuildClusters();
 
   @override
   int namePerson(int personId, String name) =>

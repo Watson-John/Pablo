@@ -64,10 +64,7 @@ class _PabloAppState extends State<PabloApp> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final backend = NativeBackendScope.maybeOf(context);
-    _people ??= PeopleController(
-      backend?.faces ?? const MockFaceRepository(),
-      engine: backend?.engine,
-    );
+    _people ??= PeopleController(backend?.faces ?? const MockFaceRepository());
     if (_autoScan &&
         !_autoScanned &&
         backend != null &&

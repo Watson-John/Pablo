@@ -2,10 +2,10 @@
 //
 // A thin reactive wrapper over [FaceRepository]. It owns the repo, re-emits
 // the repo's `changes` stream as ChangeNotifier notifications (so the People
-// views re-query when clustering updates), and adds the helpers the widgets
-// need: native-id parsing, a quality→confidence tier, a person→cluster lookup,
-// and an assetId→path registry the ingestion run populates so [FaceThumb] can
-// resolve pixels for a face row.
+// views re-query when clustering updates), and adds the small view-side helpers
+// the widgets need: native-id parsing and a quality→confidence tier. All face
+// data and mutations go through the repo (the single seam); the ingestion-fed
+// asset path/dims cache lives in a separate [AssetRegistry].
 //
 // Mock vs. live: in mock mode the repo returns the kPeople / kUnnamedFaces
 // rows and `changes` never fires, so widgets keep their existing local-state
@@ -20,6 +20,7 @@ import 'package:photo_native/photo_native.dart';
 import '../../data/models.dart';
 import '../../data/sources/face_repository.dart';
 import '../../utils/image_dims.dart';
+import 'asset_registry.dart';
 
 /// Legacy mockup figure for the sidebar Unnamed Faces count — kept so the
 /// default (mock) app is pixel-identical to before the integration.
@@ -33,25 +34,17 @@ const double kQualityHighCutoff = 0.6;
 enum FaceTier { high, low }
 
 class PeopleController extends ChangeNotifier {
-  PeopleController(this._repo, {Engine? engine}) : _engine = engine {
+  PeopleController(this._repo) {
     _sub = _repo.changes.listen((_) => notifyListeners());
   }
 
   final FaceRepository _repo;
-
-  /// Live engine, used only for the few raw queries the repo doesn't expose
-  /// (mapping a person to its representative cluster). Null in mock mode.
-  final Engine? _engine;
-
   StreamSubscription<void>? _sub;
 
-  /// assetId → file path, populated by the ingestion run (see [FaceIngestion])
-  /// so [FaceThumb] can request a thumbnail for a [FaceRow]'s asset.
-  final Map<int, String> _assetPaths = {};
-
-  /// assetId → source image dimensions. Face boxes are in source pixels
-  /// ([FaceRow.boxX] etc.), so FaceThumb needs these to normalize the crop.
-  final Map<int, ImageDims> _assetDims = {};
+  /// assetId → path/dims, populated by the ingestion run (see [FaceIngestion])
+  /// and read by [FaceThumb]. Kept separate so the controller stays a pure
+  /// reactive facade over face data.
+  final AssetRegistry _assets = AssetRegistry();
 
   bool get isLive => _repo.isLive;
 
@@ -90,30 +83,11 @@ class PeopleController extends ChangeNotifier {
   List<FaceRow> facesForAsset(int assetId) => _repo.facesForAsset(assetId);
 
   /// Display name for a confirmed person id, or null if not found/unnamed.
-  String? personNameFor(int personId) {
-    for (final p in people()) {
-      if (nativePersonId(p.id) == personId) {
-        return p.name == 'Unnamed' ? null : p.name;
-      }
-    }
-    return null;
-  }
+  String? personNameFor(int personId) => _repo.personName(personId);
 
-  /// A person's confirmed faces, via the engine's person→cluster mapping.
-  /// Empty in mock mode (no engine).
-  List<FaceRow> confirmedFacesForPerson(int personId) {
-    final engine = _engine;
-    if (engine == null) return const [];
-    int clusterId = -1;
-    for (final fp in engine.listPeople()) {
-      if (fp.personId == personId) {
-        clusterId = fp.clusterId;
-        break;
-      }
-    }
-    if (clusterId < 0) return const [];
-    return facesInCluster(clusterId).where((f) => f.confirmed).toList();
-  }
+  /// A person's confirmed faces. Empty in mock mode.
+  List<FaceRow> confirmedFacesForPerson(int personId) =>
+      _repo.confirmedFacesForPerson(personId);
 
   // ── Mutations (live; no-ops in mock since the repo returns 0) ──────────────
 
@@ -141,22 +115,17 @@ class PeopleController extends ChangeNotifier {
   }
 
   /// Re-cluster all unconfirmed faces (full recompute on the idle lane).
-  /// No-op without a live engine.
-  int rebuildClusters() => _engine?.rebuildClusters() ?? 0;
+  /// No-op (0) in mock mode.
+  int rebuildClusters() => _repo.rebuildClusters();
 
-  // ── Asset registry (populated by ingestion) ────────────────────────────────
+  // ── Asset registry (populated by ingestion, read by FaceThumb) ─────────────
 
-  /// Records the path and (header-parsed) source dimensions for an asset so
-  /// FaceThumb can resolve pixels and normalize source-pixel face boxes.
-  void registerAsset(int assetId, String path) {
-    _assetPaths[assetId] = path;
-    final dims = readImageDimensions(path);
-    if (dims != null) _assetDims[assetId] = dims;
-  }
+  void registerAsset(int assetId, String path) =>
+      _assets.register(assetId, path);
 
-  String? assetPath(int assetId) => _assetPaths[assetId];
+  String? assetPath(int assetId) => _assets.path(assetId);
 
-  ImageDims? assetDims(int assetId) => _assetDims[assetId];
+  ImageDims? assetDims(int assetId) => _assets.dims(assetId);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
