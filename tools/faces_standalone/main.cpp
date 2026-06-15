@@ -92,6 +92,70 @@ float iou(const Box& a, const Box& b) {
 
 struct GtFace { std::string person; Box box; };
 
+// Parse a ground-truth TSV (image \t person \t x1 \t y1 \t x2 \t y2), grouping
+// faces by image and preserving first-seen image order. Returns false on open.
+bool parseGtTsv(const fs::path& tsv, std::vector<std::string>& order,
+                std::map<std::string, std::vector<GtFace>>& byImage) {
+    FILE* f = std::fopen(tsv.string().c_str(), "r");
+    if (!f) return false;
+    char* line = nullptr; size_t cap = 0; ssize_t len;
+    while ((len = getline(&line, &cap, f)) != -1) {
+        std::string s(line, len > 0 && line[len - 1] == '\n' ? len - 1 : len);
+        std::vector<std::string> col; size_t p = 0;
+        while (true) { size_t t = s.find('\t', p); col.push_back(s.substr(p, t - p));
+                       if (t == std::string::npos) break; p = t + 1; }
+        if (col.size() < 6) continue;
+        const float x1 = std::atof(col[2].c_str()), y1 = std::atof(col[3].c_str());
+        const float x2 = std::atof(col[4].c_str()), y2 = std::atof(col[5].c_str());
+        if (byImage.find(col[0]) == byImage.end()) order.push_back(col[0]);
+        byImage[col[0]].push_back({col[1], Box{x1, y1, x2 - x1, y2 - y1}});
+    }
+    std::free(line); std::fclose(f);
+    return true;
+}
+
+// Snapshot mode: transcode the first `maxImages` source images referenced by
+// `inTsv` to full-resolution JPEG (detection-lossless, ~15x smaller than the
+// TIFFs, dimensions unchanged so the boxes stay valid) into `outDir`, and write
+// a parallel `outTsv` pointing at the local copies. Run once with the drive
+// mounted; afterwards full-res validation needs only the local snapshot.
+int run_snapshot(const fs::path& inTsv, const fs::path& outDir, const fs::path& outTsv,
+                 int maxImages, int quality) {
+    std::vector<std::string> order;
+    std::map<std::string, std::vector<GtFace>> byImage;
+    if (!parseGtTsv(inTsv, order, byImage)) { std::printf("cannot open %s\n", inTsv.c_str()); return 2; }
+    std::error_code ec; fs::create_directories(outDir, ec);
+    FILE* out = std::fopen(outTsv.string().c_str(), "w");
+    if (!out) { std::printf("cannot write %s\n", outTsv.c_str()); return 2; }
+    std::printf("=== faces_probe : SNAPSHOT ===\n in=%s\n out=%s (q%d)\n maxImages=%d\n",
+                inTsv.c_str(), outDir.c_str(), quality, maxImages);
+    int idx = 0, written = 0; size_t bytes = 0;
+    const std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, quality};
+    for (const auto& img : order) {
+        if (idx >= maxImages) break;
+        ++idx;
+        cv::Mat bgr = cv::imread(img, cv::IMREAD_COLOR);
+        if (bgr.empty()) { std::printf("  [unreadable] %s\n", img.c_str()); continue; }
+        char name[32]; std::snprintf(name, sizeof(name), "img_%05d.jpg", idx);
+        const fs::path dst = outDir / name;
+        if (!cv::imwrite(dst.string(), bgr, params)) {
+            std::printf("  [imwrite failed] %s\n", dst.c_str()); continue;
+        }
+        for (const auto& gt : byImage[img])
+            std::fprintf(out, "%s\t%s\t%.1f\t%.1f\t%.1f\t%.1f\n", dst.string().c_str(),
+                         gt.person.c_str(), gt.box.x, gt.box.y,
+                         gt.box.x + gt.box.w, gt.box.y + gt.box.h);
+        bytes += size_t(fs::file_size(dst, ec));
+        ++written;
+        if (written % 25 == 0) { std::printf("  ...%d images, %.0f MB\n", written, bytes / 1e6);
+                                 std::fflush(stdout); }
+    }
+    std::fclose(out);
+    std::printf("snapshot: %d images, %.0f MB -> %s\n  tsv -> %s\n",
+                written, bytes / 1e6, outDir.c_str(), outTsv.c_str());
+    return written > 0 ? 0 : 1;
+}
+
 // Part C: detection recall + in-context clustering against the full-res
 // originals, driven by a TSV of ground-truth boxes (image \t person \t
 // x1 \t y1 \t x2 \t y2, grouped by image).
@@ -104,27 +168,9 @@ int run_fullres(const fs::path& models, const fs::path& tsv, int maxImages) {
     Detector det(scrfd.string(), 0.5f, 0.45f);
     Embedder emb(aura.string(), 127.5f, 127.5f);
 
-    // Parse TSV grouped by image, preserving file order.
     std::vector<std::string> order;
     std::map<std::string, std::vector<GtFace>> byImage;
-    {
-        FILE* f = std::fopen(tsv.string().c_str(), "r");
-        if (!f) { std::printf("cannot open tsv\n"); return 2; }
-        char* line = nullptr; size_t cap = 0; ssize_t len;
-        while ((len = getline(&line, &cap, f)) != -1) {
-            std::string s(line, len > 0 && line[len - 1] == '\n' ? len - 1 : len);
-            // split on tabs: img, person, x1,y1,x2,y2
-            std::vector<std::string> col; size_t p = 0;
-            while (true) { size_t t = s.find('\t', p); col.push_back(s.substr(p, t - p));
-                           if (t == std::string::npos) break; p = t + 1; }
-            if (col.size() < 6) continue;
-            const float x1 = std::atof(col[2].c_str()), y1 = std::atof(col[3].c_str());
-            const float x2 = std::atof(col[4].c_str()), y2 = std::atof(col[5].c_str());
-            if (byImage.find(col[0]) == byImage.end()) order.push_back(col[0]);
-            byImage[col[0]].push_back({col[1], Box{x1, y1, x2 - x1, y2 - y1}});
-        }
-        std::free(line); std::fclose(f);
-    }
+    if (!parseGtTsv(tsv, order, byImage)) { std::printf("cannot open tsv\n"); return 2; }
     std::printf("ground truth: %zu faces across %zu images\n",
                 [&] { size_t n = 0; for (auto& kv : byImage) n += kv.second.size(); return n; }(),
                 order.size());
@@ -227,6 +273,13 @@ int main(int argc, char** argv) {
         if (argc < 4) { std::printf("usage: %s fullres <models_dir> <faces.tsv> [maxImages]\n",
                                     argv[0]); return 2; }
         return run_fullres(argv[2], argv[3], argc > 4 ? std::atoi(argv[4]) : 150);
+    }
+    if (std::string(argv[1]) == "snapshot") {
+        if (argc < 5) { std::printf("usage: %s snapshot <in.tsv> <out_dir> <out.tsv> "
+                                    "[maxImages=120] [jpegQ=92]\n", argv[0]); return 2; }
+        return run_snapshot(argv[2], argv[3], argv[4],
+                            argc > 5 ? std::atoi(argv[5]) : 120,
+                            argc > 6 ? std::atoi(argv[6]) : 92);
     }
     const fs::path models = argv[1];
     const fs::path db = argv[2];

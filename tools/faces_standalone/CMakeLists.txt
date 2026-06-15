@@ -11,9 +11,14 @@
 # Build:
 #   cmake --build build/faces -j
 # Run (reproducible from the repo: vendored LFS models + the gitignored
-# .testdata snapshot; full-res additionally needs the X9 Pro drive mounted):
+# .testdata snapshot — no external drive needed):
 #   ./build/faces/faces_probe native/models .testdata/full_db 15 8
-#   ./build/faces/faces_probe fullres native/models .testdata/full_db/faces.tsv 120
+#   ./build/faces/faces_probe fullres native/models .testdata/full_db/faces_fullres_local.tsv 120
+#
+# Regenerate the full-res local snapshot (one-time, needs the X9 Pro drive
+# mounted; transcodes originals -> full-res JPEG into the gitignored .testdata):
+#   ./build/faces/faces_probe snapshot .testdata/full_db/faces.tsv \
+#       .testdata/full_res .testdata/full_db/faces_fullres_local.tsv 120
 
 cmake_minimum_required(VERSION 3.27)
 project(faces_standalone CXX)
