@@ -48,6 +48,25 @@ The full architectural plan lives at [`/Users/johnwatson/.claude/plans/what-are-
 
 **Revisit trigger:** if M7 spot-check accuracy on 100 hand-labeled images is below 85% precision, evaluate (a) a different permissive embedder, (b) fine-tuning the embedder on a commercial-clean dataset, or (c) the InsightFace commercial license as a fallback.
 
+**Amendment (2026-06-14) — embedder resolved, detector revised.** The cluster_replay
+A/B bake-off D2 deferred to M7 was built early as the standalone `eval/` harness
+(branch `feat/face-ingestion`) and run on the real dogfood library (1,243
+Picasa-labeled faces). Results updated [native/models/MANIFEST.md](native/models/MANIFEST.md):
+
+- **Embedder = `auraface`** (fal/AuraFace-v1, Apache-2.0, ResNet100 ArcFace, 512-d):
+  the commercial-clean ArcFace D2 wanted but believed unavailable. Ceiling-level
+  (AUC 0.974, cluster F1 0.96 with a label-trained projection head); supersedes the
+  FaceNet placeholder. `sface` (Apache, 128-d) is the CPU/speed fallback.
+- **Detector = `scrfd_10g`** via fal's Apache-2.0 AuraFace re-release: 97.7% recall
+  vs BlazeFace's untested/likely-lower (and YuNet's 70.7%) on scanned photos —
+  detection was the dominant bottleneck. **Licensing basis:** InsightFace *code* is
+  MIT; the SCRFD weights are redistributed by fal (a commercial vendor) under
+  Apache-2.0. Owner accepts this basis (2026-06-14). Risk if fal's relicensing is
+  later found invalid: swap to BlazeFace (kept as a fallback in the MANIFEST).
+- **Clustering = agglomerative** (avg-linkage, cosine), grid-search winner
+  (F1 0.94 ± 0.03 over 5-seed CV; beat HDBSCAN/Leiden/Infomap/DBSCAN/Chinese-Whispers
+  at personal-library scale). Per-person prototype + suggest-and-confirm UX retained.
+
 ---
 
 ## D3. Windows ML provider — WinML preferred, DirectML fallback
