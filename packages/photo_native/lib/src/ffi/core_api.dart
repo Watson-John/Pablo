@@ -41,6 +41,15 @@ abstract final class Priority {
   static const int idle = 2;
 }
 
+/// photo_provider_t mirror (for [Engine.probeProvider]).
+abstract final class Provider {
+  static const int cpu = 0;
+  static const int coreml = 1;
+  static const int directml = 2;
+  static const int winml = 3;
+  static const int cuda = 4;
+}
+
 // ---------------------------------------------------------------------------
 // photo_config_t mirror — kept POD-compatible with the C struct
 // ---------------------------------------------------------------------------
@@ -169,6 +178,27 @@ typedef _ThumbRequestFastDart = int Function(
 
 typedef _ThumbCancelC = Void Function(Pointer<Void>, Uint64);
 typedef _ThumbCancelDart = void Function(Pointer<Void>, int);
+
+// M6/M7 — face pipeline. Async: each returns a non-zero request id and
+// reports completion via PHOTO_EVT_SCAN_PROGRESS / PHOTO_EVT_CLUSTER_UPDATED.
+typedef _FaceScanC = Uint64 Function(Pointer<Void>, Uint64, Uint32);
+typedef _FaceScanDart = int Function(Pointer<Void>, int, int);
+
+// TEST-ONLY: scan by explicit path, bypassing the (not-yet-built) catalog
+// asset lookup. Mirrors photo_face_scan_path in c_api.cpp.
+typedef _FaceScanPathC =
+    Uint64 Function(Pointer<Void>, Uint64, Pointer<Utf8>, Uint32);
+typedef _FaceScanPathDart =
+    int Function(Pointer<Void>, int, Pointer<Utf8>, int);
+
+typedef _FaceApproveC = Uint64 Function(Pointer<Void>, Uint64, Uint64);
+typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
+
+typedef _ClusterRebuildC = Uint64 Function(Pointer<Void>, Uint32);
+typedef _ClusterRebuildDart = int Function(Pointer<Void>, int);
+
+typedef _ProviderProbeC = Int32 Function(Pointer<Void>, Int32);
+typedef _ProviderProbeDart = int Function(Pointer<Void>, int);
 
 // ---------------------------------------------------------------------------
 // EngineConfig (Dart-side, immutable)
@@ -303,6 +333,44 @@ final class Engine {
     _Bindings.thumbCancel(_handle, requestId);
   }
 
+  // -------------------------------------------------------------------------
+  // Faces (M6/M7). All async: the returned request id matches the
+  // `request_id` on the resulting PHOTO_EVT_SCAN_PROGRESS / CLUSTER_UPDATED
+  // event drained via [pollEvents]. Returns 0 if rejected (faces unavailable).
+  // -------------------------------------------------------------------------
+
+  /// Schedule a face scan (detect → align → embed → online-assign) for an
+  /// imported asset. Emits PHOTO_EVT_SCAN_PROGRESS with the kept-face count
+  /// in `aux64`.
+  int scanFaces({required int assetId, int flags = 0}) =>
+      _Bindings.faceScan(_handle, assetId, flags);
+
+  /// **TEST HOOK** — scan a face by explicit file path before the catalog
+  /// (M5) can resolve asset ids. Drives the same pipeline as [scanFaces].
+  int scanFacePath({required int assetId, required String path, int flags = 0}) {
+    final pathPtr = _arena.utf8(path);
+    return _Bindings.faceScanPath(_handle, assetId, pathPtr, flags);
+  }
+
+  /// Confirm a face's membership in a cluster/person. Folds its embedding into
+  /// the person prototype. Emits PHOTO_EVT_CLUSTER_UPDATED.
+  int approveFace({required int clusterId, required int embeddingId}) =>
+      _Bindings.faceApprove(_handle, clusterId, embeddingId);
+
+  /// Reject a face's suggested membership. Emits PHOTO_EVT_CLUSTER_UPDATED.
+  int rejectFace({required int clusterId, required int embeddingId}) =>
+      _Bindings.faceReject(_handle, clusterId, embeddingId);
+
+  /// Full agglomerative re-cluster over every embedded face (idle lane).
+  /// Emits PHOTO_EVT_CLUSTER_UPDATED on completion.
+  int rebuildClusters({int flags = 0}) =>
+      _Bindings.clusterRebuild(_handle, flags);
+
+  /// Probe whether an ML [Provider] is usable. Synchronous; returns a
+  /// photo_status_t (0 == OK/usable).
+  int probeProvider(int provider) =>
+      _Bindings.providerProbe(_handle, provider);
+
   /// **M1 TEST HOOK** — publishes a solid BGRA color as the slot's current
   /// frame. Replaced in M2 by the real `requestThumbnail` pipeline that
   /// dispatches actual decode jobs. Kept on Engine so that integration
@@ -420,4 +488,26 @@ final class _Bindings {
 
   static final _ThumbCancelDart thumbCancel = _dylib
       .lookupFunction<_ThumbCancelC, _ThumbCancelDart>('photo_thumb_cancel');
+
+  static final _FaceScanDart faceScan = _dylib
+      .lookupFunction<_FaceScanC, _FaceScanDart>('photo_face_scan');
+
+  static final _FaceScanPathDart faceScanPath = _dylib
+      .lookupFunction<_FaceScanPathC, _FaceScanPathDart>('photo_face_scan_path');
+
+  static final _FaceApproveDart faceApprove = _dylib
+      .lookupFunction<_FaceApproveC, _FaceApproveDart>('photo_face_approve');
+
+  static final _FaceApproveDart faceReject = _dylib
+      .lookupFunction<_FaceApproveC, _FaceApproveDart>('photo_face_reject');
+
+  static final _ClusterRebuildDart clusterRebuild = _dylib
+      .lookupFunction<_ClusterRebuildC, _ClusterRebuildDart>(
+        'photo_cluster_rebuild',
+      );
+
+  static final _ProviderProbeDart providerProbe = _dylib
+      .lookupFunction<_ProviderProbeC, _ProviderProbeDart>(
+        'photo_provider_probe',
+      );
 }
