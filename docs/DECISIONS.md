@@ -1,6 +1,6 @@
 # Pablo backend — M0 decision records
 
-This file records the locked architectural decisions from M0. Each entry has a date, the decision, the rationale, and what would trigger a revisit. Decisions cascade into [BUILD.md](BUILD.md), [LICENSES.md](LICENSES.md), [CMakePresets.json](CMakePresets.json), [native/models/MANIFEST.md](native/models/MANIFEST.md), the SQLite schema, and the C ABI in `native/core/include/photo_core.h`.
+This file records the locked architectural decisions from M0. Each entry has a date, the decision, the rationale, and what would trigger a revisit. Decisions cascade into [BUILD.md](BUILD.md), [LICENSES.md](../LICENSES.md), [CMakePresets.json](../CMakePresets.json), [native/models/MANIFEST.md](../native/models/MANIFEST.md), the SQLite schema, and the C ABI in `native/core/include/photo_core.h`.
 
 The full architectural plan lives at [`/Users/johnwatson/.claude/plans/what-are-your-thoughts-scalable-puddle.md`](/Users/johnwatson/.claude/plans/what-are-your-thoughts-scalable-puddle.md).
 

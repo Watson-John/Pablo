@@ -18,3 +18,7 @@ target/
 # Local image datasets — multi-GB corpora, never commit (e.g. Flickr30k)
 /flickr30k_images/
 /datasets/
+
+# Sibling git worktrees (feature branches checked out in-tree)
+/Pablo-dedup/
+/Pablo-faces/

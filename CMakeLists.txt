@@ -4,7 +4,7 @@
 # plugin's per-platform CMakeLists.txt files include native/core directly,
 # so this file is convenience for IDE setup and standalone builds.
 #
-# See BUILD.md for build commands and CMakePresets.json for presets.
+# See docs/BUILD.md for build commands and CMakePresets.json for presets.
 
 cmake_minimum_required(VERSION 3.27)
 
@@ -21,7 +21,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # LGPL link-mode default. Per-library overrides in native/core/CMakeLists.txt
 # guarantee dynamic linkage for libvips, libheif, libraw, libexif regardless
-# of this default (see LICENSES.md and DECISIONS.md §D5).
+# of this default (see LICENSES.md and docs/DECISIONS.md §D5).
 if(NOT DEFINED BUILD_SHARED_LIBS)
     set(BUILD_SHARED_LIBS ON)
 endif()

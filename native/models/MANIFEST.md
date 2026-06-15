@@ -2,9 +2,9 @@
 
 Canonical list of ML model files Pablo ships with. Every model file in this directory must have a row in the table below. The model registry ([M6](/Users/johnwatson/.claude/plans/what-are-your-thoughts-scalable-puddle.md)) verifies SHA256, license flag, and version against this manifest at load time. **Models flagged `commercial: false` cannot be loaded unless the user explicitly opts in.**
 
-Model files themselves are tracked via Git LFS (see [BUILD.md](../../BUILD.md)).
+Model files themselves are tracked via Git LFS (see [BUILD.md](../../docs/BUILD.md)).
 
-The face model source decision is recorded in [DECISIONS.md §D2](../../DECISIONS.md#d2-face-model-source--blazeface--permissively-licensed-embedder).
+The face model source decision is recorded in [DECISIONS.md §D2](../../docs/DECISIONS.md#d2-face-model-source--blazeface--permissively-licensed-embedder).
 
 ## Manifest schema
 
@@ -47,7 +47,7 @@ The face embedder is the highest-impact model choice; it sets the ceiling on clu
 
 | `model_id` | Reason rejected |
 |---|---|
-| `insightface_scrfd_*` | Non-commercial training data per InsightFace license. See [DECISIONS.md §D2](../../DECISIONS.md). |
+| `insightface_scrfd_*` | Non-commercial training data per InsightFace license. See [DECISIONS.md §D2](../../docs/DECISIONS.md). |
 | `insightface_mobilefacenet` | Same. |
 | `insightface_arcface_r100` | Same. |
 | `retinaface_resnet50` (InsightFace zoo variant) | Same. |

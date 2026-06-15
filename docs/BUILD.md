@@ -1,6 +1,6 @@
 # Pablo backend — build instructions
 
-This is the cross-platform build setup for the Pablo native backend. See [DECISIONS.md](DECISIONS.md) for the architectural choices these instructions implement, [LICENSES.md](LICENSES.md) for the library inventory, and the full plan at [`/Users/johnwatson/.claude/plans/what-are-your-thoughts-scalable-puddle.md`](/Users/johnwatson/.claude/plans/what-are-your-thoughts-scalable-puddle.md).
+This is the cross-platform build setup for the Pablo native backend. See [DECISIONS.md](DECISIONS.md) for the architectural choices these instructions implement, [LICENSES.md](../LICENSES.md) for the library inventory, and the full plan at [`/Users/johnwatson/.claude/plans/what-are-your-thoughts-scalable-puddle.md`](/Users/johnwatson/.claude/plans/what-are-your-thoughts-scalable-puddle.md).
 
 ## Toolchain prerequisites
 
@@ -56,7 +56,7 @@ The `CMakePresets.json` in this repo expects `$VCPKG_ROOT` to be set (or the `CM
 }
 ```
 
-**Important:** `libheif` is requested without HEVC encoder features to avoid pulling in x265 (GPLv2; see [LICENSES.md](LICENSES.md)). Decode-only is sufficient for our read-only thumbnail path.
+**Important:** `libheif` is requested without HEVC encoder features to avoid pulling in x265 (GPLv2; see [LICENSES.md](../LICENSES.md)). Decode-only is sufficient for our read-only thumbnail path.
 
 ONNX Runtime and USearch are vendored separately (see [native/third_party/](native/third_party/) — created in M6/M8); they are not in the vcpkg manifest because we want exact-version control of their per-platform binaries.
 
@@ -164,4 +164,4 @@ GitHub Actions matrix (defined post-M1):
 | Ubuntu 22.04 | ✅ | ✅ | regression | ✅ |
 | Ubuntu 24.04 | ✅ | ✅ | regression | ✅ |
 
-License check (`scripts/check_licenses.sh` from [LICENSES.md](LICENSES.md)) runs on every PR.
+License check (`scripts/check_licenses.sh` from [LICENSES.md](../LICENSES.md)) runs on every PR.

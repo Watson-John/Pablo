@@ -2,7 +2,7 @@
 
 Per-library license and link-mode inventory for the Pablo native backend. This file is canonical: if a library is not in this table, the build does not depend on it. Adding a new dependency requires adding a row here, with the license verified, *before* the dependency lands in `CMakeLists.txt`.
 
-The LGPL link policy is recorded in [DECISIONS.md §D5](DECISIONS.md). Link-mode for every LGPL library must be **dynamic**. CI enforces this via grep against `add_library.*STATIC` for blacklisted names.
+The LGPL link policy is recorded in [DECISIONS.md §D5](docs/DECISIONS.md). Link-mode for every LGPL library must be **dynamic**. CI enforces this via grep against `add_library.*STATIC` for blacklisted names.
 
 ## Library inventory
 
@@ -24,7 +24,7 @@ The LGPL link policy is recorded in [DECISIONS.md §D5](DECISIONS.md). Link-mode
 | USearch | 2.x | Apache 2.0 | Yes | static | M8 | HNSW vector index |
 | HDBSCAN (C++ port) | TBD | Per implementation | TBD | TBD | M7 | Verify before integration; candidates: hdbscan-cpp (BSD), or port from sklearn (BSD) |
 | MediaPipe BlazeFace (ONNX) | model file | Apache 2.0 | Yes | model file (no link) | M7 | Detection model |
-| Permissive face embedder | TBD | Apache 2.0 / MIT required | Yes | model file (no link) | M7 | See [DECISIONS.md §D2](DECISIONS.md) revisit trigger |
+| Permissive face embedder | TBD | Apache 2.0 / MIT required | Yes | model file (no link) | M7 | See [DECISIONS.md §D2](docs/DECISIONS.md) revisit trigger |
 | Flutter SDK | 3.X | BSD 3-clause | Yes | dynamic (system) | all | UI framework |
 | Dart `ffi` package | with SDK | BSD 3-clause | Yes | n/a | M2+ | |
 | Dart `ffigen` | 12+ | BSD 3-clause | Yes | dev-only | M2+ | Code generator; runtime-free |
@@ -49,9 +49,9 @@ These were considered and rejected for licensing reasons. Do not add them withou
 
 | Library | Reason rejected |
 |---------|-----------------|
-| **Exiv2** | GPLv2; would require commercial license. Replaced by libexif + custom XMP shim (see [DECISIONS.md §D1](DECISIONS.md)). |
+| **Exiv2** | GPLv2; would require commercial license. Replaced by libexif + custom XMP shim (see [DECISIONS.md §D1](docs/DECISIONS.md)). |
 | **x265** | GPLv2 + commercial dual-license. We only need HEIF *decode*; libheif builds without x265. |
-| **InsightFace models (SCRFD, MobileFaceNet, ArcFace)** | Code MIT, weights non-commercial. Replaced by BlazeFace + permissive embedder (see [DECISIONS.md §D2](DECISIONS.md)). |
+| **InsightFace models (SCRFD, MobileFaceNet, ArcFace)** | Code MIT, weights non-commercial. Replaced by BlazeFace + permissive embedder (see [DECISIONS.md §D2](docs/DECISIONS.md)). |
 | **Faiss** | License OK (MIT) but HNSW does not support removal and the project favors USearch's mutable embedded design. Not a license rejection. |
 | **ExifTool** | Artistic/GPL; subprocess pattern awkward for shipped app. |
 
