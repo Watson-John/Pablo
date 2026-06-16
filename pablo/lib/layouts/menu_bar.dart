@@ -104,8 +104,8 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
-    // Enable "Scan for Faces" only with a live engine + dataset (null otherwise).
-    final onScanFaces = FaceIngestion.scanDatasetAction(
+    // Enable "Scan for Faces" only with a live engine + library (null otherwise).
+    final onScanFaces = FaceIngestion.scanLibraryAction(
       backend: NativeBackendScope.maybeOf(context),
       controller: PeopleScope.read(context),
       appState: st,

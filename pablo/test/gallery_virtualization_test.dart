@@ -1,6 +1,9 @@
 // Gallery layout tests: the section grid virtualizes (builds only on-screen
 // cells) and the grid ⇄ masonry toggle swaps the underlying sliver. These run
-// headless, so they verify the v4 gallery rebuild without a GPU/native run.
+// headless over a real (temp-folder) Library so they exercise the v4 gallery
+// rebuild without a GPU/native run.
+
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -9,29 +12,33 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:pablo/app/app_scope.dart';
 import 'package:pablo/app/app_state.dart';
-import 'package:pablo/data/mock/mock_data.dart';
-import 'package:pablo/data/models.dart';
-import 'package:pablo/data/mock/photo_factory.dart';
+import 'package:pablo/data/library.dart';
 import 'package:pablo/features/gallery/photo_thumb.dart';
 import 'package:pablo/features/gallery/section_scroll_view.dart';
 
 void main() {
-  // All the folder leaves as gallery sections (matches MainGrid's folders path).
-  List<GallerySectionData> folderSections() {
-    final out = <GallerySectionData>[];
-    void collect(List<FolderNode> list) {
-      for (final f in list) {
-        if (f.children.isNotEmpty) {
-          collect(f.children);
-        } else {
-          out.add(GallerySectionData(id: f.id, title: f.name, subtitle: f.path));
-        }
-      }
-    }
+  late Directory tempDir;
 
-    collect(kFolders);
-    return out;
-  }
+  setUpAll(() {
+    GoogleFonts.config.allowRuntimeFetching = false;
+    // A real folder of (empty) image files — enough photos to prove laziness.
+    tempDir = Directory.systemTemp.createTempSync('pablo_gallery_test');
+    for (var i = 0; i < 300; i++) {
+      File('${tempDir.path}/img_${i.toString().padLeft(4, '0')}.jpg')
+          .writeAsBytesSync(const [0xFF, 0xD8, 0xFF, 0xD9]);
+    }
+    Library.instance = Library.scan(tempDir.path);
+  });
+
+  tearDownAll(() {
+    Library.instance = Library.empty();
+    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  });
+
+  List<GallerySectionData> folderSections() => [
+        for (final f in Library.instance.folderSections)
+          GallerySectionData(id: f.id, title: f.name, subtitle: f.path),
+      ];
 
   int totalPhotos(List<GallerySectionData> sections) =>
       sections.fold(0, (n, s) => n + photosFor(s.id).length);
@@ -44,8 +51,6 @@ void main() {
       ),
     );
   }
-
-  setUp(() => GoogleFonts.config.allowRuntimeFetching = false);
 
   testWidgets('grid mode virtualizes — builds far fewer cells than exist',
       (tester) async {
@@ -61,7 +66,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(tester.takeException(), isNull);
 
-    expect(find.byType(SliverGrid), findsWidgets);
+    // Grid mode is now a justified SliverList-of-rows, not a masonry grid.
     expect(find.byType(SliverMasonryGrid), findsNothing);
 
     final built = find.byType(PhotoThumb).evaluate().length;

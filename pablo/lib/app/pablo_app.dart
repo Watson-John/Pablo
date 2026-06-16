@@ -7,8 +7,9 @@ import 'package:flutter/material.dart';
 import '../backend/native_backend.dart';
 import '../components/context_menu.dart';
 import '../components/resize_handle.dart';
+import '../data/boot.dart';
+import '../data/library.dart';
 import '../data/models.dart';
-import '../data/mock/photo_factory.dart';
 import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/photo_edit_panel.dart';
@@ -18,7 +19,7 @@ import '../features/info_panel/info_panel.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_controller.dart';
 import '../features/people/people_scope.dart';
-import '../features/photo_tray/photo_tray.dart';
+import '../features/photo_tray/photo_tray.dart' show FloatingPhotoTray;
 import '../features/sidebar/sidebar.dart';
 import '../layouts/shell.dart';
 import '../theme/theme.dart';
@@ -44,20 +45,51 @@ class _PabloAppState extends State<PabloApp> {
   PeopleController? _people;
   Timer? _ticker;
 
-  /// Debug hook: when PABLO_AUTOSCAN is set (and a live backend + dataset are
-  /// present), kick off a face scan of the dataset folder on first frame.
-  /// Lets the live pipeline be exercised headlessly without the menu.
-  static const bool _autoScan =
-      bool.fromEnvironment('PABLO_AUTOSCAN', defaultValue: false);
   bool _autoScanned = false;
 
   @override
   void initState() {
     super.initState();
+    _selectDefaultFolder();
+    // The library is scanned in the background; rebuild + select + face-scan
+    // once it's ready.
+    libraryRevision.addListener(_onLibraryReady);
     _ticker = Timer.periodic(
       const Duration(milliseconds: 800),
       (_) => _state.tickTasks(),
     );
+  }
+
+  void _selectDefaultFolder() {
+    final first = Library.instance.firstPhotoFolderId;
+    if (first != null && _state.selectedItem.isEmpty) {
+      _state.setSelectedItem(first, NavSection.folders);
+    }
+  }
+
+  void _onLibraryReady() {
+    if (!mounted) return;
+    _selectDefaultFolder();
+    setState(() {}); // rebuild the tree against the freshly-scanned library
+    _maybeAutoScan(); // now that photos exist, kick off the face scan
+  }
+
+  /// Start the background face scan once — but only when faces can run live and
+  /// the library has photos (returns null otherwise, so a boot-time call before
+  /// the scan finishes is a harmless no-op that re-arms via [_onLibraryReady]).
+  void _maybeAutoScan() {
+    if (!BootConfig.instance.autoScan || _autoScanned || _people == null) {
+      return;
+    }
+    final scan = FaceIngestion.scanLibraryAction(
+      backend: NativeBackendScope.maybeOf(context),
+      controller: _people!,
+      appState: _state,
+    );
+    if (scan != null) {
+      _autoScanned = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => scan());
+    }
   }
 
   @override
@@ -65,21 +97,12 @@ class _PabloAppState extends State<PabloApp> {
     super.didChangeDependencies();
     final backend = NativeBackendScope.maybeOf(context);
     _people ??= PeopleController(backend?.faces ?? const MockFaceRepository());
-    if (_autoScan && !_autoScanned) {
-      final scan = FaceIngestion.scanDatasetAction(
-        backend: backend,
-        controller: _people!,
-        appState: _state,
-      );
-      if (scan != null) {
-        _autoScanned = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) => scan());
-      }
-    }
+    _maybeAutoScan();
   }
 
   @override
   void dispose() {
+    libraryRevision.removeListener(_onLibraryReady);
     _ticker?.cancel();
     _people?.dispose();
     _state.dispose();
@@ -114,27 +137,9 @@ class _Home extends StatelessWidget {
       backgroundColor: PabloColors.backgroundShell,
       body: WindowShell(
         statusPhotoCount: photos.length,
-        statusSection: _sectionLabel(st),
         body: _Body(),
       ),
     );
-  }
-
-  String _sectionLabel(PabloAppState st) {
-    switch (st.activeSection) {
-      case NavSection.folders:
-        return 'Folders';
-      case NavSection.albums:
-        return 'Albums';
-      case NavSection.people:
-        return 'People';
-      case NavSection.timeline:
-        return 'Timeline';
-      case NavSection.map:
-        return 'Map';
-      case NavSection.unnamed:
-        return 'Unnamed Faces';
-    }
   }
 }
 
@@ -145,26 +150,21 @@ class _Body extends StatefulWidget {
 
 Photo? _resolveActivePhoto(PabloAppState st) {
   final id = st.activePhotoId;
-  if (id == null) return null;
-  final dash = id.lastIndexOf('-');
-  if (dash < 0) return null;
-  final setId = id.substring(0, dash);
-  for (final p in photosFor(setId)) {
-    if (p.id == id) return p;
-  }
-  return null;
+  return id == null ? null : photoById(id);
 }
 
 class _BodyState extends State<_Body> {
   double _sidebarStart = 260;
-  double _trayStart = 100;
 
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
-    final lightboxPhoto =
-        st.lightboxPhotoId != null ? _resolvePhotoById(st.lightboxPhotoId!) : null;
-    final contextPhotos = lightboxPhoto != null ? _contextPhotosFor(st, lightboxPhoto) : <Photo>[];
+    final lightboxPhoto = st.lightboxPhotoId != null
+        ? _resolvePhotoById(st.lightboxPhotoId!)
+        : null;
+    final contextPhotos = lightboxPhoto != null
+        ? _contextPhotosFor(st, lightboxPhoto)
+        : <Photo>[];
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -195,90 +195,95 @@ class _BodyState extends State<_Body> {
                         initialId: lightboxPhoto.id,
                         onClose: st.closeLightbox,
                       )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                    : Stack(
                         children: [
-                          Expanded(
-                            child: MainGrid(
-                              onPhotoSecondary: (pos, id) {
-                                final photo = _resolvePhotoById(id);
-                                PabloContextMenu.show(
-                                  context,
-                                  position: pos,
-                                  items: [
-                                    ContextMenuItem(
-                                      label: 'View',
-                                      iconCharacter: '👁',
-                                      onPressed: () => st.openLightbox(id),
-                                    ),
-                                    ContextMenuItem(
-                                      label: 'Edit',
-                                      iconCharacter: '✏️',
-                                      onPressed: () => st.openLightbox(id),
-                                    ),
-                                    ContextMenuItem(
-                                      label: (photo?.starred ?? false)
-                                          ? 'Unstar'
-                                          : 'Star',
-                                      iconCharacter: (photo?.starred ?? false)
-                                          ? '☆'
-                                          : '★',
-                                    ),
-                                    ContextMenuItem(
-                                      label: 'Add to Album',
-                                      iconCharacter: '+',
-                                    ),
-                                    ContextMenuItem(
-                                      label: 'Share',
-                                      iconCharacter: '📤',
-                                    ),
-                                    ContextMenuItem.separator(),
-                                    ContextMenuItem(
-                                      label: 'Print',
-                                      iconCharacter: '🖨',
-                                    ),
-                                    ContextMenuItem(
-                                      label: 'Rotate Left',
-                                      iconCharacter: '↺',
-                                    ),
-                                    ContextMenuItem(
-                                      label: 'Rotate Right',
-                                      iconCharacter: '↻',
-                                    ),
-                                    ContextMenuItem.separator(),
-                                    ContextMenuItem(
-                                      label: 'Delete',
-                                      iconCharacter: '🗑',
-                                      destructive: true,
-                                    ),
-                                  ],
-                                );
-                              },
+                          Positioned.fill(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  child: MainGrid(
+                                    onPhotoSecondary: (pos, id) {
+                                      final photo = _resolvePhotoById(id);
+                                      PabloContextMenu.show(
+                                        context,
+                                        position: pos,
+                                        items: [
+                                          ContextMenuItem(
+                                            label: 'View',
+                                            iconCharacter: '👁',
+                                            onPressed: () =>
+                                                st.openLightbox(id),
+                                          ),
+                                          ContextMenuItem(
+                                            label: 'Edit',
+                                            iconCharacter: '✏️',
+                                            onPressed: () =>
+                                                st.openLightbox(id),
+                                          ),
+                                          ContextMenuItem(
+                                            label: (photo?.starred ?? false)
+                                                ? 'Unstar'
+                                                : 'Star',
+                                            iconCharacter:
+                                                (photo?.starred ?? false)
+                                                    ? '☆'
+                                                    : '★',
+                                          ),
+                                          ContextMenuItem(
+                                            label: 'Add to Album',
+                                            iconCharacter: '+',
+                                          ),
+                                          ContextMenuItem(
+                                            label: 'Share',
+                                            iconCharacter: '📤',
+                                          ),
+                                          ContextMenuItem.separator(),
+                                          ContextMenuItem(
+                                            label: 'Print',
+                                            iconCharacter: '🖨',
+                                          ),
+                                          ContextMenuItem(
+                                            label: 'Rotate Left',
+                                            iconCharacter: '↺',
+                                          ),
+                                          ContextMenuItem(
+                                            label: 'Rotate Right',
+                                            iconCharacter: '↻',
+                                          ),
+                                          ContextMenuItem.separator(),
+                                          ContextMenuItem(
+                                            label: 'Delete',
+                                            iconCharacter: '🗑',
+                                            destructive: true,
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ),
+                                if (st.infoPanelTab != null)
+                                  PhotoInfoPanel(
+                                    photo: _resolveActivePhoto(st),
+                                    activeTab: st.infoPanelTab!,
+                                    onClose: () => st.setInfoPanelTab(null),
+                                    onTabChange: (t) => st.setInfoPanelTab(t),
+                                  ),
+                              ],
                             ),
                           ),
-                          if (st.infoPanelTab != null)
-                            PhotoInfoPanel(
-                              photo: _resolveActivePhoto(st),
-                              activeTab: st.infoPanelTab!,
-                              onClose: () => st.setInfoPanelTab(null),
-                              onTabChange: (t) => st.setInfoPanelTab(t),
-                            ),
+                          // Floating tray overlay — bottom-anchored, sized to
+                          // its content, and click-through everywhere else.
+                          const Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: PabloSpacing.xxxl,
+                            child: FloatingPhotoTray(),
+                          ),
                         ],
                       ),
               ),
               const ControlsBar(),
-              ResizeHandle(
-                direction: ResizeDirection.row,
-                onResize: (delta, isStart) {
-                  if (isStart) {
-                    _trayStart = st.trayHeight;
-                  } else {
-                    st.setTrayHeight(_trayStart - delta);
-                    _trayStart = st.trayHeight;
-                  }
-                },
-              ),
-              const PhotoTray(),
             ],
           ),
         ),
@@ -287,15 +292,7 @@ class _BodyState extends State<_Body> {
   }
 }
 
-Photo? _resolvePhotoById(String id) {
-  final dash = id.lastIndexOf('-');
-  if (dash < 0) return null;
-  final setId = id.substring(0, dash);
-  for (final p in photosFor(setId)) {
-    if (p.id == id) return p;
-  }
-  return null;
-}
+Photo? _resolvePhotoById(String id) => photoById(id);
 
 List<Photo> _contextPhotosFor(PabloAppState st, Photo photo) {
   // Use the currently selected sidebar item's photo set if available;

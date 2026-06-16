@@ -17,10 +17,36 @@ import '../../app/app_scope.dart';
 import '../../app/app_state.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
+import '../../data/aspect_store.dart';
 import '../../data/models.dart';
-import '../../data/mock/photo_factory.dart';
+import '../../data/library.dart';
 import '../../theme/tokens.dart';
+import 'justified_rows.dart';
 import 'photo_thumb.dart';
+
+// Memoized justified row plans, keyed by (section, width, height, aspectRev,
+// count). Keeps scrolling recompute-free; recomputes when aspects land or the
+// layout/section changes. Small LRU — only a few sections are ever on screen.
+final Map<String, List<JRow>> _planCache = {};
+final List<String> _planOrder = [];
+
+List<JRow> _rowPlanFor(String sectionId, List<Photo> photos, double avail,
+    double targetH, double gap, int rev) {
+  final key = '$sectionId|${avail.round()}|${targetH.round()}|$rev|${photos.length}';
+  final cached = _planCache[key];
+  if (cached != null) return cached;
+  final aspects = [
+    for (final p in photos) AspectStore.instance.aspectOf(p.filePath) ?? 1.0,
+  ];
+  final rows =
+      packRows(aspects: aspects, availWidth: avail, targetH: targetH, gap: gap);
+  _planCache[key] = rows;
+  _planOrder.add(key);
+  while (_planOrder.length > 6) {
+    _planCache.remove(_planOrder.removeAt(0));
+  }
+  return rows;
+}
 
 class GallerySectionData {
   GallerySectionData({
@@ -53,74 +79,127 @@ class SectionScrollView extends StatelessWidget {
     final masonry = st.gridMode == GridMode.masonry;
     return Container(
       color: PabloColors.backgroundSurface,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Column math is shared by both layouts so a thumb is the same
-          // width whether it lands in the uniform grid or a masonry column.
-          final avail = (constraints.maxWidth - _hPad * 2).clamp(1.0, 1e9);
-          var cols = ((avail + _spacing) / (st.thumbSize + _spacing)).floor();
-          if (cols < 1) cols = 1;
-          final cw = (avail - _spacing * (cols - 1)) / cols;
-          // Uniform-grid cell height: image (cw * 0.72) + caption band.
-          final labelH = cw >= 80 ? 19.0 : 2.0;
-          final cellH = cw * 0.72 + labelH;
+      // Re-pack rows as real aspect ratios stream in from the background reader.
+      child: ValueListenableBuilder<int>(
+        valueListenable: AspectStore.instance.aspectRevision,
+        builder: (context, rev, _) => LayoutBuilder(
+          builder: (context, constraints) {
+            final avail = (constraints.maxWidth - _hPad * 2).clamp(1.0, 1e9);
+            // Masonry column math (fixed-width columns).
+            var cols = ((avail + _spacing) / (st.thumbSize + _spacing)).floor();
+            if (cols < 1) cols = 1;
+            final cw = (avail - _spacing * (cols - 1)) / cols;
+            // Justified-grid target row height (mirrors the old cell intuition,
+            // so the thumb-size slider still reads sensibly).
+            final targetH = st.thumbSize * 0.72;
 
-          final slivers = <Widget>[];
-          for (final section in sections) {
-            final photos = photosFor(section.id);
-            slivers.add(SliverPersistentHeader(
-              pinned: true,
-              delegate: _SectionHeaderDelegate(
-                title: section.title,
-                subtitle: section.subtitle,
-                count: photos.length,
-                highlighted: st.selectedItem == section.id,
-              ),
-            ));
-            if (photos.isEmpty) {
-              slivers.add(const SliverToBoxAdapter(child: _EmptySection()));
-              continue;
-            }
-            slivers.add(SliverPadding(
-              padding: const EdgeInsets.fromLTRB(_hPad, PabloSpacing.xl, _hPad, 18),
-              sliver: masonry
-                  ? SliverMasonryGrid.count(
-                      crossAxisCount: cols,
-                      mainAxisSpacing: _spacing,
-                      crossAxisSpacing: _spacing,
-                      childCount: photos.length,
-                      itemBuilder: (context, i) => RepaintBoundary(
-                        child: _thumbCell(
-                          st,
-                          photos,
-                          photos[i],
-                          cw,
-                          imageAspect: aspectFor(photos[i]),
-                          showLabel: false,
-                        ),
-                      ),
-                    )
-                  : SliverGrid(
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            final slivers = <Widget>[];
+            for (final section in sections) {
+              final photos = photosFor(section.id);
+              slivers.add(SliverPersistentHeader(
+                pinned: true,
+                delegate: _SectionHeaderDelegate(
+                  title: section.title,
+                  subtitle: section.subtitle,
+                  count: photos.length,
+                  highlighted: st.selectedItem == section.id,
+                ),
+              ));
+              if (photos.isEmpty) {
+                slivers.add(const SliverToBoxAdapter(child: _EmptySection()));
+                continue;
+              }
+              slivers.add(SliverPadding(
+                padding:
+                    const EdgeInsets.fromLTRB(_hPad, PabloSpacing.xl, _hPad, 18),
+                sliver: masonry
+                    ? SliverMasonryGrid.count(
                         crossAxisCount: cols,
                         mainAxisSpacing: _spacing,
                         crossAxisSpacing: _spacing,
-                        mainAxisExtent: cellH,
-                      ),
-                      delegate: SliverChildBuilderDelegate(
-                        (context, i) => RepaintBoundary(
-                          child: _thumbCell(st, photos, photos[i], cw),
-                        ),
                         childCount: photos.length,
-                      ),
-                    ),
-            ));
-          }
+                        itemBuilder: (context, i) => RepaintBoundary(
+                          child: _thumbCell(
+                            st,
+                            photos,
+                            photos[i],
+                            cw,
+                            imageAspect: aspectFor(photos[i]),
+                            showLabel: false,
+                          ),
+                        ),
+                      )
+                    : _justifiedSliver(
+                        st, section.id, photos, avail, targetH, rev),
+              ));
+            }
 
-          // Prefetch ~1.5 screens ahead so thumbnails are requested (and
-          // cached by the native engine) before they scroll into view.
-          return CustomScrollView(cacheExtent: 1200, slivers: slivers);
+            // Prefetch ~1.5 screens ahead so thumbnails are requested (and
+            // cached by the native engine) before they scroll into view.
+            return CustomScrollView(cacheExtent: 1200, slivers: slivers);
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Justified, fixed-row-height grid: every tile in a row shares one height,
+  /// widths follow the real aspect ratio (no cropping). Rows are virtualized —
+  /// each SliverList child is one row.
+  Widget _justifiedSliver(
+    PabloAppState st,
+    String sectionId,
+    List<Photo> photos,
+    double avail,
+    double targetH,
+    int rev,
+  ) {
+    final rows = _rowPlanFor(sectionId, photos, avail, targetH, _spacing, rev);
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, rowIdx) {
+          final r = rows[rowIdx];
+          // Fetch real aspects for the photos in (or near) view first.
+          AspectStore.instance.prioritize([
+            for (var k = 0; k < r.count; k++) photos[r.start + k].filePath,
+          ]);
+          return RepaintBoundary(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: _spacing),
+              child: SizedBox(
+                height: r.height,
+                child: Row(
+                  children: [
+                    for (var k = 0; k < r.count; k++)
+                      Padding(
+                        // Key by photo id so a zoom re-pack reconciles tiles by
+                        // identity — each tile keeps (or gets a fresh) texture
+                        // slot for its OWN photo, instead of a reused element
+                        // inheriting the previous occupant's stale frame.
+                        key: ValueKey(photos[r.start + k].id),
+                        padding:
+                            EdgeInsets.only(left: k == 0 ? 0.0 : _spacing),
+                        child: SizedBox(
+                          width: r.widths[k],
+                          child: _thumbCell(
+                            st,
+                            photos,
+                            photos[r.start + k],
+                            r.widths[k],
+                            // width / height == the aspect the row was packed
+                            // at, so PhotoThumb's h = size/imageAspect == r.height.
+                            imageAspect: r.widths[k] / r.height,
+                            showLabel: false,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
         },
+        childCount: rows.length,
       ),
     );
   }
@@ -155,6 +234,9 @@ class SectionScrollView extends StatelessWidget {
       },
       onDoubleTap: () => st.openLightbox(p.id),
       onAddToTray: () => st.addToTray(p.id),
+      // The checkmark toggles selection + tray membership, same as a cmd-click.
+      onToggleSelect: () =>
+          st.selectPhoto(p.id, ctrl: true, contextPhotoIds: const []),
       onSecondaryTap: (pos) => onPhotoSecondary?.call(pos, p.id),
     );
   }

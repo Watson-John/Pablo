@@ -7,11 +7,10 @@ import '../../app/app_state.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/section_header.dart';
-import '../../data/mock/mock_data.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../people/people_scope.dart';
-import 'album_row.dart';
 import 'folder_group.dart';
 import 'folder_leaf.dart';
 import '../people/person_row.dart';
@@ -30,8 +29,15 @@ class Sidebar extends StatelessWidget {
     final people = pc.people();
     final unnamedCount = pc.unnamedFaceCount();
     final peopleTotal = pc.peopleTotal();
-    final folderCount =
-        kFolders.fold<int>(0, (s, f) => s + (f.children.isNotEmpty ? f.children.length : 1));
+    final lib = Library.instance;
+    final folders = lib.folderTree;
+    final folderCount = lib.folderSections.length;
+    final timelineYears = lib.timelineYears;
+    final timelineRange = timelineYears.isEmpty
+        ? '—'
+        : (timelineYears.first.label == timelineYears.last.label
+            ? timelineYears.first.label
+            : '${timelineYears.last.label}–${timelineYears.first.label}');
 
     return Container(
       width: st.sidebarWidth,
@@ -93,12 +99,12 @@ class Sidebar extends StatelessWidget {
                     ),
                   ),
 
-                  // Albums
+                  // Albums — no albums feature yet, so this stays empty.
                   CollapsibleSection(
                     label: 'Albums',
                     icon: PabloIconName.albums,
                     iconColor: PabloColors.sectionAlbums,
-                    collapsedCount: '${kAlbums.length}',
+                    collapsedCount: '0',
                     trailing: PabloIconButton(
                       icon: PabloIconName.plus,
                       size: 20,
@@ -107,22 +113,24 @@ class Sidebar extends StatelessWidget {
                       color: PabloColors.assignGreen,
                       elevated: true,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final a in kAlbums)
-                          AlbumRow(
-                            album: a,
-                            selected: st.selectedItem == a.id &&
-                                st.activeSection == NavSection.albums,
-                            onSelect: () =>
-                                st.setSelectedItem(a.id, NavSection.albums),
-                          ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        PabloSpacing.xxxl,
+                        PabloSpacing.sm,
+                        PabloSpacing.xl,
+                        PabloSpacing.sm,
+                      ),
+                      child: Text(
+                        'No albums yet',
+                        style: PabloTypography.sans(
+                          fontSize: 11.5,
+                          color: PabloColors.textMuted,
+                        ).copyWith(fontStyle: FontStyle.italic),
+                      ),
                     ),
                   ),
 
-                  // Folders
+                  // Folders — the real directory tree under the import root.
                   CollapsibleSection(
                     label: 'Folders',
                     icon: PabloIconName.folder,
@@ -140,9 +148,9 @@ class Sidebar extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: st.folderSort == FolderSort.tree
                           ? [
-                              for (var i = 0; i < kFolders.length; i++)
+                              for (var i = 0; i < folders.length; i++)
                                 FolderGroup(
-                                  folder: kFolders[i],
+                                  folder: folders[i],
                                   selectedId:
                                       st.activeSection == NavSection.folders
                                           ? st.selectedItem
@@ -156,17 +164,17 @@ class Sidebar extends StatelessWidget {
                     ),
                   ),
 
-                  // Timeline
+                  // Timeline — grouped by each file's modified date.
                   CollapsibleSection(
                     label: 'Timeline',
                     icon: PabloIconName.calendar,
                     iconColor: PabloColors.sectionTimeline,
                     defaultOpen: false,
-                    collapsedCount: '2022–2024',
+                    collapsedCount: timelineRange,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        for (final y in kTimelineYears)
+                        for (final y in timelineYears)
                           TimelineTreeNode(
                             node: y,
                             selectedId: st.activeSection == NavSection.timeline
@@ -188,18 +196,8 @@ class Sidebar extends StatelessWidget {
   }
 
   List<Widget> _flatAlphaLeaves(dynamic st) {
-    final all = <FolderNode>[];
-    void collect(List<FolderNode> list) {
-      for (final f in list) {
-        if (f.children.isNotEmpty) {
-          collect(f.children);
-        } else {
-          all.add(f);
-        }
-      }
-    }
-    collect(kFolders);
-    all.sort((a, b) => a.name.compareTo(b.name));
+    final all = Library.instance.folderSections.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
     return [
       for (final f in all)
         FolderLeaf(
@@ -276,7 +274,7 @@ class _MapCardState extends State<_MapCard> {
                   ),
                 ),
                 Text(
-                  '570',
+                  '0',
                   style: PabloTypography.mono(
                     fontSize: 10,
                     color: PabloColors.textMuted,

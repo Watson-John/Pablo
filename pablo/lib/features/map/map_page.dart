@@ -6,9 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
-import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 import 'location_photo_grid.dart';
 import 'usa_heat_map.dart';
@@ -64,25 +62,24 @@ class _MapPageState extends State<MapPage> {
     });
   }
 
-  Map<String, List<Photo>> get _photosByLocation => {
-        for (var i = 0; i < kMapLocations.length; i++)
-          kMapLocations[i].id: makePhotos(
-              'map-${kMapLocations[i].id}',
-              kMapLocations[i].count < 40 ? kMapLocations[i].count : 40,
-              i * 11 + 4),
-      };
+  // No geotagged photos in the dry-run library (Flickr30k has no GPS EXIF), so
+  // there are no map locations. Wired through real data — just empty.
+  final List<MapLocation> _locations = [];
 
   @override
   Widget build(BuildContext context) {
-    final selected = _selectedId != null
-        ? kMapLocations.firstWhere(
-            (l) => l.id == _selectedId,
-            orElse: () => kMapLocations.first,
-          )
-        : null;
-    final photos =
-        _selectedId != null ? _photosByLocation[_selectedId]! : <Photo>[];
-    final totalPhotos = kMapLocations.fold<int>(0, (a, b) => a + b.count);
+    final locations = _locations;
+    MapLocation? selected;
+    if (_selectedId != null) {
+      for (final l in locations) {
+        if (l.id == _selectedId) {
+          selected = l;
+          break;
+        }
+      }
+    }
+    final photos = <Photo>[];
+    final totalPhotos = locations.fold<int>(0, (a, b) => a + b.count);
 
     return Container(
       color: PabloColors.backgroundSurface,
@@ -113,7 +110,7 @@ class _MapPageState extends State<MapPage> {
                 ),
                 const SizedBox(width: PabloSpacing.base),
                 Text(
-                  '$totalPhotos photos · ${kMapLocations.length} locations',
+                  '$totalPhotos photos · ${locations.length} locations',
                   style: PabloTypography.caption,
                 ),
                 const Spacer(),
@@ -150,6 +147,7 @@ class _MapPageState extends State<MapPage> {
                 child: IgnorePointer(
                   ignoring: _mapCollapsed,
                   child: USAHeatMap(
+                    locations: locations,
                     selectedId: _selectedId,
                     onSelect: _select,
                   ),
@@ -236,9 +234,7 @@ class _MapPageState extends State<MapPage> {
                         ),
                         const SizedBox(height: PabloSpacing.xl),
                         Text(
-                          _showMap
-                              ? 'Click a location on the map\nto view photos from that area'
-                              : 'Show the map and click a location\nto view photos',
+                          'No geotagged photos in this library.\nThe Flickr30k set carries no GPS metadata.',
                           textAlign: TextAlign.center,
                           style: PabloTypography.sans(
                             fontSize: 13,

@@ -189,12 +189,14 @@ class PabloSizing {
 /// Corner radii — mixed: rounded cards + squared toolbar wells.
 class PabloRadius {
   PabloRadius._();
-  static const double xs = 3; // squared chrome accents, chips
-  static const double sm = 6; // inputs, buttons, toolbar wells
-  static const double md = 10; // cards, menus
-  static const double lg = 14; // panels, dialogs
-  static const double panel = 14;
-  static const double xl = 20; // large sheets, hero cards
+  // Corner radii, trimmed 5% from the original scale for a slightly tighter
+  // look. Pills stay fully round.
+  static const double xs = 2.85; // squared chrome accents, chips
+  static const double sm = 5.7; // inputs, buttons, toolbar wells
+  static const double md = 9.5; // cards, menus
+  static const double lg = 13.3; // panels, dialogs
+  static const double panel = 13.3;
+  static const double xl = 19; // large sheets, hero cards
   static const double pill = 999; // pills, avatars
 
   static const BorderRadius xsAll = BorderRadius.all(Radius.circular(xs));

@@ -3,11 +3,16 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:photo_native/photo_native.dart';
 
 import '../../components/pablo_icon.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
-import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
+import '../people/face_naming.dart';
+import '../people/people_scope.dart';
+import 'photo_surface.dart';
 
 class LightboxView extends StatefulWidget {
   const LightboxView({
@@ -30,9 +35,12 @@ class _LightboxViewState extends State<LightboxView> {
   final FocusNode _focus = FocusNode();
   final ScrollController _filmCtl = ScrollController();
 
-  int get _idx => widget.photos.indexWhere((p) => p.id == _currentId).clamp(0, widget.photos.length - 1);
-
-  Photo get _photo => widget.photos[_idx];
+  // The photos list can be tens of thousands long for a flat folder, so build()
+  // resolves the current index once into a local. This getter is only for the
+  // navigation handlers (one scan per key/scroll event, not per build).
+  int get _idx => widget.photos
+      .indexWhere((p) => p.id == _currentId)
+      .clamp(0, widget.photos.length - 1);
 
   void _goTo(int idx) {
     final c = idx.clamp(0, widget.photos.length - 1);
@@ -80,9 +88,23 @@ class _LightboxViewState extends State<LightboxView> {
 
   @override
   Widget build(BuildContext context) {
-    final exif = getPhotoExif(_photo.id);
-    final hasPrev = _idx > 0;
-    final hasNext = _idx < widget.photos.length - 1;
+    final idx = widget.photos
+        .indexWhere((p) => p.id == _currentId)
+        .clamp(0, widget.photos.length - 1);
+    final photo = widget.photos[idx];
+    final exif = getPhotoExif(photo.id);
+    final exifLine = [
+      exif.camera,
+      exif.aperture,
+      exif.shutter,
+      exif.iso != null ? 'ISO ${exif.iso}' : null,
+    ].whereType<String>().join(' · ');
+    final hasPrev = idx > 0;
+    final hasNext = idx < widget.photos.length - 1;
+    // Faces detected in this photo (empty if it hasn't been scanned), drawn as
+    // hover-to-name boxes over the big image.
+    final pc = PeopleScope.of(context);
+    final faces = pc.facesForAsset(assetIdFor(photo.id));
 
     return Focus(
       focusNode: _focus,
@@ -135,7 +157,7 @@ class _LightboxViewState extends State<LightboxView> {
                   ),
                   const SizedBox(width: PabloSpacing.xl),
                   Text(
-                    _photo.label,
+                    photo.label,
                     style: PabloTypography.mono(
                       fontSize: 12.5,
                       color: Colors.white.withValues(alpha: 0.55),
@@ -144,7 +166,7 @@ class _LightboxViewState extends State<LightboxView> {
                   const SizedBox(width: PabloSpacing.xl),
                   Expanded(
                     child: Text(
-                      '${exif.camera} · ${exif.aperture} · ${exif.shutter} · ISO ${exif.iso}',
+                      exifLine,
                       overflow: TextOverflow.ellipsis,
                       style: PabloTypography.sans(
                         fontSize: 11,
@@ -153,7 +175,7 @@ class _LightboxViewState extends State<LightboxView> {
                     ),
                   ),
                   Text(
-                    '${_idx + 1} / ${widget.photos.length}',
+                    '${idx + 1} / ${widget.photos.length}',
                     style: PabloTypography.mono(
                       fontSize: 11,
                       color: Colors.white.withValues(alpha: 0.28),
@@ -199,7 +221,6 @@ class _LightboxViewState extends State<LightboxView> {
                             width: 72,
                             height: 52,
                             decoration: BoxDecoration(
-                              gradient: p.gradient,
                               borderRadius: PabloRadius.mdAll,
                               border: Border.all(
                                 color: current
@@ -208,6 +229,9 @@ class _LightboxViewState extends State<LightboxView> {
                                 width: 2,
                               ),
                             ),
+                            clipBehavior: Clip.antiAlias,
+                            child: PhotoSurface(
+                                photo: p, targetW: 144, targetH: 104),
                           ),
                         ),
                       ),
@@ -238,51 +262,16 @@ class _LightboxViewState extends State<LightboxView> {
                 },
                 child: Stack(
                   children: [
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 40,
-                          vertical: PabloSpacing.xxxxl,
-                        ),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 900),
-                          child: AspectRatio(
-                            aspectRatio: 4 / 3,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: _photo.gradient,
-                                borderRadius: PabloRadius.lgAll,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.7),
-                                    offset: const Offset(0, 8),
-                                    blurRadius: 40,
-                                  ),
-                                ],
-                              ),
-                              // Subtle glossy shine highlight (inset).
-                              child: Center(
-                                child: FractionallySizedBox(
-                                  widthFactor: 0.84,
-                                  heightFactor: 0.84,
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      borderRadius: PabloRadius.mdAll,
-                                      gradient: RadialGradient(
-                                        center: const Alignment(-0.24, -0.44),
-                                        radius: 0.65,
-                                        colors: [
-                                          Colors.white.withValues(alpha: 0.14),
-                                          Colors.white.withValues(alpha: 0),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 40,
+                        vertical: PabloSpacing.xxxxl,
+                      ),
+                      child: _LightboxImage(
+                        photo: photo,
+                        faces: faces,
+                        imgW: exif.width,
+                        imgH: exif.height,
                       ),
                     ),
                     if (hasPrev)
@@ -315,6 +304,138 @@ class _LightboxViewState extends State<LightboxView> {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.xxl),
         child: _NavArrowButton(icon: icon, onTap: onTap),
+      ),
+    );
+  }
+}
+
+/// The big image, sized to the photo's true aspect (so the whole frame shows),
+/// with one hover-to-name marker per detected face overlaid on top. Falls back
+/// to a 4:3 frame with no markers when the source dimensions aren't known.
+class _LightboxImage extends StatelessWidget {
+  const _LightboxImage({
+    required this.photo,
+    required this.faces,
+    required this.imgW,
+    required this.imgH,
+  });
+
+  final Photo photo;
+  final List<FaceRow> faces;
+  final int imgW;
+  final int imgH;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, c) {
+      final maxW = c.maxWidth.isFinite ? c.maxWidth : 900.0;
+      final maxH = c.maxHeight.isFinite ? c.maxHeight : 700.0;
+      final known = imgW > 0 && imgH > 0;
+      final aspect = known ? imgW / imgH : 4 / 3;
+      // Contain the image at its true aspect within the available area.
+      var dW = maxW;
+      var dH = dW / aspect;
+      if (dH > maxH) {
+        dH = maxH;
+        dW = dH * aspect;
+      }
+      return Center(
+        child: SizedBox(
+          width: dW,
+          height: dH,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: PabloRadius.lgAll,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        offset: const Offset(0, 8),
+                        blurRadius: 40,
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: PabloRadius.lgAll,
+                    child: PhotoSurface(
+                      key: ValueKey(photo.id),
+                      photo: photo,
+                      targetW: 1280,
+                      targetH: 1280,
+                    ),
+                  ),
+                ),
+              ),
+              if (known)
+                for (final f in faces)
+                  Positioned(
+                    left: (f.boxX / imgW) * dW,
+                    top: (f.boxY / imgH) * dH,
+                    width: (f.boxW / imgW) * dW,
+                    height: (f.boxH / imgH) * dH,
+                    child: _FaceMarker(face: f),
+                  ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+}
+
+/// One face box on the lightbox image: a faint always-on outline (so faces are
+/// discoverable), brightening on hover and revealing the name / "Name…" bar.
+class _FaceMarker extends StatefulWidget {
+  const _FaceMarker({required this.face});
+  final FaceRow face;
+
+  @override
+  State<_FaceMarker> createState() => _FaceMarkerState();
+}
+
+class _FaceMarkerState extends State<_FaceMarker> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final pc = PeopleScope.read(context);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: _hover
+                      ? PabloColors.selectionPrimary
+                      : Colors.white.withValues(alpha: 0.4),
+                  width: 2,
+                ),
+                borderRadius: PabloRadius.smAll,
+              ),
+            ),
+          ),
+          // The naming field (rounded, matching the Unnamed Faces cards) sits at
+          // the box's bottom edge — inside the hover region so it isn't
+          // dismissed before it can be clicked. Shown on hover; persists while
+          // focused (so the suggestion dropdown is usable).
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: FaceNameOverlay(
+              face: widget.face,
+              controller: pc,
+              hovered: _hover,
+            ),
+          ),
+        ],
       ),
     );
   }

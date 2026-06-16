@@ -7,13 +7,20 @@
 // stores no other state.
 //
 // MethodChannel API (see macos/Classes, windows/, linux/):
-//   - `attachEngine`(engineHandle: int) -> void
-//   - `register`(slotId: int)           -> textureId: int
-//   - `unregister`(slotId: int)         -> void
+//   - `attachEngine`(engineHandle: int)     -> void
+//   - `register`(slotId: int)               -> textureId: int
+//   - `unregister`(slotId: int)             -> void
+//   - `markFrameAvailable`(slotId: int)     -> void
 //
 // `attachEngine` must be called once, before any `register`. It hands the
 // plugin the native engine pointer so the plugin's texture callback can call
 // photo_slot_acquire_latest from the render thread.
+//
+// `markFrameAvailable` tells the embedder a new native frame has been published
+// for the slot, so it re-pulls `copyPixelBuffer`. Without it the embedder only
+// re-copies when the Texture widget's layout changes — so a stage upgrade that
+// keeps the same frame dimensions (or a same-size re-decode) would leave a
+// stale, lower-resolution frame on screen until the next relayout.
 
 import 'package:flutter/services.dart';
 
@@ -32,6 +39,11 @@ abstract class TextureRegistry {
 
   /// Unregister the Flutter texture paired to [slotId]. Idempotent.
   Future<void> unregister(int slotId);
+
+  /// Notify the embedder that a new native frame is ready for [slotId], so it
+  /// re-pulls the slot's pixel buffer. Fire-and-forget; a no-op if the slot has
+  /// no registered texture.
+  Future<void> markFrameAvailable(int slotId);
 }
 
 class _ChannelTextureRegistry implements TextureRegistry {
@@ -69,6 +81,11 @@ class _ChannelTextureRegistry implements TextureRegistry {
   Future<void> unregister(int slotId) async {
     await _channel.invokeMethod<void>('unregister', {'slotId': slotId});
   }
+
+  @override
+  Future<void> markFrameAvailable(int slotId) async {
+    await _channel.invokeMethod<void>('markFrameAvailable', {'slotId': slotId});
+  }
 }
 
 /// In-memory registry useful for tests before the platform bridges are
@@ -97,4 +114,7 @@ final class FakeTextureRegistry implements TextureRegistry {
   Future<void> unregister(int slotId) async {
     _slotToTexture.remove(slotId);
   }
+
+  @override
+  Future<void> markFrameAvailable(int slotId) async {}
 }

@@ -76,6 +76,19 @@
         return;
     }
 
+    if ([method isEqualToString:@"markFrameAvailable"]) {
+        NSNumber *slotId = call.arguments[@"slotId"];
+        if (slotId != nil) {
+            PhotoNativeTexture *tex =
+                _texturesBySlotId[@([slotId unsignedLongLongValue])];
+            if (tex) {
+                [_textureRegistry textureFrameAvailable:tex.textureId];
+            }
+        }
+        result(nil);
+        return;
+    }
+
     if ([method isEqualToString:@"unregister"]) {
         NSNumber *slotId = call.arguments[@"slotId"];
         if (slotId == nil) {

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../components/avatar.dart';
 import '../../data/models.dart';
-import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 import 'people_controller.dart';
 import 'people_scope.dart';
@@ -33,9 +32,7 @@ class _PersonRowState extends State<PersonRow> {
     final lowConf = pc.isLive
         ? pc.lowConfidenceCount(
             PeopleController.nativePersonId(widget.person.id) ?? -1)
-        : suggestionsFor(widget.person.id)
-            .where((s) => s.confidence == SuggestionConfidence.low)
-            .length;
+        : 0;
     final bg = widget.selected
         ? PabloColors.selectionBackground
         : _hover

@@ -1,14 +1,12 @@
-// PeopleScrollView — per-person section with photo/face wrap and suggestion
-// cards.
+// PeopleScrollView — per-person section with confirmed-face wrap and the
+// suggested-match strip, driven entirely by the live face pipeline.
 //
-// Mock mode keeps its original behavior: gradient suggestion cards with local
-// accept/reject verdict state. Live mode reads the person's confirmed faces and
-// suggestions from the PeopleController, renders real face crops, and routes
-// confirm/reject to the face pipeline (the repo's `changes` stream re-queries,
-// so no local verdict state is needed live).
+// People and faces come from the PeopleController (native read-back). Confirm /
+// reject route to the pipeline; the repo's `changes` stream re-queries, so no
+// local verdict state is needed. Until the boot face scan has produced any
+// clusters the list is empty and an in-progress hint is shown.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:photo_native/photo_native.dart';
 
 import '../../app/app_scope.dart';
@@ -17,131 +15,66 @@ import '../../components/avatar.dart';
 import '../../components/pablo_badge.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
-import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
-import '../gallery/photo_thumb.dart';
 import 'decision_buttons.dart';
 import 'face_thumb.dart';
 import 'people_controller.dart';
 import 'people_scope.dart';
 
-enum _Verdict { pending, accepted, rejected }
-
-// Live-mode render caps — each FaceThumb holds a native texture slot, so we
-// bound how many a single person section instantiates at once.
+// Render caps — each FaceThumb holds a native texture slot, so we bound how
+// many a single person section instantiates at once.
 const int _kMaxFacesPerSection = 24;
 const int _kMaxSuggestionsPerSection = 12;
 
-class PeopleScrollView extends StatefulWidget {
+class PeopleScrollView extends StatelessWidget {
   const PeopleScrollView({this.onPhotoSecondary, super.key});
   final void Function(Offset, String photoId)? onPhotoSecondary;
-
-  @override
-  State<PeopleScrollView> createState() => _PeopleScrollViewState();
-}
-
-class _PeopleScrollViewState extends State<PeopleScrollView> {
-  // Mock-mode local verdict state, keyed by the mockup's person ids.
-  final Map<String, Map<String, _Verdict>> _state = {
-    for (final p in kPeople)
-      p.id: {
-        for (final s in suggestionsFor(p.id)) s.id: _Verdict.pending,
-      },
-  };
-
-  void _decide(String personId, String suggId, _Verdict v) {
-    setState(() => _state[personId]![suggId] = v);
-  }
-
-  void _acceptAll(String personId, List<Suggestion> pending) {
-    setState(() {
-      for (final s in pending) {
-        _state[personId]![s.id] = _Verdict.accepted;
-      }
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
     final pc = PeopleScope.of(context);
+    final people = pc.people();
+    if (people.isEmpty) {
+      return Container(
+        color: PabloColors.backgroundSurface,
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(PabloSpacing.xxxxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Opacity(
+              opacity: 0.35,
+              child: const PabloIcon(PabloIconName.people,
+                  size: 40, color: PabloColors.textMuted),
+            ),
+            const SizedBox(height: PabloSpacing.xl),
+            Text(
+              pc.isLive
+                  ? 'Scanning the library for faces…\nNamed people will appear here as clusters form.'
+                  : 'Face recognition is unavailable.\nRun with the native backend to detect people.',
+              textAlign: TextAlign.center,
+              style: PabloTypography.sans(
+                fontSize: 13,
+                color: PabloColors.textMuted,
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       color: PabloColors.backgroundSurface,
-      child: ListView(
+      // Lazy: off-screen person sections aren't built, so their FaceThumbs
+      // don't each mount a native texture slot (bounds slot usage to the
+      // visible sections rather than people.length × 36).
+      child: ListView.builder(
         padding: EdgeInsets.zero,
-        children: pc.people().map((person) {
-          return pc.isLive
-              ? _liveSection(context, st, pc, person)
-              : _mockSection(context, st, person);
-        }).toList(),
+        itemCount: people.length,
+        itemBuilder: (ctx, i) => _liveSection(context, st, pc, people[i]),
       ),
-    );
-  }
-
-  // ── Mock section (unchanged behavior) ──────────────────────────────────────
-
-  Widget _mockSection(BuildContext context, PabloAppState st, Person person) {
-    final photos = photosFor(person.id);
-    final suggs = suggestionsFor(person.id);
-    final personState = _state[person.id]!;
-    final pending =
-        suggs.where((s) => personState[s.id] == _Verdict.pending).toList();
-    final lowConfPending =
-        pending.where((s) => s.confidence == SuggestionConfidence.low).length;
-    final isSelected = st.selectedItem == person.id;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SectionHeader(
-          name: person.name,
-          hue: person.hue,
-          lowConfPending: lowConfPending,
-          subtitle: 'Last: ${person.lastDate}',
-          countLabel: '${photos.length} photos',
-          selected: isSelected,
-        ),
-        Container(
-          padding: const EdgeInsets.fromLTRB(
-            PabloSpacing.xxl,
-            PabloSpacing.xl,
-            PabloSpacing.xxl,
-            PabloSpacing.md,
-          ),
-          child: Wrap(
-            spacing: PabloSpacing.base,
-            runSpacing: PabloSpacing.base,
-            children: photos
-                .map((p) => PhotoThumb(
-                      photo: p,
-                      size: st.thumbSize,
-                      selected: st.selectedPhotos.contains(p.id),
-                      inTray: st.trayPhotos.contains(p.id),
-                      onTap: (_) => st.selectPhoto(
-                        p.id,
-                        ctrl: HardwareKeyboard.instance.isControlPressed ||
-                            HardwareKeyboard.instance.isMetaPressed,
-                        shift: HardwareKeyboard.instance.isShiftPressed,
-                        contextPhotoIds: photos.map((x) => x.id).toList(),
-                      ),
-                      onDoubleTap: () => st.openLightbox(p.id),
-                      onAddToTray: () => st.addToTray(p.id),
-                      onSecondaryTap: (pos) =>
-                          widget.onPhotoSecondary?.call(pos, p.id),
-                    ))
-                .toList(),
-          ),
-        ),
-        if (pending.isNotEmpty)
-          _SuggestionStrip(
-            thumbSize: st.thumbSize,
-            pending: pending,
-            onDecide: (suggId, v) => _decide(person.id, suggId, v),
-            onAcceptAll: () => _acceptAll(person.id, pending),
-          ),
-      ],
     );
   }
 
@@ -302,55 +235,6 @@ class _SectionHeader extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _SuggestionStrip extends StatelessWidget {
-  const _SuggestionStrip({
-    required this.thumbSize,
-    required this.pending,
-    required this.onDecide,
-    required this.onAcceptAll,
-  });
-  final double thumbSize;
-  final List<Suggestion> pending;
-  final void Function(String, _Verdict) onDecide;
-  final VoidCallback onAcceptAll;
-
-  @override
-  Widget build(BuildContext context) {
-    return _SuggestionStripFrame(
-      onAcceptAll: onAcceptAll,
-      children: pending.map((sugg) {
-        final w = thumbSize;
-        final h = thumbSize * 0.75;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: w,
-              height: h,
-              decoration: BoxDecoration(
-                gradient: sugg.gradient,
-                borderRadius: PabloRadius.lgAll,
-                border: Border.all(color: PabloColors.borderSubtle),
-              ),
-              child: Stack(
-                children: [
-                  Positioned(top: 4, left: 4, child: PabloBadge.warning()),
-                ],
-              ),
-            ),
-            const SizedBox(height: PabloSpacing.sm),
-            _DecisionRow(
-              width: w,
-              onAccept: () => onDecide(sugg.id, _Verdict.accepted),
-              onReject: () => onDecide(sugg.id, _Verdict.rejected),
-            ),
-          ],
-        );
-      }).toList(),
     );
   }
 }
