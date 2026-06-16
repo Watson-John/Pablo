@@ -55,6 +55,11 @@ struct Embedder::Impl {
 
     Impl(const std::string& model, float m, float s) : mean(m), scale(s) {
         opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        // Single-threaded inference (see detector.cpp): one core per scan so the
+        // worker pool maps directly to a thumbnails-vs-scan core split.
+        opts.SetIntraOpNumThreads(1);
+        opts.SetInterOpNumThreads(1);
+        opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
 #ifdef _WIN32
         std::wstring w = widen(model);
         session = Ort::Session(env, w.c_str(), opts);

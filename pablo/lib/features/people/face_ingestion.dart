@@ -73,11 +73,15 @@ class FaceIngestion {
     appState
         .startTask(TaskInfo(id: _taskId, name: 'Scanning faces', percent: 1));
 
-    // Face scans run on the engine's idle lane, but each is long (~hundreds of
-    // ms) and workers don't preempt. A full-library scan runs for many minutes,
-    // so keep only ~half the pool busy with scans — the rest stay free to decode
-    // interactive thumbnails promptly while the user browses during the scan.
-    final maxInFlight = (Platform.numberOfProcessors ~/ 2).clamp(2, 6);
+    // Each face scan now pins ONNX to a single core (see detector.cpp/embed.cpp),
+    // so one in-flight scan ≈ one busy worker/core. Run the scan across most of
+    // the pool while reserving ~2 workers for interactive thumbnail decoding —
+    // enough to keep thumbnails at full speed during scroll (each decode is ~ms,
+    // and scan workers also pick up thumbnails between images via lane priority).
+    // Scales with core count instead of a fixed cap, so larger machines devote
+    // more workers to the scan and finish it faster.
+    final maxInFlight =
+        (Platform.numberOfProcessors - 3).clamp(2, Platform.numberOfProcessors);
 
     var scanned = 0; // completed (one per scanProgress)
     var submitted = 0; // requests sent
