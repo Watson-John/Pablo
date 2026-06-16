@@ -44,9 +44,19 @@ void main() {
     });
 
     test('native id parsing handles live ids and ignores mock ids', () {
+      // Happy path.
       expect(PeopleController.nativePersonId('np42'), 42);
       expect(PeopleController.nativeClusterId('nc7'), 7);
+      // Mock ids (no np/nc prefix) → null.
       expect(PeopleController.nativePersonId('p1'), isNull);
+      expect(PeopleController.nativeClusterId('uf-3'), isNull);
+      // Right prefix, non-numeric / empty suffix → null (not 0 or a throw).
+      expect(PeopleController.nativePersonId('np'), isNull);
+      expect(PeopleController.nativePersonId('npx'), isNull);
+      expect(PeopleController.nativeClusterId('ncZ'), isNull);
+      // Cross-prefix: a cluster id is not a person id and vice versa.
+      expect(PeopleController.nativePersonId('nc7'), isNull);
+      expect(PeopleController.nativeClusterId('np42'), isNull);
     });
   });
 }

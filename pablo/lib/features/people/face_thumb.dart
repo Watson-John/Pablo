@@ -21,17 +21,26 @@ import 'people_scope.dart';
 /// a tight head-only clip. Fraction of the box's own width/height.
 const double _kFaceCropPad = 0.15;
 
-/// Normalized [0,1) crop rect for a face's SOURCE-pixel box within an image of
-/// [dims], padded by [pad] and clamped to the image. Null if dims are degenerate.
-/// Pure + testable — kept out of build().
-Rect? faceCropRect(FaceRow face, ImageDims dims, {double pad = _kFaceCropPad}) {
-  final w = dims.width.toDouble();
-  final h = dims.height.toDouble();
+/// Normalized [0,1) crop rect for a SOURCE-pixel face box within an image of
+/// [imgW]×[imgH], padded by [pad] (fraction of the box) and clamped to the
+/// image. Null if the dimensions are degenerate. Pure + testable — takes plain
+/// numbers (not a FaceRow) so it needs no FFI types and stays out of build().
+Rect? faceCropRect({
+  required double boxX,
+  required double boxY,
+  required double boxW,
+  required double boxH,
+  required int imgW,
+  required int imgH,
+  double pad = _kFaceCropPad,
+}) {
+  final w = imgW.toDouble();
+  final h = imgH.toDouble();
   if (w <= 0 || h <= 0) return null;
-  final l = ((face.boxX - face.boxW * pad) / w).clamp(0.0, 1.0);
-  final t = ((face.boxY - face.boxH * pad) / h).clamp(0.0, 1.0);
-  final cw = (face.boxW * (1 + 2 * pad) / w).clamp(0.01, 1.0 - l);
-  final ch = (face.boxH * (1 + 2 * pad) / h).clamp(0.01, 1.0 - t);
+  final l = ((boxX - boxW * pad) / w).clamp(0.0, 1.0);
+  final t = ((boxY - boxH * pad) / h).clamp(0.0, 1.0);
+  final cw = (boxW * (1 + 2 * pad) / w).clamp(0.01, 1.0 - l);
+  final ch = (boxH * (1 + 2 * pad) / h).clamp(0.01, 1.0 - t);
   return Rect.fromLTWH(l, t, cw, ch);
 }
 
@@ -66,7 +75,14 @@ class FaceThumb extends StatelessWidget {
 
     Widget child = fallback;
     if (backend != null && path != null && dims != null) {
-      final crop = faceCropRect(face, dims);
+      final crop = faceCropRect(
+        boxX: face.boxX,
+        boxY: face.boxY,
+        boxW: face.boxW,
+        boxH: face.boxH,
+        imgW: dims.width,
+        imgH: dims.height,
+      );
       if (crop != null) {
         child = NativeAssetTexture(
           engine: backend.engine,
