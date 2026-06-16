@@ -8,9 +8,10 @@
 // self-query is seconds-to-minutes with BLAS, and exactness avoids the recall
 // cliffs an approximate index would introduce near the duplicate threshold.
 //
-// FAISS (IndexFlatIP) is used when available; otherwise a blocked brute-force
-// implementation (chunked GEMM-style dot products) gives identical results at
-// lower throughput.
+// FAISS (IndexFlatIP) is used when available; otherwise a thread-pooled scalar
+// brute-force fallback gives identical results at much lower throughput. NOTE:
+// the fallback is a plain dot-product loop, NOT a BLAS/GEMM — for the ~300k
+// target, link FAISS (or replace the fallback with cblas_sgemm). See index.cpp.
 
 #pragma once
 

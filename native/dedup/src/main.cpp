@@ -138,16 +138,18 @@ int cmd_scan(Config& cfg) {
 }
 
 int cmd_calibrate(Config& cfg, const Args& a) {
-    const double from = a.number("from", 0.70);
-    const double to = a.number("to", 0.92);
+    const double from = a.number("from", 0.20);
+    const double to = a.number("to", 0.60);
     const double step = a.number("step", 0.02);
     dedup::Store store(cfg);
     std::cout << "threshold  clusters  images_in_clusters  oversize\n";
     std::cout << "---------  --------  ------------------  --------\n";
-    for (double t = from; t <= to + 1e-9; t += step) {
-        cfg.threshold = t;
+    // Index the steps (t = from + i*step) to avoid float accumulation drift.
+    const int steps = static_cast<int>((to - from) / step + 0.5);
+    for (int i = 0; i <= steps; ++i) {
+        cfg.threshold = from + i * step;
         dedup::ScanStats s = dedup::recluster_only(cfg, store);
-        std::printf("%8.3f  %8zu  %18zu  %8zu\n", t, s.clusters,
+        std::printf("%8.3f  %8zu  %18zu  %8zu\n", cfg.threshold, s.clusters,
                     s.images_in_clusters, s.flagged_oversize);
     }
     std::cout << "\nPick a threshold in the gap before cluster/image counts "

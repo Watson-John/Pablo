@@ -39,8 +39,10 @@ struct Config {
     // Indexing.
     int k = 20;
 
-    // Clustering.
-    double threshold = 0.80;
+    // Clustering. Default 0.35 sits between the measured true-pair median (~0.43)
+    // and the random-pair ceiling (~0.13) — calibrate per library with `calibrate`.
+    // (The brief's 0.80 starting point empirically finds almost nothing on SSCD.)
+    double threshold = 0.35;
     bool mutual_knn = true;
     int max_cluster_size = 400;
     bool exif_time_guard = false;

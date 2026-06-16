@@ -35,7 +35,8 @@ index:
 
 # --- Clustering -------------------------------------------------------------
 cluster:
-  threshold: 0.80           # cosine similarity edge cutoff; calibrate per library
+  threshold: 0.35           # cosine cutoff; calibrate per library (0.80 finds almost
+                            #   nothing — true-pair median ~0.43, random max ~0.13)
   mutual_knn: true          # require A∈kNN(B) AND B∈kNN(A) — curbs transitive drift
   max_cluster_size: 400     # warn + flag clusters that balloon past this (drift smell)
   exif_time_guard: false    # if true, borderline edges need EXIF timestamps within...
