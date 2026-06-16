@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/mock_data.dart';
+import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 import 'location_photo_grid.dart';
 import 'usa_heat_map.dart';

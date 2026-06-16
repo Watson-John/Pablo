@@ -6,7 +6,7 @@
 // A slot pairs 1:1 with a Flutter Texture registration owned by the
 // photo_native plugin. Stage upgrades swap the underlying FrameBuffer; the
 // plugin's texture registration never changes for the slot's lifetime
-// (DECISIONS.md §D7).
+// (docs/DECISIONS.md §D7).
 //
 // FRAME OWNERSHIP MODEL
 // =====================

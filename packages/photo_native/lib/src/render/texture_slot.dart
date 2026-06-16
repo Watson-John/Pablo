@@ -4,7 +4,7 @@
 //   * a native slot ID (owned by photo_core)
 //   * a stable Flutter texture ID (registered by the platform plugin)
 //
-// Per DECISIONS.md §D7: the texture registration lives for the slot's
+// Per docs/DECISIONS.md §D7: the texture registration lives for the slot's
 // lifetime. Stage upgrades swap the underlying native frame; the texture ID
 // never changes. M1 wires the lifecycle; the per-platform texture bridges
 // (M1e) supply the texture IDs via texture_registry.dart.

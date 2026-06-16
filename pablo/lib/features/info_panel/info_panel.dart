@@ -8,7 +8,7 @@ import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import 'info_tab.dart';
 import 'manage_details.dart';
-import 'people_tab.dart';
+import '../people/people_tab.dart';
 import 'tags_tab.dart';
 
 class PhotoInfoPanel extends StatefulWidget {

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../components/avatar.dart';
 import '../../data/models.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
+import 'people_controller.dart';
+import 'people_scope.dart';
 
 class PersonRow extends StatefulWidget {
   const PersonRow({
@@ -27,9 +29,13 @@ class _PersonRowState extends State<PersonRow> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
-    final lowConf = suggestionsFor(widget.person.id)
-        .where((s) => s.confidence == SuggestionConfidence.low)
-        .length;
+    final pc = PeopleScope.of(context);
+    final lowConf = pc.isLive
+        ? pc.lowConfidenceCount(
+            PeopleController.nativePersonId(widget.person.id) ?? -1)
+        : suggestionsFor(widget.person.id)
+            .where((s) => s.confidence == SuggestionConfidence.low)
+            .length;
     final bg = widget.selected
         ? PabloColors.selectionBackground
         : _hover

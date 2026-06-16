@@ -9,9 +9,9 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:pablo/app/app_scope.dart';
 import 'package:pablo/app/app_state.dart';
-import 'package:pablo/data/mock_data.dart';
+import 'package:pablo/data/mock/mock_data.dart';
 import 'package:pablo/data/models.dart';
-import 'package:pablo/data/photo_factory.dart';
+import 'package:pablo/data/mock/photo_factory.dart';
 import 'package:pablo/features/gallery/photo_thumb.dart';
 import 'package:pablo/features/gallery/section_scroll_view.dart';
 

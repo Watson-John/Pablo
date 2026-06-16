@@ -38,7 +38,14 @@ for rel in api/c_api.cpp \
            thumb/slot.cpp \
            thumb/thumb_service.cpp \
            thumb/thumb_cache.cpp \
-           util/log.cpp; do
+           util/log.cpp \
+           faces/detector.cpp \
+           faces/align.cpp \
+           faces/embed.cpp \
+           faces/cluster.cpp \
+           faces/prototype.cpp \
+           faces/store.cpp \
+           faces/face_service.cpp; do
     ln -sfn "$repo_root/native/core/src/$rel" \
             "$mac_root/Classes/core/$(basename "$rel")"
 done

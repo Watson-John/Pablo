@@ -16,16 +16,29 @@ import 'dart:io' show Directory, Platform;
 import 'package:flutter/widgets.dart';
 import 'package:photo_native/photo_native.dart';
 
+import '../data/sources/face_repository.dart';
+
 const bool kUseNativeTextureThumbs = bool.fromEnvironment(
   'PABLO_NATIVE_THUMBS',
   defaultValue: false,
 );
 
+/// Directory holding the face ONNX models (scrfd_10g.onnx, auraface.onnx).
+/// Empty (the default) leaves modelsPath null → face scans report unavailable.
+const String kModelsDir = String.fromEnvironment(
+  'PABLO_MODELS_DIR',
+  defaultValue: '',
+);
+
 class NativeBackend {
-  NativeBackend._(this.engine, this._pump);
+  NativeBackend._(this.engine, this._pump, this.faces);
 
   final Engine engine;
   final EventPump _pump;
+
+  /// The People UI's data source over the live engine (face read-back +
+  /// confirm/reject/scan/name). Subscribes to native events for `changes`.
+  final FaceRepository faces;
 
   /// Broadcast stream of native events (stage-ready/-failed, import progress…).
   /// Thumbnail surfaces listen for STAGE_READY to learn the decoded frame's
@@ -41,7 +54,11 @@ class NativeBackend {
       if (!await dir.exists()) await dir.create(recursive: true);
 
       final engine = Engine.open(
-        EngineConfig(catalogPath: '$tmp/catalog.db', cachePath: '$tmp/cache'),
+        EngineConfig(
+          catalogPath: '$tmp/catalog.db',
+          cachePath: '$tmp/cache',
+          modelsPath: kModelsDir.isEmpty ? null : kModelsDir,
+        ),
       );
       if (engine == null) {
         debugPrint('[pablo] Engine.open returned null');
@@ -51,11 +68,13 @@ class NativeBackend {
       // Drain the native event ring so STAGE_READY dimensions reach the UI
       // (and the ring never backs up). Pull-based on a short timer.
       final pump = EventPump(engine)..start();
+      final faces = createFaceRepository(engine: engine, events: pump.stream);
       debugPrint(
         '[pablo] native backend engine=${Engine.engineVersion} '
-        'abi=${Engine.abiVersion} platform=${Platform.operatingSystem}',
+        'abi=${Engine.abiVersion} platform=${Platform.operatingSystem} '
+        'models=${kModelsDir.isEmpty ? "(none)" : kModelsDir}',
       );
-      return NativeBackend._(engine, pump);
+      return NativeBackend._(engine, pump, faces);
     } catch (e, st) {
       debugPrint('[pablo] native backend init failed: $e\n$st');
       return null;
@@ -63,6 +82,7 @@ class NativeBackend {
   }
 
   void dispose() {
+    if (faces is NativeFaceRepository) (faces as NativeFaceRepository).dispose();
     _pump.dispose();
     engine.dispose();
   }

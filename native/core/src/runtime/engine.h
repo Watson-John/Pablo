@@ -19,6 +19,10 @@
 #include "runtime/slot_store.h"
 #include "thumb/thumb_service.h"
 
+#ifdef PHOTO_HAVE_FACES
+#include "faces/face_service.h"
+#endif
+
 namespace photo {
 
 class ThumbCache;
@@ -38,6 +42,9 @@ public:
     EventRing&    events()       { return events_; }
     JobSystem&    jobs()         { return jobs_; }
     ThumbService& thumbs()       { return thumbs_; }
+#ifdef PHOTO_HAVE_FACES
+    faces::FaceService& faces()  { return faces_; }
+#endif
 
     const std::filesystem::path& catalog_path() const { return catalog_path_; }
     const std::filesystem::path& cache_path()   const { return cache_path_; }
@@ -62,6 +69,9 @@ private:
     EventRing                 events_{1024};
     JobSystem                 jobs_;
     ThumbService              thumbs_;
+#ifdef PHOTO_HAVE_FACES
+    faces::FaceService        faces_;
+#endif
 
     std::filesystem::path     catalog_path_;
     std::filesystem::path     cache_path_;

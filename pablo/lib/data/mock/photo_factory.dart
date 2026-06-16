@@ -6,10 +6,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../utils/hash.dart';
-import '../utils/image_dims.dart';
+import '../../utils/hash.dart';
+import '../../utils/image_dims.dart';
 import 'mock_data.dart';
-import 'models.dart';
+import '../models.dart';
 
 class _PhotoPreset {
   const _PhotoPreset(this.h, this.s, this.l, this.deg, this.s2, this.l2);

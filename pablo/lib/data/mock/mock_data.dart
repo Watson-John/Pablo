@@ -1,7 +1,7 @@
 // Mock data — verbatim port of PEOPLE / FOLDERS / ALBUMS / TIMELINE_YEARS /
 // UNNAMED_FACES / MAP_LOCATIONS from pablo3-foundation.jsx + pablo3-map.jsx.
 
-import 'models.dart';
+import '../models.dart';
 
 const List<Person> kPeople = [
   Person(id: 'p1', name: 'Sarah Chen', count: 308, lastDate: 'Dec 2024', hue: 15),

@@ -4,15 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/app_scope.dart';
-import '../../data/mock_data.dart';
+import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 import '../map/map_page.dart';
-import 'people_scroll_view.dart';
+import '../people/people_scroll_view.dart';
 import 'photo_thumb.dart';
 import 'section_scroll_view.dart';
-import 'unnamed_faces_page.dart';
+import '../people/unnamed_faces_page.dart';
 
 class MainGrid extends StatelessWidget {
   const MainGrid({this.onPhotoSecondary, super.key});

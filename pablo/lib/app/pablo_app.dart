@@ -4,15 +4,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../backend/native_backend.dart';
 import '../components/context_menu.dart';
 import '../components/resize_handle.dart';
 import '../data/models.dart';
-import '../data/photo_factory.dart';
+import '../data/mock/photo_factory.dart';
+import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/photo_edit_panel.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/info_panel/info_panel.dart';
+import '../features/people/face_ingestion.dart';
+import '../features/people/people_controller.dart';
+import '../features/people/people_scope.dart';
 import '../features/photo_tray/photo_tray.dart';
 import '../features/sidebar/sidebar.dart';
 import '../layouts/shell.dart';
@@ -30,7 +35,21 @@ class PabloApp extends StatefulWidget {
 
 class _PabloAppState extends State<PabloApp> {
   late final PabloAppState _state = PabloAppState();
+
+  /// People-feature state, derived from the native backend if one is mounted
+  /// above us (live), else the mock repository. Built here (not in main) so
+  /// the app — and widget tests that pump it directly — always has a
+  /// PeopleScope. Initialized in didChangeDependencies where the backend
+  /// InheritedWidget is reachable.
+  PeopleController? _people;
   Timer? _ticker;
+
+  /// Debug hook: when PABLO_AUTOSCAN is set (and a live backend + dataset are
+  /// present), kick off a face scan of the dataset folder on first frame.
+  /// Lets the live pipeline be exercised headlessly without the menu.
+  static const bool _autoScan =
+      bool.fromEnvironment('PABLO_AUTOSCAN', defaultValue: false);
+  bool _autoScanned = false;
 
   @override
   void initState() {
@@ -42,8 +61,27 @@ class _PabloAppState extends State<PabloApp> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final backend = NativeBackendScope.maybeOf(context);
+    _people ??= PeopleController(backend?.faces ?? const MockFaceRepository());
+    if (_autoScan && !_autoScanned) {
+      final scan = FaceIngestion.scanDatasetAction(
+        backend: backend,
+        controller: _people!,
+        appState: _state,
+      );
+      if (scan != null) {
+        _autoScanned = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) => scan());
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _ticker?.cancel();
+    _people?.dispose();
     _state.dispose();
     super.dispose();
   }
@@ -56,7 +94,10 @@ class _PabloAppState extends State<PabloApp> {
       theme: buildPabloTheme(),
       home: AppScope(
         notifier: _state,
-        child: const _Home(),
+        child: PeopleScope(
+          notifier: _people!,
+          child: const _Home(),
+        ),
       ),
     );
   }

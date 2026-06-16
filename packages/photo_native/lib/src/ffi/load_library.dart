@@ -3,7 +3,7 @@
 //
 // load_library.dart — per-platform DynamicLibrary loader.
 //
-// Per DECISIONS.md §D6: explicit DynamicLibrary.open with per-platform paths.
+// Per docs/DECISIONS.md §D6: explicit DynamicLibrary.open with per-platform paths.
 // `DynamicLibrary.process()` is unreliable on macOS because Flutter plugins
 // ship as embedded frameworks and symbols may not be globally visible.
 //

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_scope.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 
 class PhotoTray extends StatelessWidget {

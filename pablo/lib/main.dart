@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app/pablo_app.dart';
-import 'native/native_backend.dart';
+import 'backend/native_backend.dart';
 import 'utils/window_setup.dart';
 
 Future<void> main() async {
@@ -11,6 +11,7 @@ Future<void> main() async {
   // Initialize the native photo backend. Returns null when the
   // PABLO_NATIVE_THUMBS flag is off or the engine fails to boot — either
   // way, the rest of the app falls back to the gradient mockup path.
+  // PabloApp reads this scope to build its PeopleController (live or mock).
   final backend = await NativeBackend.initialize();
 
   runApp(

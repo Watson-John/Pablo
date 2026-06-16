@@ -27,6 +27,9 @@ set(PHOTO_CORE_SOURCES
     # M2 — request pipeline
     src/runtime/job_system.cpp
     src/thumb/thumb_service.cpp
+
+    # M3 — on-disk thumbnail cache
+    src/thumb/thumb_cache.cpp
 )
 
 # Later milestones append to PHOTO_CORE_SOURCES via target_sources() calls
@@ -102,6 +105,83 @@ endif()
 #   pkg_check_modules(VIPS REQUIRED vips)
 #   target_link_libraries(photo_core PRIVATE PkgConfig::VIPS)
 #   _assert_dynamic_link(VIPS)  # macro defined in cmake/lgpl_guard.cmake
+
+# ------------------------------------------------------------------
+# M6/M7: face subsystem (detect -> align -> embed -> cluster)
+#
+# Desktop-only. OpenCV is required for the pipeline (image ops, warp, NMS);
+# ONNX Runtime is optional — without it the face sources compile but submit()s
+# report unavailable (FACES_HAVE_ORT gates the real model paths, mirroring how
+# thumb_service.cpp gates on PHOTO_HAVE_VIPS). Models chosen by the eval
+# bake-off (scrfd_10g + auraface + agglomerative); see native/models/MANIFEST.md.
+# ------------------------------------------------------------------
+
+option(PHOTO_BUILD_FACES "Build the M6/M7 face subsystem (needs OpenCV)" ON)
+
+if(PHOTO_BUILD_FACES)
+    if(NOT "${CMAKE_CURRENT_SOURCE_DIR}/cmake" IN_LIST CMAKE_MODULE_PATH)
+        list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+    endif()
+    # Homebrew ships OpenCVConfig.cmake but only on the keg prefix; seed it so
+    # the find works out of the box on macOS without -DCMAKE_PREFIX_PATH.
+    if(APPLE AND NOT DEFINED OpenCV_DIR)
+        execute_process(COMMAND brew --prefix opencv
+                        OUTPUT_VARIABLE _brew_opencv OUTPUT_STRIP_TRAILING_WHITESPACE
+                        ERROR_QUIET RESULT_VARIABLE _brew_rc)
+        if(_brew_rc EQUAL 0 AND EXISTS "${_brew_opencv}/lib/cmake/opencv4")
+            list(APPEND CMAKE_PREFIX_PATH "${_brew_opencv}")
+        endif()
+    endif()
+    # calib3d provides cv::estimateAffinePartial2D (align.cpp's 5-pt warp).
+    find_package(OpenCV CONFIG QUIET COMPONENTS core imgproc imgcodecs dnn calib3d)
+    if(OpenCV_FOUND)
+        target_sources(photo_core PRIVATE
+            src/faces/detector.cpp
+            src/faces/align.cpp
+            src/faces/embed.cpp
+            src/faces/cluster.cpp
+            src/faces/prototype.cpp
+            src/faces/store.cpp
+            src/faces/face_service.cpp
+        )
+        target_compile_definitions(photo_core PRIVATE PHOTO_HAVE_FACES=1)
+        target_link_libraries(photo_core PRIVATE ${OpenCV_LIBS})
+        target_include_directories(photo_core PRIVATE ${OpenCV_INCLUDE_DIRS})
+
+        find_package(OnnxRuntime QUIET)  # cmake/FindOnnxRuntime.cmake
+        if(OnnxRuntime_FOUND)
+            target_compile_definitions(photo_core PRIVATE FACES_HAVE_ORT=1)
+            target_link_libraries(photo_core PRIVATE OnnxRuntime::OnnxRuntime)
+            message(STATUS "photo_core: faces ENABLED with ONNX Runtime "
+                           "${OnnxRuntime_VERSION} (scrfd_10g + auraface)")
+        else()
+            message(STATUS "photo_core: faces compiled but ONNX Runtime absent "
+                           "-> face scan reports unavailable")
+        endif()
+
+        # SQLite backs face/person persistence in the Pablo catalog. Optional at
+        # this milestone (M5 brings the catalog); without it FaceStore throws.
+        # Prefer CMake's built-in FindSQLite3 (Homebrew/system: SQLite::SQLite3);
+        # fall back to vcpkg's unofficial-sqlite3 port target.
+        find_package(SQLite3 QUIET)
+        if(SQLite3_FOUND)
+            target_compile_definitions(photo_core PRIVATE FACES_HAVE_SQLITE=1)
+            target_link_libraries(photo_core PRIVATE SQLite::SQLite3)
+            message(STATUS "photo_core: faces persistence ENABLED (SQLite ${SQLite3_VERSION})")
+        else()
+            find_package(unofficial-sqlite3 CONFIG QUIET)
+            if(unofficial-sqlite3_FOUND)
+                target_compile_definitions(photo_core PRIVATE FACES_HAVE_SQLITE=1)
+                target_link_libraries(photo_core PRIVATE unofficial::sqlite3::sqlite3)
+                message(STATUS "photo_core: faces persistence ENABLED (SQLite, vcpkg)")
+            else()
+                message(STATUS "photo_core: SQLite absent -> face persistence stubbed")
+            endif()
+        endif()
+    else()
+        message(STATUS "photo_core: OpenCV not found -> face subsystem skipped")
+    endif()
+endif()
 
 # ------------------------------------------------------------------
 # Tests + benchmarks
