@@ -6,7 +6,8 @@ import '../../theme/tokens.dart';
 import '../gallery/photo_surface.dart';
 
 class LocationPhotoGrid extends StatefulWidget {
-  const LocationPhotoGrid({required this.photos, this.thumbSize = 112, super.key});
+  const LocationPhotoGrid(
+      {required this.photos, this.thumbSize = 112, super.key});
   final List<Photo> photos;
   final double thumbSize;
 
@@ -21,7 +22,10 @@ class _LocationPhotoGridState extends State<LocationPhotoGrid> {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-        PabloSpacing.xl, PabloSpacing.lg, PabloSpacing.xl, PabloSpacing.xxxl,
+        PabloSpacing.xl,
+        PabloSpacing.lg,
+        PabloSpacing.xl,
+        PabloSpacing.xxxl,
       ),
       child: Wrap(
         spacing: 3,
@@ -40,7 +44,7 @@ class _LocationPhotoGridState extends State<LocationPhotoGrid> {
                   ? (Matrix4.identity()..scaleByDouble(1.03, 1.03, 1.0, 1.0))
                   : Matrix4.identity(),
               decoration: BoxDecoration(
-                borderRadius: PabloRadius.mdAll,
+                borderRadius: PabloRadius.smAll,
                 boxShadow: hov ? PabloShadows.md : PabloShadows.sm,
               ),
               clipBehavior: Clip.antiAlias,

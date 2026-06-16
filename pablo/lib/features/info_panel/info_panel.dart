@@ -63,8 +63,8 @@ class _PhotoInfoPanelState extends State<PhotoInfoPanel> {
         children: [
           // Header
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              PabloSpacing.xl + 2, PabloSpacing.lg, PabloSpacing.xl + 2, PabloSpacing.base),
+            padding: const EdgeInsets.fromLTRB(PabloSpacing.xl + 2,
+                PabloSpacing.lg, PabloSpacing.xl + 2, PabloSpacing.base),
             child: Row(
               children: [
                 if (_manage) ...[
@@ -98,7 +98,8 @@ class _PhotoInfoPanelState extends State<PhotoInfoPanel> {
           // Tab bar (hidden in manage mode)
           if (!_manage)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.xl + 2),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: PabloSpacing.xl + 2),
               decoration: const BoxDecoration(
                 border: Border(
                   bottom: BorderSide(color: PabloColors.borderSubtle),
@@ -119,8 +120,8 @@ class _PhotoInfoPanelState extends State<PhotoInfoPanel> {
           // Content
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
-                PabloSpacing.xl + 2, PabloSpacing.sm, PabloSpacing.xl + 2, PabloSpacing.xxxxl),
+              padding: const EdgeInsets.fromLTRB(PabloSpacing.xl + 2,
+                  PabloSpacing.sm, PabloSpacing.xl + 2, PabloSpacing.xxxxl),
               child: photo == null
                   ? _NoPhoto(noun: tab)
                   : _manage
@@ -180,12 +181,14 @@ class _InspectorTabState extends State<_InspectorTab> {
           child: Stack(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(0, PabloSpacing.base, 0, PabloSpacing.lg),
+                padding: const EdgeInsets.fromLTRB(
+                    0, PabloSpacing.base, 0, PabloSpacing.lg),
                 child: Text(
                   widget.label,
                   style: PabloTypography.sans(
                     fontSize: 13,
-                    fontWeight: widget.active ? FontWeight.w600 : FontWeight.w500,
+                    fontWeight:
+                        widget.active ? FontWeight.w600 : FontWeight.w500,
                     color: color,
                   ),
                 ),

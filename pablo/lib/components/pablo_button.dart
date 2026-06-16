@@ -90,11 +90,14 @@ class _PabloButtonState extends State<PabloButton> {
   _SizeSpec get _s {
     switch (widget.size) {
       case PabloButtonSize.xs:
-        return const _SizeSpec(height: 24, paddingH: PabloSpacing.base, fontSize: 11);
+        return const _SizeSpec(
+            height: 24, paddingH: PabloSpacing.base, fontSize: 11);
       case PabloButtonSize.sm:
-        return const _SizeSpec(height: 30, paddingH: PabloSpacing.lg, fontSize: 12);
+        return const _SizeSpec(
+            height: 30, paddingH: PabloSpacing.lg, fontSize: 12);
       case PabloButtonSize.md:
-        return const _SizeSpec(height: 34, paddingH: PabloSpacing.xxl + 2, fontSize: 13);
+        return const _SizeSpec(
+            height: 34, paddingH: PabloSpacing.xxl + 2, fontSize: 13);
     }
   }
 
@@ -113,7 +116,7 @@ class _PabloButtonState extends State<PabloButton> {
     final fg = disabled ? PabloColors.textMuted : v.fg;
 
     Widget child = AnimatedContainer(
-      duration: PabloDurations.hover,
+      duration: PabloDurations.control,
       height: s.height,
       padding: EdgeInsets.symmetric(horizontal: s.paddingH),
       decoration: BoxDecoration(

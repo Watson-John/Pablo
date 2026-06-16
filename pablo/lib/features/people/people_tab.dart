@@ -29,7 +29,8 @@ class _PeopleTabState extends State<PeopleTab> {
     final assetId = assetIdFor(widget.photoId);
     final faces = pc.facesForAsset(assetId);
     if (faces.isEmpty) {
-      return _emptyState('No faces detected\nin this photo', PabloIconName.person);
+      return _emptyState(
+          'No faces detected\nin this photo', PabloIconName.person);
     }
     final confirmed = faces.where((f) => f.confirmed).toList();
     final unconfirmed = faces.where((f) => !f.confirmed).toList();
@@ -53,17 +54,24 @@ class _PeopleTabState extends State<PeopleTab> {
               _suggestionCard(
                 leading: _faceAvatar(f),
                 label: Text(
-                  pc.tierOf(f) == FaceTier.high ? 'Likely match' : 'Possible match',
+                  pc.tierOf(f) == FaceTier.high
+                      ? 'Likely match'
+                      : 'Possible match',
                   style: PabloTypography.sans(
                     fontSize: 12.5,
                     color: PabloColors.textSecondary,
                   ),
                 ),
                 confirmLabel: '✓ Confirm',
-                onConfirm: () => pc.approve(clusterId: f.clusterId, faceId: f.faceId),
-                onReject: () => pc.reject(clusterId: f.clusterId, faceId: f.faceId),
+                onConfirm: () =>
+                    pc.approve(clusterId: f.clusterId, faceId: f.faceId),
+                onReject: () =>
+                    pc.reject(clusterId: f.clusterId, faceId: f.faceId),
               ),
           ],
+          const SizedBox(height: PabloSpacing.lg),
+          _groupLabel('Add Person', PabloColors.textMuted),
+          const _AddPersonAffordance(),
         ],
       ),
     );
@@ -155,7 +163,7 @@ class _PeopleTabState extends State<PeopleTab> {
   }) =>
       Container(
         margin: const EdgeInsets.only(bottom: PabloSpacing.base),
-        padding: const EdgeInsets.all(PabloSpacing.md),
+        padding: const EdgeInsets.all(PabloSpacing.base),
         decoration: BoxDecoration(
           color: PabloColors.warningBackground,
           border: Border.all(color: PabloColors.warningBorder),
@@ -183,7 +191,7 @@ class _PeopleTabState extends State<PeopleTab> {
                     onTap: onConfirm,
                   ),
                 ),
-                const SizedBox(width: PabloSpacing.sm),
+                const SizedBox(width: 5),
                 DecisionPill(
                   label: '✕',
                   color: PabloColors.ignoreRed,
@@ -197,4 +205,94 @@ class _PeopleTabState extends State<PeopleTab> {
           ],
         ),
       );
+}
+
+/// "Tag someone in this photo" affordance — a dashed-border box with a person
+/// icon, matching the design's Add Person section.
+class _AddPersonAffordance extends StatefulWidget {
+  const _AddPersonAffordance();
+  @override
+  State<_AddPersonAffordance> createState() => _AddPersonAffordanceState();
+}
+
+class _AddPersonAffordanceState extends State<_AddPersonAffordance> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {},
+        child: CustomPaint(
+          painter: _DashedRectPainter(
+            color:
+                _hover ? PabloColors.accentPrimary : PabloColors.borderStrong,
+            radius: PabloRadius.md,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: PabloSpacing.lg,
+              vertical: PabloSpacing.lg,
+            ),
+            child: Row(
+              children: [
+                PabloIcon(
+                  PabloIconName.person,
+                  size: 14,
+                  color: _hover
+                      ? PabloColors.accentPrimary
+                      : PabloColors.textMuted,
+                ),
+                const SizedBox(width: PabloSpacing.base),
+                Text(
+                  'Tag someone in this photo…',
+                  style: PabloTypography.sans(
+                    fontSize: 12,
+                    color: PabloColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashedRectPainter extends CustomPainter {
+  _DashedRectPainter({required this.color, required this.radius});
+  final Color color;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final path = Path()..addRRect(rrect);
+    const dash = 4.0, gap = 3.0;
+    for (final metric in path.computeMetrics()) {
+      var dist = 0.0;
+      while (dist < metric.length) {
+        canvas.drawPath(
+          metric.extractPath(dist, dist + dash),
+          paint,
+        );
+        dist += dash + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedRectPainter old) =>
+      old.color != color || old.radius != radius;
 }

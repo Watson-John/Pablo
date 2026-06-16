@@ -118,19 +118,25 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
                   ),
                   child: Row(
                     children: [
+                      const PabloIcon(
+                        PabloIconName.search,
+                        size: 20,
+                        color: PabloColors.textSecondary,
+                      ),
+                      const SizedBox(width: PabloSpacing.lg),
                       Expanded(
                         child: Text(
                           'Advanced Search',
-                          style: PabloTypography.sans(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
+                          style: PabloTypography.serif(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                       PabloIconButton(
                         icon: PabloIconName.close,
-                        size: 28,
-                        iconSize: 14,
+                        size: 32,
+                        iconSize: 16,
                         onPressed: widget.onClose,
                       ),
                     ],
@@ -162,6 +168,26 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
                   ),
                   child: Row(
                     children: [
+                      Container(
+                        width: 9,
+                        height: 9,
+                        margin: const EdgeInsets.only(right: PabloSpacing.base),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _resultCount > 0
+                              ? PabloColors.accentPrimary
+                              : PabloColors.error,
+                          boxShadow: _resultCount > 0
+                              ? [
+                                  BoxShadow(
+                                    color: PabloColors.accentPrimary
+                                        .withValues(alpha: 0.4),
+                                    blurRadius: 6,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                      ),
                       Expanded(
                         child: _resultCount > 0
                             ? Text.rich(
@@ -248,14 +274,17 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
           groupValue: _c.dateMode,
           onChanged: (v) => _set(() => _c.dateMode = v),
         ),
-        if (_c.dateMode == 'specificMonth') _select(kAdvSearchMonths, _c.specificMonth, (v) => _set(() => _c.specificMonth = v)),
+        if (_c.dateMode == 'specificMonth')
+          _select(kAdvSearchMonths, _c.specificMonth,
+              (v) => _set(() => _c.specificMonth = v)),
         PabloRadio<String>(
           label: 'Day of month',
           value: 'dayOfMonth',
           groupValue: _c.dateMode,
           onChanged: (v) => _set(() => _c.dateMode = v),
         ),
-        if (_c.dateMode == 'dayOfMonth') _inlineField('Day', _dayOfMonthCtl, '1–31'),
+        if (_c.dateMode == 'dayOfMonth')
+          _inlineField('Day', _dayOfMonthCtl, '1–31'),
         PabloRadio<String>(
           label: 'Year',
           value: 'year',
@@ -292,7 +321,8 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
         ),
         const SizedBox(height: PabloSpacing.lg),
         _label('File type'),
-        _select(kAdvSearchFileTypes, _c.fileType, (v) => _set(() => _c.fileType = v)),
+        _select(kAdvSearchFileTypes, _c.fileType,
+            (v) => _set(() => _c.fileType = v)),
       ],
     );
   }
@@ -337,17 +367,20 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
         _select(kAdvSearchCameras, _c.camera, (v) => _set(() => _c.camera = v)),
         const SizedBox(height: PabloSpacing.base),
         _label('Lens'),
-        _input(_lensCtl, 'e.g. 24-70mm f/2.8',
-            onChanged: (v) => _c.lens = v),
+        _input(_lensCtl, 'e.g. 24-70mm f/2.8', onChanged: (v) => _c.lens = v),
         const SizedBox(height: PabloSpacing.base),
         _label('ISO range'),
         Row(
           children: [
-            Expanded(child: _input(_isoMinCtl, 'min', onChanged: (v) => _c.isoMin = v)),
+            Expanded(
+                child:
+                    _input(_isoMinCtl, 'min', onChanged: (v) => _c.isoMin = v)),
             const SizedBox(width: PabloSpacing.sm),
             const Text('–'),
             const SizedBox(width: PabloSpacing.sm),
-            Expanded(child: _input(_isoMaxCtl, 'max', onChanged: (v) => _c.isoMax = v)),
+            Expanded(
+                child:
+                    _input(_isoMaxCtl, 'max', onChanged: (v) => _c.isoMax = v)),
           ],
         ),
         const SizedBox(height: PabloSpacing.base),
@@ -356,26 +389,36 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
           children: [
             const Text('f/'),
             const SizedBox(width: PabloSpacing.sm),
-            Expanded(child: _input(_apertureMinCtl, '1.4', onChanged: (v) => _c.apertureMin = v)),
+            Expanded(
+                child: _input(_apertureMinCtl, '1.4',
+                    onChanged: (v) => _c.apertureMin = v)),
             const SizedBox(width: PabloSpacing.sm),
             const Text('–'),
             const SizedBox(width: PabloSpacing.sm),
             const Text('f/'),
             const SizedBox(width: PabloSpacing.sm),
-            Expanded(child: _input(_apertureMaxCtl, '16', onChanged: (v) => _c.apertureMax = v)),
+            Expanded(
+                child: _input(_apertureMaxCtl, '16',
+                    onChanged: (v) => _c.apertureMax = v)),
           ],
         ),
         const SizedBox(height: PabloSpacing.base),
         _label('Focal length'),
         Row(
           children: [
-            Expanded(child: _input(_focalMinCtl, 'min', onChanged: (v) => _c.focalMin = v)),
+            Expanded(
+                child: _input(_focalMinCtl, 'min',
+                    onChanged: (v) => _c.focalMin = v)),
             const SizedBox(width: PabloSpacing.sm),
             const Text('–'),
             const SizedBox(width: PabloSpacing.sm),
-            Expanded(child: _input(_focalMaxCtl, 'max', onChanged: (v) => _c.focalMax = v)),
+            Expanded(
+                child: _input(_focalMaxCtl, 'max',
+                    onChanged: (v) => _c.focalMax = v)),
             const SizedBox(width: PabloSpacing.sm),
-            Text('mm', style: PabloTypography.sans(fontSize: 11, color: PabloColors.textMuted)),
+            Text('mm',
+                style: PabloTypography.sans(
+                    fontSize: 11, color: PabloColors.textMuted)),
           ],
         ),
         const SizedBox(height: PabloSpacing.xl),
@@ -391,7 +434,8 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
 
   Widget _sHead(String label) => Container(
         padding: const EdgeInsets.only(bottom: PabloSpacing.sm),
-        margin: const EdgeInsets.only(top: PabloSpacing.md, bottom: PabloSpacing.lg),
+        margin: const EdgeInsets.only(
+            top: PabloSpacing.md, bottom: PabloSpacing.lg),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: PabloColors.borderSubtle)),
         ),
@@ -454,16 +498,19 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
     );
   }
 
-  Widget _inlineField(String label, TextEditingController ctl, String placeholder) {
+  Widget _inlineField(
+      String label, TextEditingController ctl, String placeholder) {
     return Padding(
-      padding: const EdgeInsets.only(left: PabloSpacing.xxxl, bottom: PabloSpacing.base),
+      padding: const EdgeInsets.only(
+          left: PabloSpacing.xxxl, bottom: PabloSpacing.base),
       child: Row(
         children: [
           SizedBox(
             width: 32,
             child: Text(
               label,
-              style: PabloTypography.sans(fontSize: 11, color: PabloColors.textSecondary),
+              style: PabloTypography.sans(
+                  fontSize: 11, color: PabloColors.textSecondary),
             ),
           ),
           const SizedBox(width: PabloSpacing.base),

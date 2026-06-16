@@ -52,7 +52,7 @@ class ControlsBar extends StatelessWidget {
                 PabloColors.controlsIconWarm,
               ),
               const _MicroDivider(),
-              elevatedIcon(PabloIconName.star, 'Star', PabloColors.amber),
+              elevatedIcon(PabloIconName.starFill, 'Star', PabloColors.amber),
               const SizedBox(width: PabloSpacing.sm),
               elevatedIcon(
                 PabloIconName.plus,
@@ -214,9 +214,8 @@ class _ToolbarToggleState extends State<_ToolbarToggle> {
     } else {
       bg = _hover ? PabloColors.borderStrong : PabloColors.backgroundSurfaceAlt;
     }
-    final fg = widget.active
-        ? PabloColors.textOnAccent
-        : PabloColors.textSecondary;
+    final fg =
+        widget.active ? PabloColors.textOnAccent : PabloColors.textSecondary;
     final hasLabel = widget.label != null;
     return Tooltip(
       message: widget.tooltip,

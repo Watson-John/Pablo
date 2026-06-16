@@ -35,7 +35,8 @@ class FilterRow extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: PabloRadius.lgAll,
               border: Border.all(
-                color: sel ? PabloColors.accentPrimary : PabloColors.borderSubtle,
+                color:
+                    sel ? PabloColors.accentPrimary : PabloColors.borderSubtle,
                 width: 2,
               ),
               boxShadow: sel ? PabloShadows.md : PabloShadows.sm,
@@ -63,7 +64,9 @@ class FilterRow extends StatelessWidget {
                     f.label,
                     style: PabloTypography.sans(
                       fontSize: 9.5,
-                      color: sel ? PabloColors.accentPrimary : PabloColors.textMuted,
+                      color: sel
+                          ? PabloColors.accentPrimary
+                          : PabloColors.textMuted,
                       fontWeight: sel ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),

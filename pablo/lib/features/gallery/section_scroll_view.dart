@@ -15,8 +15,6 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../app/app_scope.dart';
 import '../../app/app_state.dart';
-import '../../components/pablo_button.dart';
-import '../../components/pablo_icon.dart';
 import '../../data/aspect_store.dart';
 import '../../data/models.dart';
 import '../../data/library.dart';
@@ -32,7 +30,8 @@ final List<String> _planOrder = [];
 
 List<JRow> _rowPlanFor(String sectionId, List<Photo> photos, double avail,
     double targetH, double gap, int rev) {
-  final key = '$sectionId|${avail.round()}|${targetH.round()}|$rev|${photos.length}';
+  final key =
+      '$sectionId|${avail.round()}|${targetH.round()}|$rev|${photos.length}';
   final cached = _planCache[key];
   if (cached != null) return cached;
   final aspects = [
@@ -110,8 +109,8 @@ class SectionScrollView extends StatelessWidget {
                 continue;
               }
               slivers.add(SliverPadding(
-                padding:
-                    const EdgeInsets.fromLTRB(_hPad, PabloSpacing.xl, _hPad, 18),
+                padding: const EdgeInsets.fromLTRB(
+                    _hPad, PabloSpacing.xl, _hPad, 18),
                 sliver: masonry
                     ? SliverMasonryGrid.count(
                         crossAxisCount: cols,
@@ -177,8 +176,7 @@ class SectionScrollView extends StatelessWidget {
                         // slot for its OWN photo, instead of a reused element
                         // inheriting the previous occupant's stale frame.
                         key: ValueKey(photos[r.start + k].id),
-                        padding:
-                            EdgeInsets.only(left: k == 0 ? 0.0 : _spacing),
+                        padding: EdgeInsets.only(left: k == 0 ? 0.0 : _spacing),
                         child: SizedBox(
                           width: r.widths[k],
                           child: _thumbCell(
@@ -289,7 +287,8 @@ class _SectionHeaderDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => _extent;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
     return _SectionHeader(
       title: title,
       subtitle: subtitle,
@@ -369,14 +368,6 @@ class _SectionHeader extends StatelessWidget {
                 color: PabloColors.textPrimary,
               ),
             ),
-          ),
-          const SizedBox(width: PabloSpacing.xl),
-          PabloButton(
-            label: 'Slideshow',
-            variant: PabloButtonVariant.primary,
-            icon: PabloIconName.playFill,
-            iconSize: 15,
-            onPressed: () {},
           ),
         ],
       ),

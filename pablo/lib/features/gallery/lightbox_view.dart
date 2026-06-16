@@ -116,7 +116,10 @@ class _LightboxViewState extends State<LightboxView> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                PabloSpacing.xxl, PabloSpacing.lg, PabloSpacing.xxl, PabloSpacing.md,
+                PabloSpacing.xxl,
+                PabloSpacing.lg,
+                PabloSpacing.xxl,
+                PabloSpacing.md,
               ),
               child: Row(
                 children: [
@@ -203,48 +206,52 @@ class _LightboxViewState extends State<LightboxView> {
                 child: Stack(
                   children: [
                     ListView.separated(
-                  controller: _filmCtl,
-                  scrollDirection: Axis.horizontal,
-                  itemCount: widget.photos.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 5),
-                  itemBuilder: (_, i) {
-                    final p = widget.photos[i];
-                    final current = p.id == _currentId;
-                    return MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        onTap: () => _goTo(i),
-                        child: AnimatedScale(
-                          scale: current ? 1.08 : 1.0,
-                          duration: PabloDurations.hover,
-                          child: Container(
-                            width: 72,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              borderRadius: PabloRadius.mdAll,
-                              border: Border.all(
-                                color: current
-                                    ? PabloColors.selectionPrimary
-                                    : PabloColors.borderSubtle,
-                                width: 2,
+                      controller: _filmCtl,
+                      scrollDirection: Axis.horizontal,
+                      itemCount: widget.photos.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 5),
+                      itemBuilder: (_, i) {
+                        final p = widget.photos[i];
+                        final current = p.id == _currentId;
+                        return MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: () => _goTo(i),
+                            child: AnimatedScale(
+                              scale: current ? 1.08 : 1.0,
+                              duration: PabloDurations.hover,
+                              child: Container(
+                                width: 72,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  borderRadius: PabloRadius.mdAll,
+                                  border: Border.all(
+                                    color: current
+                                        ? PabloColors.selectionPrimary
+                                        : PabloColors.borderSubtle,
+                                    width: 2,
+                                  ),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: PhotoSurface(
+                                    photo: p, targetW: 144, targetH: 104),
                               ),
                             ),
-                            clipBehavior: Clip.antiAlias,
-                            child: PhotoSurface(
-                                photo: p, targetW: 144, targetH: 104),
                           ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                        );
+                      },
+                    ),
                     // Edge fades so thumbnails dissolve into the chrome.
                     const Positioned(
-                      left: 0, top: 0, bottom: 0,
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
                       child: IgnorePointer(child: _FilmEdgeFade(left: true)),
                     ),
                     const Positioned(
-                      right: 0, top: 0, bottom: 0,
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
                       child: IgnorePointer(child: _FilmEdgeFade(left: false)),
                     ),
                   ],
@@ -467,9 +474,7 @@ class _NavArrowButtonState extends State<_NavArrowButton> {
           height: 40,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: _hover
-                ? PabloColors.lightboxNavHoverBg
-                : Colors.transparent,
+            color: _hover ? PabloColors.lightboxNavHoverBg : Colors.transparent,
             shape: BoxShape.circle,
           ),
           child: PabloIcon(

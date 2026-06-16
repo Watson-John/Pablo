@@ -107,7 +107,8 @@ void _isolateEntry(SendPort toMain) {
   final processed = <String>{};
   final backlog = <String>[]; // sequential backfill
   var cursor = 0;
-  final front = <String>[]; // priority (FIFO from the end via removeAt(0) is O(n);
+  final front =
+      <String>[]; // priority (FIFO from the end via removeAt(0) is O(n);
   // kept small since callers only push unknown rows)
   var draining = false;
 

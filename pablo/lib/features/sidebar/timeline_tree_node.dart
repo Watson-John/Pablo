@@ -79,7 +79,8 @@ class _TimelineTreeNodeState extends State<TimelineTreeNode> {
                       child: const PabloIcon(
                         PabloIconName.chevRight,
                         size: 10,
-                        color: PabloColors.textMuted,
+                        strokeWidth: 2.5,
+                        color: PabloColors.textPrimary,
                       ),
                     ),
                     const SizedBox(width: PabloSpacing.sm + 1),

@@ -64,7 +64,9 @@ class _SearchHeaderState extends State<SearchHeader> {
           ),
           const SizedBox(width: PabloSpacing.md),
           Expanded(
-            child: Container(
+            child: AnimatedContainer(
+              duration: PabloDurations.base,
+              curve: PabloEasing.standard,
               height: 30,
               padding:
                   const EdgeInsets.symmetric(horizontal: PabloSpacing.base),
@@ -76,6 +78,16 @@ class _SearchHeaderState extends State<SearchHeader> {
                       : PabloColors.borderSubtle,
                 ),
                 borderRadius: PabloRadius.pillAll,
+                // Azure focus halo (design: 0 0 0 2px accentBg).
+                boxShadow: _focused
+                    ? const [
+                        BoxShadow(
+                          color: PabloColors.accentBackground,
+                          spreadRadius: 2,
+                          blurRadius: 0,
+                        ),
+                      ]
+                    : null,
               ),
               child: Row(
                 children: [

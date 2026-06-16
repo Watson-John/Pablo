@@ -220,26 +220,15 @@ class _UnnamedFacesPageState extends State<UnnamedFacesPage> {
             ),
             child: Row(
               children: [
-                ClipRRect(
-                  borderRadius: PabloRadius.pillAll,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: PabloColors.borderSubtle),
-                      borderRadius: PabloRadius.pillAll,
-                    ),
-                    child: Row(
-                      children: [
-                        for (var i = 0; i < tabs.length; i++)
-                          _TabButton(
-                            tab: tabs[i],
-                            active: _tab == tabs[i].id,
-                            onTap: () => setState(() => _tab = tabs[i].id),
-                            showDivider: i > 0,
-                          ),
-                      ],
+                for (var i = 0; i < tabs.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 22),
+                    child: _TabButton(
+                      tab: tabs[i],
+                      active: _tab == tabs[i].id,
+                      onTap: () => setState(() => _tab = tabs[i].id),
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -297,12 +286,10 @@ class _TabButton extends StatelessWidget {
     required this.tab,
     required this.active,
     required this.onTap,
-    required this.showDivider,
   });
   final _Tab tab;
   final bool active;
   final VoidCallback onTap;
-  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
@@ -312,17 +299,15 @@ class _TabButton extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: PabloSpacing.xxl - 2,
-            vertical: PabloSpacing.md,
-          ),
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 2),
           decoration: BoxDecoration(
-            color: active ? PabloColors.accentPrimary : Colors.transparent,
-            border: showDivider
-                ? const Border(
-                    left: BorderSide(color: PabloColors.borderSubtle),
-                  )
-                : null,
+            // Conventional underline tab: 2px accent bar under the active tab.
+            border: Border(
+              bottom: BorderSide(
+                color: active ? PabloColors.accentPrimary : Colors.transparent,
+                width: 2,
+              ),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -333,7 +318,7 @@ class _TabButton extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                   color: active
-                      ? PabloColors.textOnAccent
+                      ? PabloColors.accentPrimary
                       : PabloColors.textSecondary,
                 ),
               ),
@@ -346,8 +331,8 @@ class _TabButton extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: active
-                        ? Colors.white.withValues(alpha: 0.3)
-                        : PabloColors.backgroundHover,
+                        ? PabloColors.accentBackground
+                        : PabloColors.backgroundSurfaceAlt,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -356,7 +341,7 @@ class _TabButton extends StatelessWidget {
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: active
-                          ? PabloColors.textOnAccent
+                          ? PabloColors.accentPrimary
                           : PabloColors.textMuted,
                     ),
                   ),
@@ -568,8 +553,7 @@ class _GroupCardState extends State<_GroupCard> {
                           height: 20,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: PabloColors.ignoreRed
-                                .withValues(alpha: 0.9),
+                            color: PabloColors.ignoreRed.withValues(alpha: 0.9),
                             shape: BoxShape.circle,
                           ),
                           child: const Text(

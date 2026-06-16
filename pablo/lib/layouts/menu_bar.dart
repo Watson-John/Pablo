@@ -41,7 +41,8 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
   Map<String, List<_MenuEntry>> _menus(
     PabloAppState st,
     VoidCallback? onScanFaces,
-  ) => {
+  ) =>
+      {
         'File': const [
           _MenuEntry(label: 'Add Folder to Pablo…'),
           _MenuEntry(label: 'Import From…'),
@@ -344,10 +345,13 @@ class _MenuItemState extends State<_MenuItem> {
                       : null,
                 ),
               ),
-              Expanded(child: Text(widget.entry.label, style: PabloTypography.bodyMd)),
+              Expanded(
+                  child:
+                      Text(widget.entry.label, style: PabloTypography.bodyMd)),
               if (widget.entry.shortcut != null) ...[
                 const SizedBox(width: PabloSpacing.xxl),
-                Text(widget.entry.shortcut!, style: PabloTypography.mono(fontSize: 11)),
+                Text(widget.entry.shortcut!,
+                    style: PabloTypography.mono(fontSize: 11)),
               ],
             ],
           ),

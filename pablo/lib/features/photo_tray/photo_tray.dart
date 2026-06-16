@@ -21,8 +21,8 @@ class FloatingPhotoTray extends StatelessWidget {
 
   // Card geometry. Thumbnails are a fixed compact size; the card sizes to its
   // content (header + strip) up to a responsive cap, then scrolls horizontally.
-  static const double _thumbH = 60;
-  static const double _thumbW = 81; // ~4:3 landscape
+  static const double _thumbH = 64;
+  static const double _thumbW = 86; // ~4:3 landscape (round(64 * 1.35))
   static const double _gap = PabloSpacing.md;
   static const double _pad = PabloSpacing.lg;
   static const double _absMaxWidth = 760;

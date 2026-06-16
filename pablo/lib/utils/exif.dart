@@ -126,9 +126,8 @@ ExifInfo? _parseTiff(Uint8List b, int base, int end) {
     return null;
   }
 
-  int u16(int o) => little
-      ? (b[o] | (b[o + 1] << 8))
-      : ((b[o] << 8) | b[o + 1]);
+  int u16(int o) =>
+      little ? (b[o] | (b[o + 1] << 8)) : ((b[o] << 8) | b[o + 1]);
   int u32(int o) => little
       ? (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24))
       : ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]);
@@ -168,7 +167,8 @@ ExifInfo? _parseTiff(Uint8List b, int base, int end) {
     return num / den;
   }
 
-  void walkIfd(int ifd, void Function(int tag, int type, int count, int entryOff) onTag) {
+  void walkIfd(int ifd,
+      void Function(int tag, int type, int count, int entryOff) onTag) {
     if (ifd + 2 > end || ifd < base) return;
     final n = u16(ifd);
     var e = ifd + 2;
@@ -245,13 +245,15 @@ ExifInfo? _parseTiff(Uint8List b, int base, int end) {
           gpsLatRef = readAscii(valueOffset(type, count, entryOff), count);
           break;
         case 0x0002: // GPSLatitude (3 rationals: d, m, s)
-          gpsLat = _readGpsCoord(u32, base, end, valueOffset(type, count, entryOff));
+          gpsLat =
+              _readGpsCoord(u32, base, end, valueOffset(type, count, entryOff));
           break;
         case 0x0003: // GPSLongitudeRef
           gpsLonRef = readAscii(valueOffset(type, count, entryOff), count);
           break;
         case 0x0004: // GPSLongitude
-          gpsLon = _readGpsCoord(u32, base, end, valueOffset(type, count, entryOff));
+          gpsLon =
+              _readGpsCoord(u32, base, end, valueOffset(type, count, entryOff));
           break;
       }
     });
@@ -306,6 +308,7 @@ double? _readGpsCoord(int Function(int) u32, int base, int end, int o) {
     if (den == 0) return 0;
     return u32(off) / den;
   }
+
   final d = rat(o);
   final m = rat(o + 8);
   final s = rat(o + 16);
@@ -324,8 +327,15 @@ DateTime? _parseExifDate(String? s) {
     final se = int.parse(s.substring(17, 19));
     // Reject implausible components rather than let DateTime silently roll them
     // over (e.g. hour 25 → next day) and fabricate a wrong timestamp.
-    if (y < 1800 || y > 3000 || mo < 1 || mo > 12 || d < 1 || d > 31 ||
-        h > 23 || mi > 59 || se > 60) {
+    if (y < 1800 ||
+        y > 3000 ||
+        mo < 1 ||
+        mo > 12 ||
+        d < 1 ||
+        d > 31 ||
+        h > 23 ||
+        mi > 59 ||
+        se > 60) {
       return null;
     }
     return DateTime(y, mo, d, h, mi, se);

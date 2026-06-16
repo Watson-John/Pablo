@@ -52,8 +52,7 @@ class _FolderGroupState extends State<FolderGroup> {
             onTap: () => setState(() => _open = !_open),
             child: AnimatedContainer(
               duration: PabloDurations.hover,
-              margin:
-                  const EdgeInsets.symmetric(horizontal: PabloSpacing.base),
+              margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),
               padding: const EdgeInsets.only(
                 left: PabloSpacing.xxl,
                 right: PabloSpacing.xl,
@@ -73,13 +72,15 @@ class _FolderGroupState extends State<FolderGroup> {
                     child: const PabloIcon(
                       PabloIconName.chevRight,
                       size: 12,
-                      color: PabloColors.textMuted,
+                      strokeWidth: 2.5,
+                      color: PabloColors.textPrimary,
                     ),
                   ),
                   const SizedBox(width: PabloSpacing.md),
                   PabloIcon(
                     _open ? PabloIconName.folderOpen : PabloIconName.folder,
                     size: 14,
+                    color: PabloColors.textMuted,
                   ),
                   const SizedBox(width: PabloSpacing.md),
                   Expanded(

@@ -45,8 +45,7 @@ int _be32(Uint8List b, int o) =>
 int _le32(Uint8List b, int o) =>
     b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24);
 
-ImageDims? _mk(int w, int h) =>
-    (w > 0 && h > 0) ? ImageDims(w, h) : null;
+ImageDims? _mk(int w, int h) => (w > 0 && h > 0) ? ImageDims(w, h) : null;
 
 ImageDims? _parse(Uint8List b) {
   if (b.length < 4) return null;
@@ -73,8 +72,14 @@ ImageDims? _parse(Uint8List b) {
 
   // WebP: "RIFF"...."WEBP" then a VP8 / VP8L / VP8X chunk.
   if (b.length >= 30 &&
-      b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 &&
-      b[8] == 0x57 && b[9] == 0x45 && b[10] == 0x42 && b[11] == 0x50) {
+      b[0] == 0x52 &&
+      b[1] == 0x49 &&
+      b[2] == 0x46 &&
+      b[3] == 0x46 &&
+      b[8] == 0x57 &&
+      b[9] == 0x45 &&
+      b[10] == 0x42 &&
+      b[11] == 0x50) {
     return _webp(b);
   }
 
@@ -86,7 +91,8 @@ ImageDims? _webp(Uint8List b) {
   // "VP8 " — lossy. 14-bit width/height after the 0x9d 0x01 0x2a start code.
   if (c0 == 0x56 && c1 == 0x50 && c2 == 0x38 && c3 == 0x20) {
     if (b[23] != 0x9D || b[24] != 0x01 || b[25] != 0x2A) return null;
-    return _mk((b[26] | (b[27] << 8)) & 0x3FFF, (b[28] | (b[29] << 8)) & 0x3FFF);
+    return _mk(
+        (b[26] | (b[27] << 8)) & 0x3FFF, (b[28] | (b[29] << 8)) & 0x3FFF);
   }
   // "VP8L" — lossless. 14-bit width-1/height-1 packed after the 0x2f signature.
   if (c0 == 0x56 && c1 == 0x50 && c2 == 0x38 && c3 == 0x4C) {

@@ -48,7 +48,8 @@ class MainGrid extends StatelessWidget {
       // album, so this is an honest empty state rather than fabricated data.
       return const _EmptyView(
         icon: PabloIconName.albums,
-        message: 'No albums yet.\nAlbums let you group photos by hand — coming soon.',
+        message:
+            'No albums yet.\nAlbums let you group photos by hand — coming soon.',
       );
     }
     if (section == NavSection.timeline) {

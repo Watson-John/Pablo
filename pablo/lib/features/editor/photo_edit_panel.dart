@@ -183,12 +183,12 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
                     ),
                   ],
                   const SizedBox(height: PabloSpacing.xl),
-
                   AdjustmentSection(
                     label: 'Light',
                     icon: PabloIconName.sun,
                     open: _open['light']!,
-                    onToggle: () => setState(() => _open['light'] = !_open['light']!),
+                    onToggle: () =>
+                        setState(() => _open['light'] = !_open['light']!),
                     children: [
                       EditSlider(
                         label: 'Exposure',
@@ -232,12 +232,12 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
                       ),
                     ],
                   ),
-
                   AdjustmentSection(
                     label: 'Color',
                     icon: PabloIconName.droplet,
                     open: _open['color']!,
-                    onToggle: () => setState(() => _open['color'] = !_open['color']!),
+                    onToggle: () =>
+                        setState(() => _open['color'] = !_open['color']!),
                     children: [
                       EditSlider(
                         label: 'Temperature',
@@ -261,12 +261,12 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
                       ),
                     ],
                   ),
-
                   AdjustmentSection(
                     label: 'Detail',
                     icon: PabloIconName.sparkle,
                     open: _open['detail']!,
-                    onToggle: () => setState(() => _open['detail'] = !_open['detail']!),
+                    onToggle: () =>
+                        setState(() => _open['detail'] = !_open['detail']!),
                     children: [
                       EditSlider(
                         label: 'Sharpness',
@@ -313,7 +313,8 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
         ),
         child: Text(
           label,
-          style: PabloTypography.serif(fontSize: 13, fontWeight: FontWeight.w600),
+          style:
+              PabloTypography.serif(fontSize: 13, fontWeight: FontWeight.w600),
         ),
       );
 

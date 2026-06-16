@@ -22,3 +22,6 @@ target/
 # Sibling git worktrees (feature branches checked out in-tree)
 /Pablo-dedup/
 /Pablo-faces/
+
+# Claude Design handoff bundle (reference only, not app code)
+/pablo-cool/

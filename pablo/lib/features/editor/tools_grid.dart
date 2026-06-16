@@ -12,7 +12,8 @@ class EditorTool {
 
 const List<EditorTool> kEditorTools = [
   EditorTool(id: 'crop', label: 'Crop', icon: PabloIconName.crop),
-  EditorTool(id: 'straighten', label: 'Straighten', icon: PabloIconName.straighten),
+  EditorTool(
+      id: 'straighten', label: 'Straighten', icon: PabloIconName.straighten),
   EditorTool(id: 'rotateL', label: 'Rotate L', icon: PabloIconName.rotateLeft),
   EditorTool(id: 'rotateR', label: 'Rotate R', icon: PabloIconName.rotateRight),
   EditorTool(id: 'flipH', label: 'Flip H', icon: PabloIconName.flipHorizontal),
@@ -22,7 +23,8 @@ const List<EditorTool> kEditorTools = [
 ];
 
 class ToolsGrid extends StatelessWidget {
-  const ToolsGrid({required this.activeTool, required this.onChange, super.key});
+  const ToolsGrid(
+      {required this.activeTool, required this.onChange, super.key});
   final String? activeTool;
   final ValueChanged<String?> onChange;
 
@@ -42,7 +44,7 @@ class ToolsGrid extends StatelessWidget {
           child: GestureDetector(
             onTap: () => onChange(sel ? null : t.id),
             child: AnimatedContainer(
-              duration: PabloDurations.hover,
+              duration: PabloDurations.control,
               decoration: BoxDecoration(
                 color: sel
                     ? PabloColors.accentBackground

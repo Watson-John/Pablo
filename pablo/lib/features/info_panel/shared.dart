@@ -85,7 +85,8 @@ class MetaRow extends StatelessWidget {
 
 /// Azure clickable text link used for "Manage →" / "Open folder location".
 class InspectorLink extends StatelessWidget {
-  const InspectorLink(this.label, {required this.onTap, this.fontSize = 11, super.key});
+  const InspectorLink(this.label,
+      {required this.onTap, this.fontSize = 11, super.key});
   final String label;
   final VoidCallback onTap;
   final double fontSize;
@@ -106,4 +107,3 @@ class InspectorLink extends StatelessWidget {
     );
   }
 }
-

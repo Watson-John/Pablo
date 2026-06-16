@@ -51,8 +51,7 @@ class PeopleController extends ChangeNotifier {
 
   /// Sidebar Unnamed Faces count — the sum of unconfirmed cluster sizes (0
   /// until the live pipeline has scanned).
-  int unnamedFaceCount() =>
-      unnamedFaces().fold<int>(0, (s, u) => s + u.count);
+  int unnamedFaceCount() => unnamedFaces().fold<int>(0, (s, u) => s + u.count);
 
   /// Total shown on the collapsed People section header.
   int peopleTotal() =>
@@ -63,10 +62,12 @@ class PeopleController extends ChangeNotifier {
   List<FaceRow> suggestionsForPerson(int personId) =>
       _repo.suggestions(personId);
 
-  int lowConfidenceCount(int personId) =>
-      suggestionsForPerson(personId).where((f) => tierOf(f) == FaceTier.low).length;
+  int lowConfidenceCount(int personId) => suggestionsForPerson(personId)
+      .where((f) => tierOf(f) == FaceTier.low)
+      .length;
 
-  List<FaceRow> facesInCluster(int clusterId) => _repo.facesInCluster(clusterId);
+  List<FaceRow> facesInCluster(int clusterId) =>
+      _repo.facesInCluster(clusterId);
 
   /// Highest-quality face of a cluster (drives the cluster card cover crop).
   FaceRow? coverFace(int clusterId) {

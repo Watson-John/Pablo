@@ -42,7 +42,8 @@ class AdjustmentSection extends StatelessWidget {
                 color: PabloColors.backgroundSidebar,
                 border: Border.all(color: PabloColors.borderStrong),
                 borderRadius: open
-                    ? const BorderRadius.vertical(top: Radius.circular(PabloRadius.md))
+                    ? const BorderRadius.vertical(
+                        top: Radius.circular(PabloRadius.md))
                     : PabloRadius.mdAll,
               ),
               child: Row(
@@ -60,10 +61,11 @@ class AdjustmentSection extends StatelessWidget {
                   ),
                   AnimatedRotation(
                     turns: open ? 0.25 : 0,
-                    duration: PabloDurations.expand,
+                    duration: PabloDurations.fast,
                     child: const PabloIcon(
                       PabloIconName.chevRight,
                       size: 10,
+                      strokeWidth: 2.5,
                       color: PabloColors.textPrimary,
                     ),
                   ),
@@ -75,8 +77,8 @@ class AdjustmentSection extends StatelessWidget {
         if (open)
           Container(
             margin: const EdgeInsets.only(bottom: PabloSpacing.lg),
-            padding: const EdgeInsets.fromLTRB(
-              PabloSpacing.lg, PabloSpacing.lg, PabloSpacing.lg, PabloSpacing.sm),
+            padding: const EdgeInsets.fromLTRB(PabloSpacing.lg, PabloSpacing.lg,
+                PabloSpacing.lg, PabloSpacing.sm),
             decoration: const BoxDecoration(
               color: PabloColors.backgroundSurface,
               border: Border(
@@ -84,8 +86,8 @@ class AdjustmentSection extends StatelessWidget {
                 right: BorderSide(color: PabloColors.borderStrong),
                 bottom: BorderSide(color: PabloColors.borderStrong),
               ),
-              borderRadius:
-                  BorderRadius.vertical(bottom: Radius.circular(PabloRadius.md)),
+              borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(PabloRadius.md)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

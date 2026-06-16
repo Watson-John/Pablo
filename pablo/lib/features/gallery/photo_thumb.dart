@@ -187,13 +187,9 @@ class _PhotoThumbState extends State<PhotoThumb> {
                               ),
                               if (widget.photo.starred)
                                 const Positioned(
-                                  bottom: 5,
-                                  left: 5,
-                                  child: PabloIcon(
-                                    PabloIconName.starFill,
-                                    size: 13,
-                                    color: PabloColors.amber,
-                                  ),
+                                  top: 6,
+                                  left: 6,
+                                  child: _StarBadge(),
                                 ),
                               Positioned(
                                 top: 4,
@@ -251,6 +247,39 @@ class _PhotoThumbState extends State<PhotoThumb> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Starred-photo badge (design StarBadge, "outlined" style): an amber filled
+/// star with a thin white rim + soft shadow so it reads on any photo.
+class _StarBadge extends StatelessWidget {
+  const _StarBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // White rim behind, with a soft drop shadow for contrast.
+        PabloIcon(
+          PabloIconName.starFill,
+          size: 14.5,
+          color: Colors.white,
+          shadows: [
+            Shadow(
+              color: Colors.black.withValues(alpha: 0.4),
+              blurRadius: 1.5,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        const PabloIcon(
+          PabloIconName.starFill,
+          size: 13,
+          color: PabloColors.amber,
+        ),
+      ],
     );
   }
 }

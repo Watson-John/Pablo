@@ -4,23 +4,45 @@
 // rather than coming from the imported photo library.
 
 const List<String> kAdvSearchCameras = [
-  'Any', 'Canon EOS R5', 'Sony A7IV', 'Nikon Z6', 'iPhone 15 Pro',
-  'Samsung S24', 'Google Pixel 8', 'Fujifilm X-T5',
+  'Any',
+  'Canon EOS R5',
+  'Sony A7IV',
+  'Nikon Z6',
+  'iPhone 15 Pro',
+  'Samsung S24',
+  'Google Pixel 8',
+  'Fujifilm X-T5',
 ];
 
 const List<String> kAdvSearchFileTypes = [
-  'Any', 'JPEG', 'RAW', 'PNG', 'HEIC', 'MP4', 'MOV',
+  'Any',
+  'JPEG',
+  'RAW',
+  'PNG',
+  'HEIC',
+  'MP4',
+  'MOV',
 ];
 
 const List<String> kAdvSearchMonths = [
-  'Any', 'January', 'February', 'March', 'April', 'May', 'June', 'July',
-  'August', 'September', 'October', 'November', 'December',
+  'Any',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 /// Simplified continental-USA outline (800×480 viewBox) drawn as the Map view's
 /// backdrop. Heat dots are positioned over it from real GPS data when present.
-const String kUsaPath =
-    'M 54,42 L 56,80 L 57,155 L 86,215 L 128,282 L 141,307 '
+const String kUsaPath = 'M 54,42 L 56,80 L 57,155 L 86,215 L 128,282 L 141,307 '
     'L 243,327 L 273,319 L 303,355 '
     'L 383,418 L 383,386 L 415,361 L 427,351 '
     'L 478,366 L 485,343 L 497,337 '
