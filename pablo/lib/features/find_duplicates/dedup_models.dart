@@ -20,10 +20,10 @@ enum KeeperRule { newest, oldest, largest, highestRes }
 
 extension KeeperRuleLabel on KeeperRule {
   String get label => switch (this) {
-        KeeperRule.newest => 'Newest (EXIF date)',
-        KeeperRule.oldest => 'Oldest (EXIF date)',
-        KeeperRule.largest => 'Largest file',
-        KeeperRule.highestRes => 'Highest resolution',
+        KeeperRule.newest => 'Newest',
+        KeeperRule.oldest => 'Oldest',
+        KeeperRule.largest => 'Largest',
+        KeeperRule.highestRes => 'Highest res',
       };
 }
 
