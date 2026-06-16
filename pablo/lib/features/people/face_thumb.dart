@@ -12,7 +12,6 @@ import 'package:photo_native/photo_native.dart';
 import '../../backend/native_backend.dart';
 import '../../theme/tokens.dart';
 import '../../utils/hue.dart';
-import '../../utils/image_dims.dart';
 import '../gallery/native_asset_texture.dart';
 import 'face_palette.dart';
 import 'people_scope.dart';
