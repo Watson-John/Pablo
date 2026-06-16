@@ -52,9 +52,18 @@ std::unique_ptr<SimilarityIndex> make_index(int dim);
 // reciprocal edges survive (b ∈ kNN(a) AND a ∈ kNN(b)) — this curbs the
 // transitive drift that chains unrelated images into one mega-cluster.
 // `ids[label]` maps an index label to its image id.
+//
+// When `score_norm` is set, each pairwise similarity is "stretched" before
+// thresholding: s_norm(x,y) = s(x,y) - beta*(b(x)+b(y))/2, where b(x) is the
+// image's mean similarity to its background neighbours (the confusable-but-
+// different tail of its k-NN). This suppresses hub images and improves
+// separability — a small win on small sets, larger as the library grows.
+// NOTE: it shifts the score scale, so re-calibrate the threshold when enabled.
 std::vector<Neighbor> build_neighbor_edges(const SimilarityIndex& index,
                                            const float* vectors,
                                            const std::vector<int64_t>& ids,
-                                           int k, float threshold, bool mutual);
+                                           int k, float threshold, bool mutual,
+                                           bool score_norm = false,
+                                           float norm_beta = 1.0f);
 
 }  // namespace dedup

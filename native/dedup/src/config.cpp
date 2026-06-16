@@ -76,6 +76,8 @@ Config load_config(const std::string& path) {
     }
     if (const auto ix = root["index"]) {
         get(ix, "k", cfg.k);
+        get(ix, "score_norm", cfg.score_norm);
+        get(ix, "score_norm_beta", cfg.score_norm_beta);
     }
     if (const auto cl = root["cluster"]) {
         get(cl, "threshold", cfg.threshold);

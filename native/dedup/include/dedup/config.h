@@ -38,6 +38,11 @@ struct Config {
 
     // Indexing.
     int k = 20;
+    // Score normalization (descriptor stretching): suppress hub images before
+    // thresholding. Off by default (marginal on small sets; grows with library
+    // size). Shifts the score scale — re-calibrate the threshold when enabling.
+    bool score_norm = false;
+    double score_norm_beta = 1.0;
 
     // Clustering. Default 0.35 sits between the measured true-pair median (~0.43)
     // and the random-pair ceiling (~0.13) — calibrate per library with `calibrate`.

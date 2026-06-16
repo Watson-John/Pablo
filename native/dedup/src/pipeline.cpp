@@ -62,7 +62,8 @@ void recluster(const Config& cfg, Store& store, ScanStats& stats) {
         auto index = make_index(dim);
         index->add(packed.data(), static_cast<int64_t>(m));
         edges = build_neighbor_edges(*index, packed.data(), ids, cfg.k,
-                                     static_cast<float>(cfg.threshold), cfg.mutual_knn);
+                                     static_cast<float>(cfg.threshold), cfg.mutual_knn,
+                                     cfg.score_norm, static_cast<float>(cfg.score_norm_beta));
     } else {
         LOG_INFO("recluster: no embeddings — clustering from exact/perceptual-hash "
                  "groups only (hash-only mode)");

@@ -115,13 +115,35 @@ std::unique_ptr<SimilarityIndex> make_index(int dim) {
 std::vector<Neighbor> build_neighbor_edges(const SimilarityIndex& index,
                                            const float* vectors,
                                            const std::vector<int64_t>& ids,
-                                           int k, float threshold, bool mutual) {
+                                           int k, float threshold, bool mutual,
+                                           bool score_norm, float norm_beta) {
     const int64_t n = static_cast<int64_t>(ids.size());
     if (n == 0) return {};
 
+    // Score normalization needs a deeper neighbour list to estimate each image's
+    // background similarity from the tail; otherwise just the top-k for edges.
+    constexpr int kNormK = 64, kNormSkip = 8;
+    const int search_k = score_norm ? std::max(k, kNormK) : k;
+
     std::vector<int64_t> labels;
     std::vector<float> scores;
-    index.search(vectors, n, k, labels, scores);
+    index.search(vectors, n, search_k, labels, scores);
+
+    // Background score b[i]: mean similarity over neighbour ranks [skip, search_k)
+    // — the confusable-but-different tail, skipping the top few likely true dups.
+    std::vector<float> bg;
+    if (score_norm && search_k > kNormSkip) {
+        bg.assign(static_cast<size_t>(n), 0.0f);
+        for (int64_t i = 0; i < n; ++i) {
+            double sum = 0.0; int cnt = 0;
+            for (int j = kNormSkip; j < search_k; ++j) {
+                const float s = scores[static_cast<size_t>(i) * search_k + j];
+                if (labels[static_cast<size_t>(i) * search_k + j] < 0) continue;
+                sum += s; ++cnt;
+            }
+            bg[i] = cnt ? static_cast<float>(sum / cnt) : 0.0f;
+        }
+    }
 
     // Collect each directed hit as an undirected (a<b) candidate. The number of
     // times a given (a,b) appears tells us reciprocity: 2 = mutual (each is in
@@ -129,10 +151,11 @@ std::vector<Neighbor> build_neighbor_edges(const SimilarityIndex& index,
     std::vector<Neighbor> edges;
     edges.reserve(static_cast<size_t>(n) * 2);
     for (int64_t i = 0; i < n; ++i) {
-        for (int j = 0; j < k; ++j) {
-            const int64_t label = labels[static_cast<size_t>(i) * k + j];
+        for (int j = 0; j < k; ++j) {  // edges only from the top-k
+            const int64_t label = labels[static_cast<size_t>(i) * search_k + j];
             if (label < 0 || label == i) continue;  // padding / self-match
-            const float s = scores[static_cast<size_t>(i) * k + j];
+            float s = scores[static_cast<size_t>(i) * search_k + j];
+            if (!bg.empty()) s -= norm_beta * (bg[i] + bg[label]) * 0.5f;  // stretch
             if (s < threshold) continue;
             int64_t a = ids[i], b = ids[label];
             if (a == b) continue;

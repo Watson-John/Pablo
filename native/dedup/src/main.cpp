@@ -104,6 +104,8 @@ void apply_overrides(Config& cfg, const Args& a) {
     if (a.has("hamming"))    cfg.phash_hamming = a.integer("hamming", cfg.phash_hamming);
     if (a.has("hash-only"))  cfg.embed_enabled = false;   // skip SSCD (low-end PCs)
     if (a.has("no-embed"))   cfg.embed_enabled = false;   // alias
+    if (a.has("score-norm")) cfg.score_norm = a.str("score-norm") != "0";
+    if (a.has("score-norm-beta")) cfg.score_norm_beta = a.number("score-norm-beta", cfg.score_norm_beta);
 }
 
 int usage() {

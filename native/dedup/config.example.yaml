@@ -32,6 +32,11 @@ embed:
 # --- Indexing + neighbour search --------------------------------------------
 index:
   k: 20                     # neighbours retrieved per image (10–50)
+  score_norm: false         # descriptor stretching: suppress "hub" images before
+                            #   thresholding. Small gain on small libraries, larger
+                            #   as the set grows. Shifts the score scale -> re-run
+                            #   `calibrate` after enabling.
+  score_norm_beta: 1.0      # strength of the background subtraction
 
 # --- Clustering -------------------------------------------------------------
 cluster:
