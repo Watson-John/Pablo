@@ -7,10 +7,9 @@
 // data and mutations go through the repo (the single seam); the ingestion-fed
 // asset path/dims cache lives in a separate [AssetRegistry].
 //
-// Mock vs. live: in mock mode the repo returns the kPeople / kUnnamedFaces
-// rows and `changes` never fires, so widgets keep their existing local-state
-// behavior untouched. In live mode the repo is the source of truth and every
-// `changes` event triggers a re-query — no local verdict state needed.
+// Offline vs. live: in offline mode the repo returns empty lists and `changes`
+// never fires, so People renders empty. In live mode the repo is the source of
+// truth and every `changes` event triggers a re-query — no local verdict state.
 
 import 'dart:async';
 
@@ -21,10 +20,6 @@ import '../../data/models.dart';
 import '../../data/sources/face_repository.dart';
 import '../../utils/image_dims.dart';
 import 'asset_registry.dart';
-
-/// Legacy mockup figure for the sidebar Unnamed Faces count — kept so the
-/// default (mock) app is pixel-identical to before the integration.
-const int kMockUnnamedCount = 247;
 
 /// Quality cutoff separating high- vs low-confidence suggestions. The only
 /// tunable knob on the UI side; affects the "N new" badge, not correctness.
@@ -54,11 +49,10 @@ class PeopleController extends ChangeNotifier {
 
   List<UnnamedFace> unnamedFaces() => _repo.unnamedFaces();
 
-  /// Sidebar Unnamed Faces count. Live: sum of cluster sizes; mock: the legacy
-  /// mockup figure.
-  int unnamedFaceCount() => isLive
-      ? unnamedFaces().fold<int>(0, (s, u) => s + u.count)
-      : kMockUnnamedCount;
+  /// Sidebar Unnamed Faces count — the sum of unconfirmed cluster sizes (0
+  /// until the live pipeline has scanned).
+  int unnamedFaceCount() =>
+      unnamedFaces().fold<int>(0, (s, u) => s + u.count);
 
   /// Total shown on the collapsed People section header.
   int peopleTotal() =>

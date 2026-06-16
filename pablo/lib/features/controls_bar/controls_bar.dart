@@ -37,7 +37,6 @@ class ControlsBar extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final w = constraints.maxWidth;
-          final iconOnlyTabs = w < 580;
           final ultraCompact = w < 460;
           return Row(
             children: [
@@ -73,7 +72,7 @@ class ControlsBar extends StatelessWidget {
               const _MicroDivider(),
               GestureDetector(
                 onTap: () => st.setThumbSize(
-                    (st.thumbSize - 20).clamp(60, 260).toDouble()),
+                    (st.thumbSize - 20).clamp(60, 512).toDouble()),
                 child: const PabloIcon(
                   PabloIconName.zoomOut,
                   size: 14,
@@ -83,14 +82,16 @@ class ControlsBar extends StatelessWidget {
               const SizedBox(width: PabloSpacing.md),
               ThumbSlider(
                 value: st.thumbSize,
-                defaultValue: 130,
+                defaultValue: 200,
+                min: 60,
+                max: 512,
                 onChanged: st.setThumbSize,
                 width: ultraCompact ? 60 : 100,
               ),
               const SizedBox(width: PabloSpacing.md),
               GestureDetector(
                 onTap: () => st.setThumbSize(
-                    (st.thumbSize + 20).clamp(60, 260).toDouble()),
+                    (st.thumbSize + 20).clamp(60, 512).toDouble()),
                 child: const PabloIcon(
                   PabloIconName.zoomIn,
                   size: 14,
@@ -98,10 +99,13 @@ class ControlsBar extends StatelessWidget {
                 ),
               ),
               const _MicroDivider(),
-              _InfoPanelTabs(
-                active: st.infoPanelTab,
-                onChange: st.setInfoPanelTab,
-                iconOnly: iconOnlyTabs,
+              _InspectorToggle(
+                open: st.infoPanelTab != null,
+                showLabel: !ultraCompact,
+                // The Inspector panel owns its own Info/People/Tags tab bar, so
+                // this is a plain open/close toggle; opening lands on Info.
+                onTap: () =>
+                    st.setInfoPanelTab(st.infoPanelTab == null ? 'info' : null),
               ),
             ],
           );
@@ -122,8 +126,8 @@ class _MicroDivider extends StatelessWidget {
       );
 }
 
-/// Grid ⇄ Masonry layout toggle for the gallery. Single-select (one mode is
-/// always active); mirrors the segmented look of the info-panel tabs.
+/// Grid ⇄ Masonry layout toggle — two standalone rounded-square chips
+/// (blue = active, gray = inactive), matching the toolbar mock.
 class _GridModeToggle extends StatelessWidget {
   const _GridModeToggle({required this.mode, required this.onChange});
   final String mode;
@@ -131,67 +135,91 @@ class _GridModeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: PabloRadius.pillAll,
-      child: Container(
-        color: PabloColors.controlsTabBackground,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _GridModeChip(
-              icon: PabloIconName.grid,
-              tip: 'Grid',
-              active: mode == GridMode.grid,
-              onTap: () => onChange(GridMode.grid),
-            ),
-            Container(
-              width: 1,
-              height: 16,
-              color: PabloColors.controlsTabDivider,
-            ),
-            _GridModeChip(
-              icon: PabloIconName.masonry,
-              tip: 'Masonry',
-              active: mode == GridMode.masonry,
-              onTap: () => onChange(GridMode.masonry),
-            ),
-          ],
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ToolbarToggle(
+          icon: PabloIconName.grid,
+          tooltip: 'Grid',
+          active: mode == GridMode.grid,
+          onTap: () => onChange(GridMode.grid),
         ),
-      ),
+        const SizedBox(width: PabloSpacing.sm),
+        _ToolbarToggle(
+          icon: PabloIconName.masonry,
+          tooltip: 'Masonry',
+          active: mode == GridMode.masonry,
+          onTap: () => onChange(GridMode.masonry),
+        ),
+      ],
     );
   }
 }
 
-class _GridModeChip extends StatefulWidget {
-  const _GridModeChip({
-    required this.icon,
-    required this.tip,
-    required this.active,
+/// Open/close toggle for the right-side Inspector panel. A single rounded chip
+/// (blue when open) with an optional label — the panel owns its own tab bar.
+class _InspectorToggle extends StatelessWidget {
+  const _InspectorToggle({
+    required this.open,
     required this.onTap,
+    this.showLabel = true,
   });
-  final PabloIconName icon;
-  final String tip;
-  final bool active;
+  final bool open;
+  final bool showLabel;
   final VoidCallback onTap;
 
   @override
-  State<_GridModeChip> createState() => _GridModeChipState();
+  Widget build(BuildContext context) {
+    return _ToolbarToggle(
+      icon: PabloIconName.panelRight,
+      tooltip: 'Inspector',
+      label: showLabel ? 'Inspector' : null,
+      active: open,
+      onTap: onTap,
+    );
+  }
 }
 
-class _GridModeChipState extends State<_GridModeChip> {
+/// Shared rounded-square toolbar control. Active = filled azure with white
+/// content; inactive = sunken warm well with muted content. Optional [label]
+/// turns the square into a pill-ish chip (used by the Inspector toggle).
+class _ToolbarToggle extends StatefulWidget {
+  const _ToolbarToggle({
+    required this.icon,
+    required this.tooltip,
+    required this.active,
+    required this.onTap,
+    this.label,
+  });
+  final PabloIconName icon;
+  final String tooltip;
+  final bool active;
+  final VoidCallback onTap;
+  final String? label;
+
+  @override
+  State<_ToolbarToggle> createState() => _ToolbarToggleState();
+}
+
+class _ToolbarToggleState extends State<_ToolbarToggle> {
   bool _hover = false;
+
   @override
   Widget build(BuildContext context) {
-    final bg = widget.active
-        ? PabloColors.whiteAlpha(0.9)
-        : _hover
-            ? PabloColors.controlsTabHover
-            : Colors.transparent;
+    final Color bg;
+    if (widget.active) {
+      bg = _hover
+          ? PabloColors.selectionPrimaryHover
+          : PabloColors.selectionPrimary;
+    } else {
+      bg = _hover ? PabloColors.borderStrong : PabloColors.backgroundSurfaceAlt;
+    }
     final fg = widget.active
-        ? PabloColors.controlsTabActiveFg
-        : PabloColors.whiteAlpha(0.85);
+        ? PabloColors.textOnAccent
+        : PabloColors.textSecondary;
+    final hasLabel = widget.label != null;
     return Tooltip(
-      message: widget.tip,
+      message: widget.tooltip,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
@@ -201,128 +229,31 @@ class _GridModeChipState extends State<_GridModeChip> {
           behavior: HitTestBehavior.opaque,
           child: AnimatedContainer(
             duration: PabloDurations.hover,
-            color: bg,
-            padding: const EdgeInsets.symmetric(
-              horizontal: PabloSpacing.lg,
-              vertical: 7,
+            height: 28,
+            padding: EdgeInsets.symmetric(
+              horizontal: hasLabel ? PabloSpacing.xl : PabloSpacing.lg,
             ),
-            child: PabloIcon(widget.icon, size: 15, color: fg),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoPanelTabs extends StatelessWidget {
-  const _InfoPanelTabs({
-    required this.active,
-    required this.onChange,
-    this.iconOnly = false,
-  });
-  final String? active;
-  final ValueChanged<String?> onChange;
-  final bool iconOnly;
-
-  @override
-  Widget build(BuildContext context) {
-    final tabs = [
-      ('people', 'People', PabloIconName.personFill),
-      ('tags', 'Tags', PabloIconName.tagFill),
-      ('info', 'Info', PabloIconName.infoFill),
-    ];
-    return ClipRRect(
-      borderRadius: PabloRadius.pillAll,
-      child: Container(
-        color: PabloColors.controlsTabBackground,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < tabs.length; i++) ...[
-              if (i > 0)
-                Container(
-                  width: 1,
-                  height: 16,
-                  color: PabloColors.controlsTabDivider,
-                ),
-              _TabChip(
-                id: tabs[i].$1,
-                label: tabs[i].$2,
-                icon: tabs[i].$3,
-                active: active == tabs[i].$1,
-                iconOnly: iconOnly,
-                onTap: () => onChange(active == tabs[i].$1 ? null : tabs[i].$1),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TabChip extends StatefulWidget {
-  const _TabChip({
-    required this.id,
-    required this.label,
-    required this.icon,
-    required this.active,
-    required this.onTap,
-    this.iconOnly = false,
-  });
-  final String id;
-  final String label;
-  final PabloIconName icon;
-  final bool active;
-  final bool iconOnly;
-  final VoidCallback onTap;
-
-  @override
-  State<_TabChip> createState() => _TabChipState();
-}
-
-class _TabChipState extends State<_TabChip> {
-  bool _hover = false;
-  @override
-  Widget build(BuildContext context) {
-    final bg = widget.active
-        ? PabloColors.whiteAlpha(0.9)
-        : _hover
-            ? PabloColors.controlsTabHover
-            : Colors.transparent;
-    final fg = widget.active
-        ? PabloColors.controlsTabActiveFg
-        : PabloColors.whiteAlpha(0.85);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: PabloDurations.hover,
-          color: bg,
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.iconOnly ? PabloSpacing.lg : PabloSpacing.xl,
-            vertical: 7,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              PabloIcon(widget.icon, size: 15, color: fg),
-              if (!widget.iconOnly) ...[
-                const SizedBox(width: PabloSpacing.sm + 1),
-                Text(
-                  widget.label,
-                  style: PabloTypography.sans(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: fg,
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: PabloRadius.smAll,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PabloIcon(widget.icon, size: 15, color: fg),
+                if (hasLabel) ...[
+                  const SizedBox(width: PabloSpacing.sm + 1),
+                  Text(
+                    widget.label!,
+                    style: PabloTypography.sans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: fg,
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

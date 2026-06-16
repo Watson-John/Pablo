@@ -8,7 +8,7 @@ import '../../components/pablo_checkbox.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/pablo_radio.dart';
-import '../../data/mock/mock_data.dart';
+import '../../data/constants.dart';
 import '../../theme/tokens.dart';
 
 class AdvancedSearchModal extends StatefulWidget {
@@ -302,18 +302,16 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sHead('People'),
-        for (final p in kPeople)
-          PabloCheckbox(
-            label: '${p.name} (${p.count})',
-            value: _c.people.contains(p.id),
-            onChanged: (v) => _set(() {
-              if (v) {
-                _c.people.add(p.id);
-              } else {
-                _c.people.remove(p.id);
-              }
-            }),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: PabloSpacing.sm),
+          child: Text(
+            'Named people appear here after the face scan completes.',
+            style: PabloTypography.sans(
+              fontSize: 11,
+              color: PabloColors.textMuted,
+            ).copyWith(fontStyle: FontStyle.italic),
           ),
+        ),
         const SizedBox(height: PabloSpacing.lg),
         _label('People match'),
         Row(
@@ -386,7 +384,7 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
         _input(_tagsCtl, 'vacation, family…', onChanged: (v) => _c.tags = v),
         const SizedBox(height: PabloSpacing.base),
         _label('In album'),
-        _select(['Any', ...kAlbums.map((a) => a.name)], _c.album, (v) => _set(() => _c.album = v)),
+        _select(const ['Any'], _c.album, (v) => _set(() => _c.album = v)),
       ],
     );
   }

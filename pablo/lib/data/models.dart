@@ -1,9 +1,8 @@
 // Data models for Pablo.
 //
-// Photos store a precomputed `gradient` (matching the linear-gradient(...) the
-// React app generates). Hue/Confidence numbers from the mockup port directly.
-
-import 'package:flutter/material.dart';
+// Every Photo is a real file on disk imported from the user's library. Pixels
+// reach the screen through the native libvips → GPU-texture pipeline keyed by
+// [Photo.filePath]; no synthetic/gradient placeholders exist.
 
 class Person {
   const Person({
@@ -30,20 +29,6 @@ class Person {
         hue: hue ?? this.hue,
         confirmed: confirmed ?? this.confirmed,
       );
-}
-
-class Album {
-  const Album({
-    required this.id,
-    required this.name,
-    required this.count,
-    required this.created,
-  });
-
-  final String id;
-  final String name;
-  final int count;
-  final String created;
 }
 
 class FolderNode {
@@ -93,75 +78,61 @@ class Photo {
   const Photo({
     required this.id,
     required this.label,
-    required this.gradient,
-    required this.starred,
-    this.filePath,
+    required this.filePath,
+    this.starred = false,
     this.aspect,
   });
 
   final String id;
   final String label;
-  final LinearGradient gradient;
+
+  /// Absolute path to the real image file on disk. PhotoThumb routes this to
+  /// the native libvips decoder via the TextureSlot seam.
+  final String filePath;
+
   final bool starred;
 
-  /// Absolute path to a real image file (dataset / import mode). Null for the
-  /// gradient mockup. When set, PhotoThumb routes it to the native libvips
-  /// decoder via the TextureSlot seam.
-  final String? filePath;
-
-  /// True aspect ratio (width / height) read from the file header. Set for
-  /// real photos so the masonry layout sizes the tile to the photo's real
-  /// shape. Null for mockup photos (a hash-derived ratio is used instead).
+  /// True aspect ratio (width / height) when known (read from the file
+  /// header). Null at import time — the masonry layout then falls back to a
+  /// stable hash-derived ratio until real dimensions are read.
   final double? aspect;
 }
 
-class Suggestion {
-  const Suggestion({
-    required this.id,
-    required this.gradient,
-    required this.confidence,
-    required this.label,
-  });
-
-  final String id;
-  final LinearGradient gradient;
-  final SuggestionConfidence confidence;
-  final String label;
-}
-
-enum SuggestionConfidence { high, low }
-
+/// EXIF / file metadata for one photo. Fields that the file doesn't carry are
+/// null (most Flickr30k images, e.g., have no camera/date/GPS) and the UI shows
+/// an em-dash. [width]/[height] are 0 when the header can't be read; [fileSize]
+/// and [format] are always best-effort from the file itself.
 class ExifData {
   const ExifData({
-    required this.camera,
-    required this.lens,
-    required this.aperture,
-    required this.shutter,
-    required this.iso,
-    required this.focalLength,
-    required this.date,
-    required this.time,
+    this.camera,
+    this.lens,
+    this.aperture,
+    this.shutter,
+    this.iso,
+    this.focalLength,
+    this.dateLabel,
+    this.timeLabel,
     required this.width,
     required this.height,
     required this.fileSize,
     required this.format,
-    required this.colorSpace,
-    required this.location,
+    this.location,
   });
 
-  final String camera;
-  final String lens;
-  final String aperture;
-  final String shutter;
-  final int iso;
-  final String focalLength;
-  final String date;
-  final String time;
+  final String? camera;
+  final String? lens;
+  final String? aperture;
+  final String? shutter;
+  final int? iso;
+  final String? focalLength;
+  final String? dateLabel;
+  final String? timeLabel;
   final int width;
   final int height;
   final String fileSize;
   final String format;
-  final String colorSpace;
+
+  /// "lat, lon" from GPS EXIF when present, else null.
   final String? location;
 }
 

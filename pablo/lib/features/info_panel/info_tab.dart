@@ -1,13 +1,17 @@
-// Inspector "Info" tab (Pablo v4): a photo preview row, icon-led property rows,
-// a Manage-details card, and People / Tags preview sections.
+// Inspector "Info" tab (Pablo v4): a real photo preview, icon-led property rows
+// from the file's own metadata, a Manage-details card, and People / Tags
+// preview sections. Camera/date/GPS rows fall back to an em-dash when the file
+// carries no EXIF (most of the Flickr30k set).
 
 import 'package:flutter/material.dart';
 
-import '../../components/avatar.dart';
 import '../../components/pablo_icon.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
-import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
+import '../gallery/photo_surface.dart';
+import '../people/people_scope.dart';
 import 'shared.dart';
 
 class InfoTab extends StatelessWidget {
@@ -26,23 +30,42 @@ class InfoTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final exif = getPhotoExif(photo.id);
     final tags = getPhotoTags(photo.id);
-    final people = getPhotoPeople(photo.id);
+    final faceCount =
+        PeopleScope.of(context).facesForAsset(assetIdFor(photo.id)).length;
+
+    final dims = exif.width > 0 ? '${exif.width} × ${exif.height}' : null;
+    final sizeLine =
+        [exif.fileSize, dims, exif.format].whereType<String>().join(' · ');
+    final dateLine = exif.dateLabel != null
+        ? '${exif.dateLabel}${exif.timeLabel != null ? ' · ${exif.timeLabel}' : ''}'
+        : 'Unknown';
+    final exposure = [
+      exif.aperture,
+      exif.shutter,
+      exif.iso != null ? 'ISO ${exif.iso}' : null,
+      exif.focalLength,
+    ].whereType<String>().join(' · ');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Preview + filename
         Padding(
-          padding: const EdgeInsets.only(top: PabloSpacing.xl, bottom: PabloSpacing.base),
+          padding: const EdgeInsets.only(
+              top: PabloSpacing.xl, bottom: PabloSpacing.base),
           child: Row(
             children: [
-              Container(
-                width: 64,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: photo.gradient,
-                  borderRadius: PabloRadius.smAll,
-                  border: Border.all(color: PabloColors.borderSubtle),
+              ClipRRect(
+                borderRadius: PabloRadius.smAll,
+                child: Container(
+                  width: 64,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    borderRadius: PabloRadius.smAll,
+                    border: Border.all(color: PabloColors.borderSubtle),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: PhotoSurface(photo: photo, targetW: 128, targetH: 96),
                 ),
               ),
               const SizedBox(width: PabloSpacing.lg),
@@ -72,12 +95,12 @@ class InfoTab extends StatelessWidget {
         MetaRow(
           icon: PabloIconName.calendar,
           label: 'Date taken',
-          child: Text('${exif.date.replaceAll('-', '/')} · ${exif.time.substring(0, 5)}'),
+          child: Text(dateLine),
         ),
         MetaRow(
           icon: PabloIconName.library,
           label: 'Size',
-          child: Text('${exif.fileSize} · ${exif.width} × ${exif.height} · ${exif.format}'),
+          child: Text(sizeLine),
         ),
         MetaRow(
           icon: PabloIconName.camera,
@@ -85,12 +108,15 @@ class InfoTab extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(exif.camera),
-              const SizedBox(height: 2),
-              Text(
-                '${exif.aperture} · ${exif.shutter}s · ISO ${exif.iso} · ${exif.focalLength}',
-                style: PabloTypography.mono(fontSize: 11.5, color: PabloColors.textSecondary),
-              ),
+              Text(exif.camera ?? 'Unknown camera'),
+              if (exposure.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  exposure,
+                  style: PabloTypography.mono(
+                      fontSize: 11.5, color: PabloColors.textSecondary),
+                ),
+              ],
             ],
           ),
         ),
@@ -98,28 +124,7 @@ class InfoTab extends StatelessWidget {
           MetaRow(
             icon: PabloIconName.map,
             label: 'Location',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(exif.location!),
-                const SizedBox(height: PabloSpacing.base),
-                Container(
-                  height: 90,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFE8E2D4), Color(0xFFC8BCA0)],
-                    ),
-                    border: Border.all(color: PabloColors.borderSubtle),
-                    borderRadius: PabloRadius.mdAll,
-                  ),
-                  alignment: Alignment.center,
-                  child: const PabloIcon(PabloIconName.map,
-                      size: 22, color: PabloColors.accentPrimary),
-                ),
-              ],
-            ),
+            child: Text(exif.location!),
           ),
 
         // Manage details card
@@ -128,20 +133,12 @@ class InfoTab extends StatelessWidget {
           child: _ManageCard(onTap: onManage),
         ),
 
-        // People preview
+        // People preview — real detected faces for this photo.
         SectionLabel('People',
             right: InspectorLink('Manage →', onTap: () => onGoToTab('people'))),
-        if (people.isEmpty)
-          _emptyHint('No people tagged')
-        else
-          Wrap(
-            spacing: PabloSpacing.md,
-            runSpacing: PabloSpacing.md,
-            children: [
-              for (final p in people.take(6)) _PersonPill(person: p),
-              _AddPill(onTap: () => onGoToTab('people')),
-            ],
-          ),
+        _emptyHint(faceCount == 0
+            ? 'No faces detected'
+            : '$faceCount face${faceCount == 1 ? '' : 's'} detected'),
 
         // Tags preview
         SectionLabel('Tags',
@@ -191,7 +188,7 @@ class _ManageCardState extends State<_ManageCard> {
         child: AnimatedContainer(
           duration: PabloDurations.fast,
           padding: const EdgeInsets.symmetric(
-            horizontal: PabloSpacing.xl, vertical: PabloSpacing.lg),
+              horizontal: PabloSpacing.xl, vertical: PabloSpacing.lg),
           decoration: BoxDecoration(
             color: _hover
                 ? PabloColors.backgroundHover
@@ -216,67 +213,8 @@ class _ManageCardState extends State<_ManageCard> {
                 ),
               ),
               const Text('→',
-                  style: TextStyle(color: PabloColors.accentPrimary, fontSize: 13)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PersonPill extends StatelessWidget {
-  const _PersonPill({required this.person});
-  final TaggedPerson person;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(3, 3, PabloSpacing.lg, 3),
-      decoration: BoxDecoration(
-        color: PabloColors.backgroundSurfaceAlt,
-        border: Border.all(color: PabloColors.borderSubtle),
-        borderRadius: PabloRadius.pillAll,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          PabloAvatar(name: person.name, hue: person.hue, size: 22),
-          const SizedBox(width: PabloSpacing.md),
-          Text(person.name.split(' ').first,
-              style: PabloTypography.sans(fontSize: 12)),
-        ],
-      ),
-    );
-  }
-}
-
-class _AddPill extends StatelessWidget {
-  const _AddPill({required this.onTap});
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: PabloSpacing.lg, vertical: 3),
-          decoration: BoxDecoration(
-            border: Border.all(
-                color: PabloColors.borderStrong, style: BorderStyle.solid),
-            borderRadius: PabloRadius.pillAll,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('+',
-                  style: PabloTypography.sans(
-                      fontSize: 14, color: PabloColors.textSecondary, height: 1)),
-              const SizedBox(width: PabloSpacing.sm),
-              Text('Add',
-                  style: PabloTypography.sans(
-                      fontSize: 12, color: PabloColors.textSecondary)),
+                  style:
+                      TextStyle(color: PabloColors.accentPrimary, fontSize: 13)),
             ],
           ),
         ),

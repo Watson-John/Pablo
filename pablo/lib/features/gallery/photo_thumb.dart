@@ -6,10 +6,8 @@ import 'package:flutter/material.dart';
 
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
-import '../../backend/native_backend.dart';
 import '../../theme/tokens.dart';
-import '../../utils/asset_id.dart';
-import 'native_asset_texture.dart';
+import 'photo_surface.dart';
 
 class PhotoThumb extends StatefulWidget {
   const PhotoThumb({
@@ -22,6 +20,7 @@ class PhotoThumb extends StatefulWidget {
     this.onTap,
     this.onDoubleTap,
     this.onAddToTray,
+    this.onToggleSelect,
     this.onSecondaryTap,
     super.key,
   });
@@ -42,6 +41,10 @@ class PhotoThumb extends StatefulWidget {
   final void Function(PointerDownEvent event)? onTap;
   final void Function()? onDoubleTap;
   final void Function()? onAddToTray;
+
+  /// Tapping the selection checkmark toggles the photo's selection (and tray)
+  /// membership — the same as a ctrl/cmd-click.
+  final void Function()? onToggleSelect;
   final void Function(Offset globalPosition)? onSecondaryTap;
 
   @override
@@ -57,6 +60,10 @@ class _PhotoThumbState extends State<PhotoThumb> {
     final h = widget.imageAspect != null
         ? widget.size / widget.imageAspect!
         : widget.size * 0.72;
+    // Corner radius scales with tile height so the rounding doesn't eat into
+    // small thumbnails (and stays at the standard radius for large ones).
+    final tileRadius =
+        BorderRadius.circular((h * 0.09).clamp(4.0, PabloRadius.lg).toDouble());
     final borderColor = (widget.selected || widget.inTray)
         ? PabloColors.selectionPrimary.withValues(alpha: 0.4)
         : PabloColors.borderSubtle;
@@ -80,8 +87,10 @@ class _PhotoThumbState extends State<PhotoThumb> {
           color: PabloColors.selectionPrimary.withValues(alpha: 0.28),
           blurRadius: 18,
         ),
-      ] else if (_hover) ...PabloShadows.md
-      else ...PabloShadows.sm,
+      ] else if (_hover)
+        ...PabloShadows.md
+      else
+        ...PabloShadows.sm,
     ];
 
     Widget overlayCheck() {
@@ -137,7 +146,9 @@ class _PhotoThumbState extends State<PhotoThumb> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () {
-            if (_lastPointerEvent != null) widget.onTap?.call(_lastPointerEvent!);
+            if (_lastPointerEvent != null) {
+              widget.onTap?.call(_lastPointerEvent!);
+            }
           },
           onDoubleTap: widget.onDoubleTap,
           child: AnimatedScale(
@@ -153,65 +164,75 @@ class _PhotoThumbState extends State<PhotoThumb> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    AnimatedContainer(
-                      duration: PabloDurations.hover,
+                    // SizedBox sizes the tile instantly; the AnimatedContainer
+                    // animates only the decoration (hover/select shadow+border).
+                    // Animating the SIZE would briefly overflow its row slot
+                    // when the justified grid re-packs as aspect ratios load.
+                    SizedBox(
                       width: widget.size,
                       height: h,
-                      decoration: BoxDecoration(
-                        borderRadius: PabloRadius.lgAll,
-                        border: Border.all(color: borderColor),
-                        boxShadow: shadows,
-                      ),
-                      child: ClipRRect(
-                        borderRadius: PabloRadius.lgAll,
-                        child: Stack(
-                          children: [
-                            Positioned.fill(
-                              child: _ThumbBackdrop(photo: widget.photo),
-                            ),
-                            if (widget.photo.starred)
-                              const Positioned(
-                                bottom: 5,
-                                left: 5,
-                                child: PabloIcon(
-                                  PabloIconName.starFill,
-                                  size: 13,
-                                  color: PabloColors.amber,
-                                ),
+                      child: AnimatedContainer(
+                        duration: PabloDurations.hover,
+                        decoration: BoxDecoration(
+                          borderRadius: tileRadius,
+                          border: Border.all(color: borderColor),
+                          boxShadow: shadows,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: tileRadius,
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: PhotoSurface(photo: widget.photo),
                               ),
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: overlayCheck(),
-                            ),
-                            if (_hover && !widget.inTray)
+                              if (widget.photo.starred)
+                                const Positioned(
+                                  bottom: 5,
+                                  left: 5,
+                                  child: PabloIcon(
+                                    PabloIconName.starFill,
+                                    size: 13,
+                                    color: PabloColors.amber,
+                                  ),
+                                ),
                               Positioned(
-                                bottom: 4,
+                                top: 4,
                                 right: 4,
                                 child: GestureDetector(
-                                  onTap: widget.onAddToTray,
-                                  child: Container(
-                                    width: 22,
-                                    height: 22,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.9),
-                                      shape: BoxShape.circle,
-                                      boxShadow: PabloShadows.sm,
-                                    ),
-                                    child: const Text(
-                                      '+',
-                                      style: TextStyle(
-                                        color: PabloColors.textSecondary,
-                                        fontSize: 13,
-                                        height: 1,
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: widget.onToggleSelect,
+                                  child: overlayCheck(),
+                                ),
+                              ),
+                              if (_hover && !widget.inTray)
+                                Positioned(
+                                  bottom: 4,
+                                  right: 4,
+                                  child: GestureDetector(
+                                    onTap: widget.onAddToTray,
+                                    child: Container(
+                                      width: 22,
+                                      height: 22,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color:
+                                            Colors.white.withValues(alpha: 0.9),
+                                        shape: BoxShape.circle,
+                                        boxShadow: PabloShadows.sm,
+                                      ),
+                                      child: const Text(
+                                        '+',
+                                        style: TextStyle(
+                                          color: PabloColors.textSecondary,
+                                          fontSize: 13,
+                                          height: 1,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -230,34 +251,6 @@ class _PhotoThumbState extends State<PhotoThumb> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Renders the thumbnail's pixel surface. When the native backend is
-/// available, routes through a [NativeAssetTexture] (a Texture widget backed
-/// by photo_core). Otherwise renders the original linear gradient as the
-/// M0 mockup did. Border + shadow + overlays live in PhotoThumb above.
-class _ThumbBackdrop extends StatelessWidget {
-  const _ThumbBackdrop({required this.photo});
-
-  final Photo photo;
-
-  @override
-  Widget build(BuildContext context) {
-    final backend = NativeBackendScope.maybeOf(context);
-    final gradient = DecoratedBox(
-      decoration: BoxDecoration(gradient: photo.gradient),
-    );
-    if (backend == null) return gradient;
-    return NativeAssetTexture(
-      engine: backend.engine,
-      events: backend.events,
-      assetId: assetIdFor(photo.id),
-      // Real file path drives the libvips decode; falls back to the synthetic
-      // id (solid color) for gradient-mock photos.
-      path: photo.filePath ?? photo.id,
-      fallback: gradient,
     );
   }
 }

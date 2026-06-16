@@ -62,7 +62,15 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
   }
 
   Future<void> _createSlot() async {
-    final slot = await TextureSlot.create(widget.engine, initialW: 64, initialH: 64);
+    final TextureSlot slot;
+    try {
+      slot = await TextureSlot.create(widget.engine, initialW: 64, initialH: 64);
+    } catch (e) {
+      // Slot/texture registration failed (e.g. the platform registrar). Degrade
+      // to the fallback surface rather than throwing an uncaught zone error.
+      if (!_disposed) debugPrint('[pablo] texture slot create failed: $e');
+      return;
+    }
     if (_disposed) {
       await slot.dispose();
       return;
@@ -73,6 +81,12 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
       if (s == null || e.slotId != s.slotId) return;
       if (e.generation != s.currentGeneration) return;
       if (e.width <= 0 || e.height <= 0) return;
+      // A new frame was published. Force the embedder to re-copy the texture,
+      // even when the dimensions are unchanged (e.g. a same-size stage upgrade
+      // or a cache-hit re-publish). Without this a stale, lower-resolution
+      // frame lingers until the next layout change forces a re-composite —
+      // which is the "stays pixelated until you zoom again" symptom.
+      s.markFrameAvailable();
       if (e.width == _frameW && e.height == _frameH) return;
       if (mounted) {
         setState(() {
@@ -132,7 +146,11 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
 
     final crop = widget.crop;
     if (crop == null) {
-      if (fw == null || fh == null) return texture; // fill until dims known
+      // Until the real frame dimensions arrive (initial load, or just after a
+      // rebind to a different asset), show the neutral fallback rather than the
+      // raw texture — the latter fills the tile and visibly stretches whatever
+      // frame the slot still holds.
+      if (fw == null || fh == null) return widget.fallback;
       // Cover-fit the whole frame, center-cropping overflow.
       return ClipRect(
         child: FittedBox(

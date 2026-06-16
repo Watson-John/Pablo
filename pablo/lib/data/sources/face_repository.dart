@@ -3,22 +3,21 @@
 // A thin seam between the existing People widgets (people_scroll_view,
 // unnamed_faces_page, info_panel/people_tab) and the native face pipeline.
 // Two implementations:
-//   * [MockFaceRepository] — returns the M0 mockup rows (kPeople / kUnnamedFaces)
-//     so the UI looks identical when the native backend is off.
+//   * [MockFaceRepository] — the offline repo: returns empty lists (the mock
+//     library was removed), so People renders empty when no native backend is
+//     mounted, until the live pipeline scans.
 //   * [NativeFaceRepository] — maps photo_core's read-back rows (FacePerson /
 //     FaceRow) onto the UI models and forwards confirm/reject/scan/name to the
 //     engine.
 //
-// Widgets stay unchanged: swap `kPeople` for `repo.people()` and
-// `kUnnamedFaces` for `repo.unnamedFaces()` where the repo is read from
-// AppScope. [createFaceRepository] picks the implementation by what's wired.
+// Widgets read `repo.people()` / `repo.unnamedFaces()` (via PeopleScope).
+// [createFaceRepository] picks the implementation by what's wired.
 
 import 'dart:async';
 
 import 'package:photo_native/photo_native.dart';
 
 import '../../utils/hue.dart';
-import '../mock/mock_data.dart';
 import '../models.dart';
 
 abstract interface class FaceRepository {
@@ -78,7 +77,9 @@ FaceRepository createFaceRepository({Engine? engine, Stream<PhotoEvent>? events}
 }
 
 // ---------------------------------------------------------------------------
-// Mock — preserves the M0 look when the native backend is off.
+// Offline — used when no native backend is mounted. With the mock library
+// stripped there is no face data, so People is simply empty until the live
+// pipeline scans the imported photos.
 // ---------------------------------------------------------------------------
 
 class MockFaceRepository implements FaceRepository {
@@ -88,10 +89,10 @@ class MockFaceRepository implements FaceRepository {
   bool get isLive => false;
 
   @override
-  List<Person> people() => kPeople;
+  List<Person> people() => const [];
 
   @override
-  List<UnnamedFace> unnamedFaces() => kUnnamedFaces;
+  List<UnnamedFace> unnamedFaces() => const [];
 
   @override
   List<FaceRow> facesInCluster(int clusterId) => const [];

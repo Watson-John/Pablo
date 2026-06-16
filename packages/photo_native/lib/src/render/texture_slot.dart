@@ -59,6 +59,13 @@ final class TextureSlot {
 
   int get currentGeneration => _generation;
 
+  /// Tell the embedder a fresh native frame has been published for this slot so
+  /// it re-pulls the pixel buffer. Call after a stage-ready event; safe to call
+  /// every frame. Fire-and-forget.
+  void markFrameAvailable() {
+    TextureRegistry.instance.markFrameAvailable(slotId);
+  }
+
   Future<void> dispose() async {
     await TextureRegistry.instance.unregister(slotId);
     engine.destroySlot(slotId);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../gallery/photo_surface.dart';
 import 'filter_matrices.dart';
 
 class FilterRow extends StatelessWidget {
@@ -32,7 +33,6 @@ class FilterRow extends StatelessWidget {
             width: 48,
             height: 36,
             decoration: BoxDecoration(
-              gradient: photo.gradient,
               borderRadius: PabloRadius.lgAll,
               border: Border.all(
                 color: sel ? PabloColors.accentPrimary : PabloColors.borderSubtle,
@@ -40,6 +40,8 @@ class FilterRow extends StatelessWidget {
               ),
               boxShadow: sel ? PabloShadows.md : PabloShadows.sm,
             ),
+            clipBehavior: Clip.antiAlias,
+            child: PhotoSurface(photo: photo, targetW: 96, targetH: 72),
           );
           if (f.filter != null) {
             tile = ColorFiltered(colorFilter: f.filter!, child: tile);

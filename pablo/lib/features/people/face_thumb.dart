@@ -13,6 +13,7 @@ import '../../backend/native_backend.dart';
 import '../../theme/tokens.dart';
 import '../../utils/hue.dart';
 import '../gallery/native_asset_texture.dart';
+import 'face_naming.dart';
 import 'face_palette.dart';
 import 'people_scope.dart';
 
@@ -43,12 +44,13 @@ Rect? faceCropRect({
   return Rect.fromLTWH(l, t, cw, ch);
 }
 
-class FaceThumb extends StatelessWidget {
+class FaceThumb extends StatefulWidget {
   const FaceThumb({
     required this.face,
     this.size = 64,
     this.borderRadius,
     this.hue,
+    this.showHoverLabel = true,
     super.key,
   });
 
@@ -59,26 +61,41 @@ class FaceThumb extends StatelessWidget {
   /// Gradient-fallback hue; defaults to a stable hue derived from the face.
   final int? hue;
 
+  /// Show the hover box with the person's name (or a "Name…" action when the
+  /// face is unnamed). Suppressed on tiny tiles regardless.
+  final bool showHoverLabel;
+
+  @override
+  State<FaceThumb> createState() => _FaceThumbState();
+}
+
+class _FaceThumbState extends State<FaceThumb> {
+  bool _hover = false;
+
+  /// Faces smaller than this are inline avatars whose name is already shown
+  /// next to them, so the hover box would just crowd them.
+  static const double _kMinLabelSize = 44;
+
   @override
   Widget build(BuildContext context) {
-    final radius = borderRadius ?? PabloRadius.lgAll;
+    final radius = widget.borderRadius ?? PabloRadius.lgAll;
     final backend = NativeBackendScope.maybeOf(context);
     final controller = PeopleScope.read(context);
-    final path = controller.assetPath(face.assetId);
-    final dims = controller.assetDims(face.assetId);
+    final path = controller.assetPath(widget.face.assetId);
+    final dims = controller.assetDims(widget.face.assetId);
     final fallback = DecoratedBox(
       decoration: BoxDecoration(
-        gradient: faceTileGradient(hue ?? hueForId(face.clusterId)),
+        gradient: faceTileGradient(widget.hue ?? hueForId(widget.face.clusterId)),
       ),
     );
 
     Widget child = fallback;
     if (backend != null && path != null && dims != null) {
       final crop = faceCropRect(
-        boxX: face.boxX,
-        boxY: face.boxY,
-        boxW: face.boxW,
-        boxH: face.boxH,
+        boxX: widget.face.boxX,
+        boxY: widget.face.boxY,
+        boxW: widget.face.boxW,
+        boxH: widget.face.boxH,
         imgW: dims.width,
         imgH: dims.height,
       );
@@ -86,7 +103,7 @@ class FaceThumb extends StatelessWidget {
         child = NativeAssetTexture(
           engine: backend.engine,
           events: backend.events,
-          assetId: face.assetId,
+          assetId: widget.face.assetId,
           path: path,
           crop: crop,
           fallback: fallback,
@@ -94,10 +111,38 @@ class FaceThumb extends StatelessWidget {
       }
     }
 
+    final labelled = widget.showHoverLabel && widget.size >= _kMinLabelSize;
+
     return SizedBox(
-      width: size,
-      height: size,
-      child: ClipRRect(borderRadius: radius, child: child),
+      width: widget.size,
+      height: widget.size,
+      child: ClipRRect(
+        borderRadius: radius,
+        child: !labelled
+            ? child
+            : MouseRegion(
+                onEnter: (_) => setState(() => _hover = true),
+                onExit: (_) => setState(() => _hover = false),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    child,
+                    // Always built (so the field keeps focus across hover
+                    // changes); it shows itself only while hovered/focused.
+                    Positioned(
+                      left: 3,
+                      right: 3,
+                      bottom: 3,
+                      child: FaceNameOverlay(
+                        face: widget.face,
+                        controller: controller,
+                        hovered: _hover,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
     );
   }
 }

@@ -151,7 +151,9 @@ FramePtr frame_from_base(VipsImage* base, int dim) {
 int stage_target_dim(uint32_t stage, uint32_t target_w, uint32_t target_h) {
     switch (stage) {
         case PHOTO_STAGE_PLACEHOLDER32: return 64;
-        case PHOTO_STAGE_THUMB256:      return 256;
+        // 512px (long edge) so the gallery stays sharp up to the 400px zoom max
+        // (and decent on HiDPI). Decoded once, downscaled for smaller zooms.
+        case PHOTO_STAGE_THUMB256:      return 512;
         case PHOTO_STAGE_FULL: {
             uint32_t m = std::max(target_w, target_h);
             if (m < 256) m = 256;

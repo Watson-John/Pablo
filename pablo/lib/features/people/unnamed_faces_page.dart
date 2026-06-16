@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:photo_native/photo_native.dart';
 
+import '../../app/app_scope.dart';
 import '../../components/autocomplete_input.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import 'face_naming.dart';
 import 'face_palette.dart';
 import 'face_thumb.dart';
 import 'people_controller.dart';
@@ -32,10 +35,9 @@ class _UnnamedFacesPageState extends State<UnnamedFacesPage> {
   final Set<String> _selectedSolos = {};
   final TextEditingController _bulkCtl = TextEditingController();
 
-  late final List<UnnamedFace> _solos = List.generate(22, (i) {
-    final hue = (i * 37 + 180) % 360;
-    return UnnamedFace(id: 'solo-$i', hue: hue, count: 1);
-  });
+  // Unclustered (solo) faces would come from the pipeline; there is no
+  // separate solo read-back yet, so this stays empty rather than synthesized.
+  final List<UnnamedFace> _solos = const [];
 
   @override
   void dispose() {
@@ -43,17 +45,23 @@ class _UnnamedFacesPageState extends State<UnnamedFacesPage> {
     super.dispose();
   }
 
-  void _assign(String id, String name) {
+  Future<void> _assign(String id, String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
+    final pc = PeopleScope.read(context);
+    // Existing person → assign immediately; a brand-new name confirms first.
+    if (!isExistingPerson(pc, trimmed) &&
+        !await confirmNewPerson(context, trimmed)) {
+      return;
+    }
     // Live: promote the cluster into a named person (confirm-all + merge). The
     // clusterUpdated re-query drops it from listClusters; the overlay below
     // shows it as "assigned" until then.
-    final pc = PeopleScope.read(context);
     if (pc.isLive) {
       final clusterId = PeopleController.nativeClusterId(id);
       if (clusterId != null) pc.assignCluster(clusterId, trimmed);
     }
+    if (!mounted) return;
     setState(() {
       _names[id] = trimmed;
       _assigned.add(id);
@@ -460,6 +468,17 @@ class _GroupCardState extends State<_GroupCard> {
     super.dispose();
   }
 
+  /// Open the source photo this face was cropped from in the lightbox. The
+  /// ingestion run registered each scanned asset's path, so we resolve the
+  /// cover face's assetId → path → Photo and hand it to the lightbox.
+  void _openFullImage() {
+    final cover = widget.cover;
+    if (cover == null) return;
+    final path = PeopleScope.read(context).assetPath(cover.assetId);
+    if (path == null || photoById(path) == null) return;
+    AppScope.of(context).openLightbox(path);
+  }
+
   @override
   Widget build(BuildContext context) {
     final tile = faceTileGradient(widget.face.hue);
@@ -479,6 +498,9 @@ class _GroupCardState extends State<_GroupCard> {
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
+          // Hug the content (image + name field) instead of stretching to the
+          // fixed grid-cell height, which left a gap under the name field.
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             AspectRatio(
@@ -487,11 +509,20 @@ class _GroupCardState extends State<_GroupCard> {
                 children: [
                   if (widget.cover != null)
                     Positioned.fill(
-                      child: FaceThumb(
-                        face: widget.cover!,
-                        size: 110,
-                        borderRadius: BorderRadius.zero,
-                        hue: widget.face.hue,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: _openFullImage,
+                          child: FaceThumb(
+                            face: widget.cover!,
+                            size: 110,
+                            borderRadius: BorderRadius.zero,
+                            hue: widget.face.hue,
+                            // The card already has an inline name field + click
+                            // to open, so don't stack a hover "Name…" on top.
+                            showHoverLabel: false,
+                          ),
+                        ),
                       ),
                     )
                   else ...[
@@ -557,11 +588,21 @@ class _GroupCardState extends State<_GroupCard> {
               ),
             ),
             if (!widget.done)
-              Padding(
-                padding: const EdgeInsets.all(2),
+              // Borderless field connected to the image with a single divider,
+              // so the card has one outer outline instead of nested boxes.
+              DecoratedBox(
+                decoration: const BoxDecoration(
+                  border: Border(
+                    top: BorderSide(color: PabloColors.borderSubtle),
+                  ),
+                ),
                 child: AutocompleteInput(
                   controller: _ctl,
                   placeholder: 'Name…',
+                  bordered: false,
+                  suggestions: [
+                    for (final p in PeopleScope.read(context).people()) p.name
+                  ],
                   onSubmit: (v) => widget.onAssign(v),
                 ),
               ),

@@ -1,14 +1,14 @@
-// Verifies the People seam preserves the default (mock) app's data: with the
-// MockFaceRepository, PeopleController must surface the same kPeople /
-// kUnnamedFaces rows and the legacy sidebar count, and report itself offline.
+// With the mock library stripped, the offline PeopleController surfaces no
+// people or faces (the live native pipeline is the only source). This verifies
+// the offline repo is empty + offline, and that the native-id parsing helpers
+// still behave.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pablo/data/mock/mock_data.dart';
 import 'package:pablo/data/sources/face_repository.dart';
 import 'package:pablo/features/people/people_controller.dart';
 
 void main() {
-  group('PeopleController (mock mode)', () {
+  group('PeopleController (offline mode)', () {
     late PeopleController controller;
 
     setUp(() => controller = PeopleController(const MockFaceRepository()));
@@ -18,19 +18,11 @@ void main() {
       expect(controller.isLive, isFalse);
     });
 
-    test('surfaces the mock people and unnamed rows unchanged', () {
-      expect(controller.people(), same(kPeople));
-      expect(controller.unnamedFaces(), same(kUnnamedFaces));
-    });
-
-    test('sidebar Unnamed Faces count is the legacy mockup figure', () {
-      expect(controller.unnamedFaceCount(), kMockUnnamedCount);
-    });
-
-    test('peopleTotal sums person counts plus the unnamed figure', () {
-      final expected =
-          kPeople.fold<int>(0, (s, p) => s + p.count) + kMockUnnamedCount;
-      expect(controller.peopleTotal(), expected);
+    test('surfaces no people or faces without a live backend', () {
+      expect(controller.people(), isEmpty);
+      expect(controller.unnamedFaces(), isEmpty);
+      expect(controller.unnamedFaceCount(), 0);
+      expect(controller.peopleTotal(), 0);
     });
 
     test('live-only face queries are empty and mutations are no-ops', () {
@@ -47,7 +39,7 @@ void main() {
       // Happy path.
       expect(PeopleController.nativePersonId('np42'), 42);
       expect(PeopleController.nativeClusterId('nc7'), 7);
-      // Mock ids (no np/nc prefix) → null.
+      // Non-prefixed ids → null.
       expect(PeopleController.nativePersonId('p1'), isNull);
       expect(PeopleController.nativeClusterId('uf-3'), isNull);
       // Right prefix, non-numeric / empty suffix → null (not 0 or a throw).

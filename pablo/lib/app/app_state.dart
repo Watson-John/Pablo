@@ -87,10 +87,10 @@ class AdvSearchCriteria {
 class PabloAppState extends ChangeNotifier {
   // Layout
   double sidebarWidth = 260;
-  double trayHeight = 100;
 
-  // Navigation
-  String selectedItem = 'fc24';
+  // Navigation. The real default folder is selected at startup (PabloApp) once
+  // the library is scanned.
+  String selectedItem = '';
   NavSection activeSection = NavSection.folders;
   String folderSort = FolderSort.tree;
 
@@ -106,8 +106,9 @@ class PabloAppState extends ChangeNotifier {
   String searchText = '';
   AdvSearchCriteria? advCriteria;
 
-  // View
-  double thumbSize = 130;
+  // View. Zoom range 60–512 px (512 matches the native thumbnail decode size);
+  // 200 is the default.
+  double thumbSize = 200;
   String gridMode = GridMode.grid;
 
   /// One of `'people' | 'tags' | 'info'` or null to hide the right info panel.
@@ -139,11 +140,6 @@ class PabloAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setTrayHeight(double h) {
-    trayHeight = h.clamp(52, 160);
-    notifyListeners();
-  }
-
   void setSearchText(String q) {
     searchText = q;
     notifyListeners();
@@ -155,7 +151,7 @@ class PabloAppState extends ChangeNotifier {
   }
 
   void setThumbSize(double s) {
-    thumbSize = s.clamp(60, 260);
+    thumbSize = s.clamp(60, 512);
     notifyListeners();
   }
 

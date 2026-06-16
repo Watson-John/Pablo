@@ -3,20 +3,36 @@
 
 import 'package:flutter/material.dart';
 
-import '../data/mock/mock_data.dart';
 import '../theme/tokens.dart';
 
 class AutocompleteInput extends StatefulWidget {
   const AutocompleteInput({
     required this.controller,
     this.placeholder = 'Type a name…',
+    this.suggestions = const [],
     this.onSubmit,
+    this.focusNode,
+    this.autofocus = false,
+    this.bordered = true,
     super.key,
   });
 
   final TextEditingController controller;
   final String placeholder;
+
+  /// Names offered in the dropdown (e.g. existing people). Empty → no dropdown.
+  final List<String> suggestions;
   final ValueChanged<String>? onSubmit;
+
+  /// Optional external focus node — lets the host observe focus (e.g. to keep a
+  /// hover overlay open while the field is focused). When null, one is owned.
+  final FocusNode? focusNode;
+  final bool autofocus;
+
+  /// When false, the field draws no border/rounded box of its own — for hosts
+  /// (like the Unnamed Faces card) that already supply the surrounding chrome,
+  /// so there aren't two nested outlines.
+  final bool bordered;
 
   @override
   State<AutocompleteInput> createState() => _AutocompleteInputState();
@@ -25,19 +41,22 @@ class AutocompleteInput extends StatefulWidget {
 class _AutocompleteInputState extends State<AutocompleteInput> {
   final LayerLink _link = LayerLink();
   OverlayEntry? _overlay;
-  final FocusNode _focus = FocusNode();
+  late final FocusNode _focus = widget.focusNode ?? FocusNode();
+  bool get _ownsFocus => widget.focusNode == null;
 
   @override
   void initState() {
     super.initState();
-    _focus.addListener(() {
-      if (_focus.hasFocus) {
-        _show();
-      } else {
-        Future.delayed(const Duration(milliseconds: 150), _hide);
-      }
-    });
+    _focus.addListener(_onFocusChange);
     widget.controller.addListener(_refreshOverlay);
+  }
+
+  void _onFocusChange() {
+    if (_focus.hasFocus) {
+      _show();
+    } else {
+      Future.delayed(const Duration(milliseconds: 150), _hide);
+    }
   }
 
   void _refreshOverlay() {
@@ -49,8 +68,9 @@ class _AutocompleteInputState extends State<AutocompleteInput> {
   @override
   void dispose() {
     _hide();
+    _focus.removeListener(_onFocusChange);
     widget.controller.removeListener(_refreshOverlay);
-    _focus.dispose();
+    if (_ownsFocus) _focus.dispose();
     super.dispose();
   }
 
@@ -106,12 +126,11 @@ class _AutocompleteInputState extends State<AutocompleteInput> {
   }
 
   List<String> _matches(String value) {
-    if (value.trim().isEmpty) return kPeople.take(5).map((p) => p.name).toList();
+    final pool = widget.suggestions;
+    if (pool.isEmpty) return const [];
+    if (value.trim().isEmpty) return pool.take(5).toList();
     final q = value.toLowerCase();
-    return kPeople
-        .map((p) => p.name)
-        .where((n) => n.toLowerCase().contains(q))
-        .toList();
+    return pool.where((n) => n.toLowerCase().contains(q)).toList();
   }
 
   @override
@@ -119,18 +138,21 @@ class _AutocompleteInputState extends State<AutocompleteInput> {
     return CompositedTransformTarget(
       link: _link,
       child: Container(
-        decoration: BoxDecoration(
-          color: PabloColors.backgroundSurface,
-          border: Border.all(color: PabloColors.borderSubtle),
-          borderRadius: PabloRadius.mdAll,
-        ),
+        decoration: widget.bordered
+            ? BoxDecoration(
+                color: PabloColors.backgroundSurface,
+                border: Border.all(color: PabloColors.borderSubtle),
+                borderRadius: PabloRadius.mdAll,
+              )
+            : const BoxDecoration(color: PabloColors.backgroundSurface),
         padding: const EdgeInsets.symmetric(
-          horizontal: PabloSpacing.base,
-          vertical: PabloSpacing.sm + 1,
+          horizontal: PabloSpacing.lg,
+          vertical: PabloSpacing.base,
         ),
         child: TextField(
           controller: widget.controller,
           focusNode: _focus,
+          autofocus: widget.autofocus,
           cursorColor: PabloColors.accentPrimary,
           style: PabloTypography.sans(fontSize: 12),
           onSubmitted: (v) {

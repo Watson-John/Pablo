@@ -1,16 +1,14 @@
 // MainGrid — dispatches by activeSection.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../app/app_scope.dart';
-import '../../data/mock/mock_data.dart';
+import '../../components/pablo_icon.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
-import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 import '../map/map_page.dart';
 import '../people/people_scroll_view.dart';
-import 'photo_thumb.dart';
 import 'section_scroll_view.dart';
 import '../people/unnamed_faces_page.dart';
 
@@ -23,47 +21,46 @@ class MainGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
     final section = st.activeSection;
+    final lib = Library.instance;
     if (section == NavSection.folders) {
-      final all = <FolderNode>[];
-      void collect(List<FolderNode> list) {
-        for (final f in list) {
-          if (f.children.isNotEmpty) {
-            collect(f.children);
-          } else {
-            all.add(f);
-          }
-        }
+      if (lib.folderSections.isEmpty) {
+        return _EmptyView(
+          icon: PabloIconName.folder,
+          message: libraryScanning
+              ? 'Scanning your library…'
+              : 'No photos found in the imported library.\nPoint Pablo at a folder with --dart-define=PABLO_LIBRARY_DIR=…',
+        );
       }
-      collect(kFolders);
       return SectionScrollView(
         sections: [
-          for (final f in all)
+          for (final f in lib.folderSections)
             GallerySectionData(
               id: f.id,
               title: f.name,
-              subtitle: f.path.isNotEmpty ? f.path : f.date,
+              subtitle: f.path,
             ),
         ],
         onPhotoSecondary: onPhotoSecondary,
       );
     }
     if (section == NavSection.albums) {
-      return SectionScrollView(
-        sections: [
-          for (final a in kAlbums)
-            GallerySectionData(
-              id: a.id,
-              title: a.name,
-              subtitle: 'Created ${a.created}',
-            ),
-        ],
-        onPhotoSecondary: onPhotoSecondary,
+      // Albums aren't a feature yet — nothing in the imported library is an
+      // album, so this is an honest empty state rather than fabricated data.
+      return const _EmptyView(
+        icon: PabloIconName.albums,
+        message: 'No albums yet.\nAlbums let you group photos by hand — coming soon.',
       );
     }
     if (section == NavSection.timeline) {
+      if (lib.timelineMonths.isEmpty) {
+        return const _EmptyView(
+          icon: PabloIconName.calendar,
+          message: 'No dated photos in the library.',
+        );
+      }
       return SectionScrollView(
         sections: [
-          for (final t in kTimelineMonths)
+          for (final t in lib.timelineMonths)
             GallerySectionData(
               id: t.id,
               title: t.label,
@@ -83,36 +80,43 @@ class MainGrid extends StatelessWidget {
       return const MapPage();
     }
 
-    // Fallback: single-section grid.
-    final photos = photosFor(st.selectedItem);
+    // Fallback: the currently selected section as a single scroll view.
+    return SectionScrollView(
+      sections: [
+        GallerySectionData(id: st.selectedItem, title: 'Photos'),
+      ],
+      onPhotoSecondary: onPhotoSecondary,
+    );
+  }
+}
+
+class _EmptyView extends StatelessWidget {
+  const _EmptyView({required this.icon, required this.message});
+  final PabloIconName icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       color: PabloColors.backgroundSurface,
-      child: ListView(
-        padding: const EdgeInsets.all(PabloSpacing.xl),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(PabloSpacing.xxxxl),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Wrap(
-            spacing: PabloSpacing.base,
-            runSpacing: PabloSpacing.base,
-            children: photos.map((p) {
-              return PhotoThumb(
-                photo: p,
-                size: st.thumbSize,
-                selected: st.selectedPhotos.contains(p.id),
-                inTray: st.trayPhotos.contains(p.id),
-                onTap: (e) {
-                  st.selectPhoto(
-                    p.id,
-                    ctrl: HardwareKeyboard.instance.isControlPressed ||
-                        HardwareKeyboard.instance.isMetaPressed,
-                    shift: HardwareKeyboard.instance.isShiftPressed,
-                    contextPhotoIds: photos.map((x) => x.id).toList(),
-                  );
-                },
-                onDoubleTap: () => st.openLightbox(p.id),
-                onAddToTray: () => st.addToTray(p.id),
-                onSecondaryTap: (pos) => onPhotoSecondary?.call(pos, p.id),
-              );
-            }).toList(),
+          Opacity(
+            opacity: 0.35,
+            child: PabloIcon(icon, size: 40, color: PabloColors.textMuted),
+          ),
+          const SizedBox(height: PabloSpacing.xl),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: PabloTypography.sans(
+              fontSize: 13,
+              color: PabloColors.textMuted,
+              height: 1.6,
+            ),
           ),
         ],
       ),

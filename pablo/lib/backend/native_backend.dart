@@ -4,11 +4,9 @@
 // native_backend.dart — bootstraps the photo_native engine and exposes it to
 // the widget tree.
 //
-// Gated by [kUseNativeTextureThumbs]: when false (default), the rest of the
-// app behaves exactly as the M0 mockup and the engine is not initialized.
-// When true, the photo thumbnail routes its pixels through a TextureSlot
-// backed by photo_core. Bootstrap failures fall back to the gradient
-// mockup — degraded but not broken.
+// Gated by [BootConfig.nativeThumbs] (on by default): the photo thumbnail
+// routes its pixels through a TextureSlot backed by photo_core. Bootstrap
+// failures fall back to a neutral loading surface — degraded but not broken.
 
 import 'dart:async';
 import 'dart:io' show Directory, Platform;
@@ -16,19 +14,8 @@ import 'dart:io' show Directory, Platform;
 import 'package:flutter/widgets.dart';
 import 'package:photo_native/photo_native.dart';
 
+import '../data/boot.dart';
 import '../data/sources/face_repository.dart';
-
-const bool kUseNativeTextureThumbs = bool.fromEnvironment(
-  'PABLO_NATIVE_THUMBS',
-  defaultValue: false,
-);
-
-/// Directory holding the face ONNX models (scrfd_10g.onnx, auraface.onnx).
-/// Empty (the default) leaves modelsPath null → face scans report unavailable.
-const String kModelsDir = String.fromEnvironment(
-  'PABLO_MODELS_DIR',
-  defaultValue: '',
-);
 
 class NativeBackend {
   NativeBackend._(this.engine, this._pump, this.faces);
@@ -45,8 +32,9 @@ class NativeBackend {
   /// real dimensions so they can cover-fit the texture without distortion.
   Stream<PhotoEvent> get events => _pump.stream;
 
-  static Future<NativeBackend?> initialize() async {
-    if (!kUseNativeTextureThumbs) return null;
+  static Future<NativeBackend?> initialize(BootConfig config) async {
+    if (!config.nativeThumbs) return null;
+    final modelsDir = config.modelsDir;
 
     try {
       final tmp = '${Directory.systemTemp.path}/pablo_native_backend';
@@ -57,7 +45,10 @@ class NativeBackend {
         EngineConfig(
           catalogPath: '$tmp/catalog.db',
           cachePath: '$tmp/cache',
-          modelsPath: kModelsDir.isEmpty ? null : kModelsDir,
+          modelsPath: modelsDir.isEmpty ? null : modelsDir,
+          // 512px thumbnails are 4× the pixels of the old 256px; give the LRU
+          // more room so scrolling a large library doesn't thrash the cache.
+          memoryBudgetBytes: 512 * 1024 * 1024,
         ),
       );
       if (engine == null) {
@@ -72,7 +63,7 @@ class NativeBackend {
       debugPrint(
         '[pablo] native backend engine=${Engine.engineVersion} '
         'abi=${Engine.abiVersion} platform=${Platform.operatingSystem} '
-        'models=${kModelsDir.isEmpty ? "(none)" : kModelsDir}',
+        'models=${modelsDir.isEmpty ? "(none)" : modelsDir}',
       );
       return NativeBackend._(engine, pump, faces);
     } catch (e, st) {

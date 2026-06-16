@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../gallery/photo_surface.dart';
 
 class LocationPhotoGrid extends StatefulWidget {
   const LocationPhotoGrid({required this.photos, this.thumbSize = 112, super.key});
@@ -39,12 +40,13 @@ class _LocationPhotoGridState extends State<LocationPhotoGrid> {
                   ? (Matrix4.identity()..scaleByDouble(1.03, 1.03, 1.0, 1.0))
                   : Matrix4.identity(),
               decoration: BoxDecoration(
-                gradient: p.gradient,
                 borderRadius: PabloRadius.mdAll,
                 boxShadow: hov ? PabloShadows.md : PabloShadows.sm,
               ),
+              clipBehavior: Clip.antiAlias,
               child: Stack(
                 children: [
+                  Positioned.fill(child: PhotoSurface(photo: p)),
                   if (p.starred)
                     const Positioned(
                       top: 4,

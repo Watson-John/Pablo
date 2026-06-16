@@ -5,12 +5,18 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../data/mock/mock_data.dart';
+import '../../data/constants.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 
 class USAHeatMap extends StatelessWidget {
-  const USAHeatMap({required this.selectedId, required this.onSelect, super.key});
+  const USAHeatMap({
+    required this.locations,
+    required this.selectedId,
+    required this.onSelect,
+    super.key,
+  });
+  final List<MapLocation> locations;
   final String? selectedId;
   final ValueChanged<String> onSelect;
 
@@ -28,7 +34,7 @@ class USAHeatMap extends StatelessWidget {
           // Hit-test the closest location within 20 units.
           MapLocation? hit;
           double best = 20;
-          for (final loc in kMapLocations) {
+          for (final loc in locations) {
             final r = math.sqrt(loc.count.toDouble()) * 2.8;
             final dist =
                 math.sqrt(math.pow(dx - loc.cx, 2) + math.pow(dy - loc.cy, 2));
@@ -41,7 +47,7 @@ class USAHeatMap extends StatelessWidget {
         },
         child: CustomPaint(
           size: Size.infinite,
-          painter: _USAHeatMapPainter(selectedId: selectedId),
+          painter: _USAHeatMapPainter(locations: locations, selectedId: selectedId),
         ),
       );
     });
@@ -49,7 +55,8 @@ class USAHeatMap extends StatelessWidget {
 }
 
 class _USAHeatMapPainter extends CustomPainter {
-  _USAHeatMapPainter({this.selectedId});
+  _USAHeatMapPainter({required this.locations, this.selectedId});
+  final List<MapLocation> locations;
   final String? selectedId;
 
   Path _usaPath() {
@@ -127,11 +134,15 @@ class _USAHeatMapPainter extends CustomPainter {
     canvas.drawPath(path, landStroke);
 
     // Heat circles
-    final maxCount = kMapLocations
+    if (locations.isEmpty) {
+      canvas.restore();
+      return;
+    }
+    final maxCount = locations
         .map((l) => l.count)
         .reduce((a, b) => a > b ? a : b)
         .toDouble();
-    for (final loc in kMapLocations) {
+    for (final loc in locations) {
       final isSelected = selectedId == loc.id;
       final r = math.sqrt(loc.count.toDouble()) * 2.8;
       final intensity = loc.count / maxCount;
@@ -205,5 +216,5 @@ class _USAHeatMapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _USAHeatMapPainter old) =>
-      old.selectedId != selectedId;
+      old.selectedId != selectedId || old.locations != locations;
 }
