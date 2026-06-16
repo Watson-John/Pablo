@@ -116,6 +116,10 @@ class PabloAppState extends ChangeNotifier {
   // Lightbox
   String? lightboxPhotoId;
 
+  // Find Duplicates workflow (full-screen flow; its stage/cluster/selection
+  // state stays local to the FindDuplicatesFlow widget).
+  bool dedupOpen = false;
+
   // Tasks (background activity)
   final List<TaskInfo> tasks = [
     TaskInfo(id: 'scan', name: 'Scanning faces', percent: 21),
@@ -229,6 +233,16 @@ class PabloAppState extends ChangeNotifier {
       }
       activePhotoId = id;
     }
+    notifyListeners();
+  }
+
+  void openFindDuplicates() {
+    dedupOpen = true;
+    notifyListeners();
+  }
+
+  void closeFindDuplicates() {
+    dedupOpen = false;
     notifyListeners();
   }
 

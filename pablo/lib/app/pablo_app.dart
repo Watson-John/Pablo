@@ -12,6 +12,7 @@ import '../data/mock/photo_factory.dart';
 import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/photo_edit_panel.dart';
+import '../features/find_duplicates/find_duplicates_flow.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/info_panel/info_panel.dart';
@@ -114,8 +115,8 @@ class _Home extends StatelessWidget {
       backgroundColor: PabloColors.backgroundShell,
       body: WindowShell(
         statusPhotoCount: photos.length,
-        statusSection: _sectionLabel(st),
-        body: _Body(),
+        statusSection: st.dedupOpen ? 'Find Duplicates' : _sectionLabel(st),
+        body: st.dedupOpen ? const FindDuplicatesFlow() : _Body(),
       ),
     );
   }
