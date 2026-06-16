@@ -89,8 +89,7 @@ class PeopleScrollView extends StatelessWidget {
     final personId = PeopleController.nativePersonId(person.id) ?? -1;
     final faces = pc.confirmedFacesForPerson(personId);
     final suggs = pc.suggestionsForPerson(personId);
-    final lowConf =
-        suggs.where((f) => pc.tierOf(f) == FaceTier.low).length;
+    final lowConf = suggs.where((f) => pc.tierOf(f) == FaceTier.low).length;
     final isSelected = st.selectedItem == person.id;
     final tile = st.thumbSize * 0.82;
     // Each FaceThumb allocates a native texture slot, so cap how many we
@@ -140,8 +139,10 @@ class PeopleScrollView extends StatelessWidget {
             tile: tile,
             suggestions: shownSuggs,
             hue: person.hue,
-            onAccept: (f) => pc.approve(clusterId: f.clusterId, faceId: f.faceId),
-            onReject: (f) => pc.reject(clusterId: f.clusterId, faceId: f.faceId),
+            onAccept: (f) =>
+                pc.approve(clusterId: f.clusterId, faceId: f.faceId),
+            onReject: (f) =>
+                pc.reject(clusterId: f.clusterId, faceId: f.faceId),
             onAcceptAll: () {
               for (final f in suggs) {
                 pc.approve(clusterId: f.clusterId, faceId: f.faceId);

@@ -55,7 +55,8 @@ class _PabloTextFieldState extends State<PabloTextField> {
         decoration: BoxDecoration(
           color: widget.background,
           border: Border.all(
-            color: _focused ? PabloColors.accentPrimary : PabloColors.borderSubtle,
+            color:
+                _focused ? PabloColors.accentPrimary : PabloColors.borderSubtle,
           ),
           borderRadius: PabloRadius.mdAll,
         ),

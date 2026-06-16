@@ -35,17 +35,46 @@ final ValueNotifier<int> libraryRevision = ValueNotifier<int>(0);
 /// True while the initial background scan is still in flight.
 bool libraryScanning = false;
 
-const Set<String> _kImageExts = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'};
+const Set<String> _kImageExts = {
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.bmp'
+};
 
 const List<String> _kMonthNames = [
-  '', 'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  '',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 // Stable per-photo aspect fallback (width / height) for the masonry layout,
 // used until real header dimensions are read. Derived from the id hash so a
 // tile keeps the same shape across rebuilds.
-const List<double> _kAspects = [0.66, 0.75, 0.8, 1.0, 1.0, 1.33, 1.5, 0.7, 1.78, 1.0];
+const List<double> _kAspects = [
+  0.66,
+  0.75,
+  0.8,
+  1.0,
+  1.0,
+  1.33,
+  1.5,
+  0.7,
+  1.78,
+  1.0
+];
 
 class Library {
   Library({
@@ -323,8 +352,7 @@ void _linkAncestors(Map<String, _DirAcc> dirs, String root, String dirPath) {
 List<FolderNode> _buildFolderTree(Map<String, _DirAcc> dirs, String root) {
   FolderNode build(String path) {
     final acc = dirs[path];
-    final childPaths = (acc?.childDirs.toList() ?? <String>[])
-      ..sort();
+    final childPaths = (acc?.childDirs.toList() ?? <String>[])..sort();
     final children = [for (final c in childPaths) build(c)];
     final name = path == root
         ? (path.split(Platform.pathSeparator).last)
@@ -343,7 +371,8 @@ List<FolderNode> _buildFolderTree(Map<String, _DirAcc> dirs, String root) {
 
 String _breadcrumb(String root, String path) {
   if (path == root) return path.split(Platform.pathSeparator).last;
-  final rel = path.length > root.length ? path.substring(root.length + 1) : path;
+  final rel =
+      path.length > root.length ? path.substring(root.length + 1) : path;
   final rootName = root.split(Platform.pathSeparator).last;
   return '$rootName / ${rel.replaceAll(Platform.pathSeparator, ' / ')}';
 }
@@ -421,12 +450,22 @@ String _formatOf(String path) {
 }
 
 const List<String> _kMonAbbr = [
-  '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  '',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
-String _dateLabel(DateTime d) =>
-    '${_kMonAbbr[d.month]} ${d.day}, ${d.year}';
+String _dateLabel(DateTime d) => '${_kMonAbbr[d.month]} ${d.day}, ${d.year}';
 
 String _timeLabel(DateTime d) =>
     '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';

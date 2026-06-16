@@ -38,7 +38,9 @@ class _PersonRowState extends State<PersonRow> {
         : _hover
             ? PabloColors.backgroundSidebarHover
             : Colors.transparent;
-    final label = widget.narrow ? widget.person.name.split(' ').first : widget.person.name;
+    final label = widget.narrow
+        ? widget.person.name.split(' ').first
+        : widget.person.name;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),

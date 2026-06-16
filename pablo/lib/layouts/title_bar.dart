@@ -24,7 +24,8 @@ class TitleBar extends StatelessWidget {
         children: [
           _trafficLight(PabloColors.titleRed, PabloColors.titleRedOutline),
           const SizedBox(width: PabloSpacing.md + 1),
-          _trafficLight(PabloColors.titleYellow, PabloColors.titleYellowOutline),
+          _trafficLight(
+              PabloColors.titleYellow, PabloColors.titleYellowOutline),
           const SizedBox(width: PabloSpacing.md + 1),
           _trafficLight(PabloColors.titleGreen, PabloColors.titleGreenOutline),
           Expanded(

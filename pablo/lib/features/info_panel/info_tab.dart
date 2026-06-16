@@ -213,8 +213,8 @@ class _ManageCardState extends State<_ManageCard> {
                 ),
               ),
               const Text('→',
-                  style:
-                      TextStyle(color: PabloColors.accentPrimary, fontSize: 13)),
+                  style: TextStyle(
+                      color: PabloColors.accentPrimary, fontSize: 13)),
             ],
           ),
         ),

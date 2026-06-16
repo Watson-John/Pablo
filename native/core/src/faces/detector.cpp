@@ -63,6 +63,14 @@ struct Detector::Impl {
 
     Impl(const std::string& model, float st, float nt) : score_thr(st), nms_thr(nt) {
         opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+        // One core per inference. Each scan runs on a single job-system worker;
+        // bounding ONNX to one intra-op thread means N concurrent scans occupy
+        // exactly N cores, so the worker pool cleanly reserves the rest for
+        // interactive thumbnail decodes (rather than one scan saturating every
+        // core via ONNX's default all-cores threading).
+        opts.SetIntraOpNumThreads(1);
+        opts.SetInterOpNumThreads(1);
+        opts.SetExecutionMode(ExecutionMode::ORT_SEQUENTIAL);
 #ifdef _WIN32
         std::wstring w = widen(model);
         session = Ort::Session(env, w.c_str(), opts);

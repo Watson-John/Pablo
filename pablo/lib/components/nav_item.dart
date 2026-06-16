@@ -47,9 +47,8 @@ class _NavItemState extends State<NavItem> {
         : _hover
             ? PabloColors.backgroundSidebarHover
             : Colors.transparent;
-    final iconColor = widget.active
-        ? PabloColors.selectionPrimary
-        : PabloColors.textMuted;
+    final iconColor =
+        widget.active ? PabloColors.accentActive : PabloColors.textMuted;
     final textWeight = widget.active ? FontWeight.w600 : FontWeight.w500;
 
     final leading = widget.leading ??

@@ -90,24 +90,34 @@ final class EventPump {
   void _drain() {
     final buf = _buffer;
     if (buf == null) return;
-    final n = _engine.pollEvents(buf, _batchSize);
-    for (var i = 0; i < n; i++) {
-      final e = buf[i];
-      _controller.add(
-        PhotoEvent(
-          kind: e.kind,
-          stage: e.stage,
-          status: e.status,
-          width: e.width,
-          height: e.height,
-          requestId: e.request_id,
-          assetId: e.asset_id,
-          slotId: e.slot_id,
-          generation: e.generation,
-          aux64: e.aux64,
-          aux64B: e.aux64_b,
-        ),
-      );
-    }
+    // Drain the ENTIRE ring each tick. The native event ring is bounded and
+    // drops events when full; polling a single batch let the backlog grow during
+    // scroll bursts until it overflowed, silently losing STAGE_READY upgrades —
+    // so thumbnails stayed stuck on the low-res placeholder and never sharpened.
+    // Looping until a short read empties the ring every tick. Each event comes
+    // from a multi-ms decode, so producers can't refill a full batch between our
+    // back-to-back polls; the loop always terminates promptly.
+    int n;
+    do {
+      n = _engine.pollEvents(buf, _batchSize);
+      for (var i = 0; i < n; i++) {
+        final e = buf[i];
+        _controller.add(
+          PhotoEvent(
+            kind: e.kind,
+            stage: e.stage,
+            status: e.status,
+            width: e.width,
+            height: e.height,
+            requestId: e.request_id,
+            assetId: e.asset_id,
+            slotId: e.slot_id,
+            generation: e.generation,
+            aux64: e.aux64,
+            aux64B: e.aux64_b,
+          ),
+        );
+      }
+    } while (n == _batchSize);
   }
 }

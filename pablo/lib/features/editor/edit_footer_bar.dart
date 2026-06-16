@@ -30,7 +30,7 @@ class EditFooterBar extends StatelessWidget {
         border: Border(top: BorderSide(color: PabloColors.borderStrong)),
       ),
       padding: const EdgeInsets.fromLTRB(
-        PabloSpacing.xl, PabloSpacing.lg, PabloSpacing.xl, PabloSpacing.xl),
+          PabloSpacing.xl, PabloSpacing.lg, PabloSpacing.xl, PabloSpacing.xl),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -91,7 +91,7 @@ class _SaveSplit extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const PabloIcon(PabloIconName.save,
+                  const PabloIcon(PabloIconName.saveFill,
                       size: 13, color: PabloColors.textOnAccent),
                   const SizedBox(width: 7),
                   Flexible(
@@ -117,8 +117,8 @@ class _SaveSplit extends StatelessWidget {
             color: PabloColors.backgroundSurface,
             onSelected: (v) => v == 'copy' ? onSaveCopy() : onSave(),
             itemBuilder: (_) => [
-              _menuItem('save', PabloIconName.save, 'Save Edits'),
-              _menuItem('copy', PabloIconName.check, 'Save as Copy'),
+              _menuItem('save', PabloIconName.saveFill, 'Save Edits'),
+              _menuItem('copy', PabloIconName.copy, 'Save as Copy'),
             ],
             child: Container(
               width: 26,
@@ -168,11 +168,10 @@ class _GreenHalfState extends State<_GreenHalf> {
         onTap: widget.onTap,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: PabloDurations.instant,
+          duration: PabloDurations.control,
           height: 26,
-          color: _hover
-              ? PabloColors.assignGreenHover
-              : PabloColors.assignGreen,
+          color:
+              _hover ? PabloColors.assignGreenHover : PabloColors.assignGreen,
           alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.lg),
           child: widget.child,
@@ -194,20 +193,18 @@ class _ResetButtonState extends State<_ResetButton> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
-    final fg = widget.enabled
-        ? PabloColors.textSecondary
-        : PabloColors.textMuted;
+    final fg =
+        widget.enabled ? PabloColors.textSecondary : PabloColors.textMuted;
     return MouseRegion(
-      cursor: widget.enabled
-          ? SystemMouseCursors.click
-          : SystemMouseCursors.basic,
+      cursor:
+          widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         onTap: widget.enabled ? widget.onTap : null,
         behavior: HitTestBehavior.opaque,
         child: AnimatedContainer(
-          duration: PabloDurations.instant,
+          duration: PabloDurations.control,
           height: 26,
           padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.xl),
           alignment: Alignment.center,

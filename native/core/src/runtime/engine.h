@@ -66,7 +66,10 @@ private:
     std::unique_ptr<ThumbCache> cache_;
 
     SlotStore                 slots_;
-    EventRing                 events_{1024};
+    // Sized for scroll bursts: dozens of visible tiles each emit several
+    // stage-ready events, plus face-scan progress. A small ring overflowed and
+    // dropped stage upgrades, leaving thumbnails stuck on the placeholder.
+    EventRing                 events_{16384};
     JobSystem                 jobs_;
     ThumbService              thumbs_;
 #ifdef PHOTO_HAVE_FACES

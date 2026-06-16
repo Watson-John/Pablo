@@ -37,8 +37,10 @@ class _ManageDetailsState extends State<ManageDetails> {
       MapEntry('Lens', TextEditingController(text: e.lens ?? '')),
       MapEntry('Aperture', TextEditingController(text: e.aperture ?? '')),
       MapEntry('Shutter', TextEditingController(text: e.shutter ?? '')),
-      MapEntry('ISO', TextEditingController(text: e.iso != null ? '${e.iso}' : '')),
-      MapEntry('Focal length', TextEditingController(text: e.focalLength ?? '')),
+      MapEntry(
+          'ISO', TextEditingController(text: e.iso != null ? '${e.iso}' : '')),
+      MapEntry(
+          'Focal length', TextEditingController(text: e.focalLength ?? '')),
       MapEntry('Date', TextEditingController(text: e.dateLabel ?? '')),
       MapEntry('Location', TextEditingController(text: e.location ?? '')),
     ];

@@ -20,9 +20,9 @@ class PabloAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final initial = name.isEmpty ? '?' : name[0].toUpperCase();
-    final top = HSLColor.fromAHSL(1, hue.toDouble() % 360, 0.36, 0.72).toColor();
-    final bottom =
-        HSLColor.fromAHSL(1, (hue + 15) % 360, 0.42, 0.55).toColor();
+    final top =
+        HSLColor.fromAHSL(1, hue.toDouble() % 360, 0.36, 0.72).toColor();
+    final bottom = HSLColor.fromAHSL(1, (hue + 15) % 360, 0.42, 0.55).toColor();
     return Container(
       width: size,
       height: size,

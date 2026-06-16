@@ -77,7 +77,19 @@ class _TagsTabState extends State<TagsTab> {
               ),
             ),
           )
-        else
+        else ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: PabloSpacing.lg),
+            child: Text(
+              '${tags.length} tag${tags.length == 1 ? '' : 's'}',
+              style: PabloTypography.sans(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: PabloColors.textMuted,
+                letterSpacing: 0.05 * 10,
+              ).copyWith(height: 1.0),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.only(bottom: PabloSpacing.lg),
             child: Wrap(
@@ -85,15 +97,15 @@ class _TagsTabState extends State<TagsTab> {
               runSpacing: PabloSpacing.sm + 1,
               children: tags
                   .map((t) => Container(
-                        padding: const EdgeInsets.only(
-                          left: 9,
-                          right: PabloSpacing.md,
-                          top: 3,
-                          bottom: 3,
+                        padding: const EdgeInsets.fromLTRB(
+                          PabloSpacing.lg, // 10
+                          PabloSpacing.sm, // 4
+                          PabloSpacing.base, // 8
+                          PabloSpacing.sm, // 4
                         ),
                         decoration: BoxDecoration(
-                          color: PabloColors.backgroundSurfaceAlt,
-                          border: Border.all(color: PabloColors.borderSubtle),
+                          color: PabloColors.accentBackground,
+                          border: Border.all(color: PabloColors.accentSoft),
                           borderRadius: PabloRadius.smAll,
                         ),
                         child: Row(
@@ -101,17 +113,23 @@ class _TagsTabState extends State<TagsTab> {
                           children: [
                             Text(
                               t,
-                              style: PabloTypography.sans(fontSize: 11.5),
+                              style: PabloTypography.sans(
+                                fontSize: 11.5,
+                                color: PabloColors.accentPrimary,
+                              ),
                             ),
                             const SizedBox(width: PabloSpacing.sm),
                             GestureDetector(
                               onTap: () => _remove(t),
-                              child: const Text(
+                              child: Text(
                                 '✕',
-                                style: TextStyle(
-                                  fontSize: 10,
+                                style: PabloTypography.sans(
+                                  fontSize: 11,
                                   fontWeight: FontWeight.w600,
-                                  color: PabloColors.textMuted,
+                                  color: PabloColors.accentPrimary,
+                                ).copyWith(
+                                  color: PabloColors.accentPrimary
+                                      .withValues(alpha: 0.55),
                                 ),
                               ),
                             ),
@@ -121,6 +139,7 @@ class _TagsTabState extends State<TagsTab> {
                   .toList(),
             ),
           ),
+        ],
         Row(
           children: [
             Expanded(
@@ -128,30 +147,30 @@ class _TagsTabState extends State<TagsTab> {
                 decoration: BoxDecoration(
                   color: PabloColors.backgroundSurface,
                   border: Border.all(color: PabloColors.borderSubtle),
-                  borderRadius: PabloRadius.mdAll,
+                  borderRadius: PabloRadius.smAll,
                 ),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: PabloSpacing.base,
-                  vertical: PabloSpacing.sm + 1,
+                  horizontal: 10,
+                  vertical: 7,
                 ),
                 child: TextField(
                   controller: _ctl,
                   onSubmitted: (_) => _add(),
                   cursorColor: PabloColors.accentPrimary,
-                  style: PabloTypography.sans(fontSize: 11),
+                  style: PabloTypography.sans(fontSize: 12),
                   decoration: InputDecoration(
                     isCollapsed: true,
                     border: InputBorder.none,
                     hintText: 'Add tag…',
                     hintStyle: PabloTypography.sans(
-                      fontSize: 11,
+                      fontSize: 12,
                       color: PabloColors.textMuted,
                     ),
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: PabloSpacing.sm),
+            const SizedBox(width: 6),
             PabloButton(
               label: '+',
               variant: PabloButtonVariant.primary,

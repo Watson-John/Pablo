@@ -81,7 +81,8 @@ class _MenuOverlay extends StatelessWidget {
     const w = 220.0;
     final h = items.length * 30.0;
     final x = (position.dx + w > size.width) ? size.width - w - 8 : position.dx;
-    final y = (position.dy + h > size.height) ? size.height - h - 8 : position.dy;
+    final y =
+        (position.dy + h > size.height) ? size.height - h - 8 : position.dy;
     return Stack(
       children: [
         Positioned.fill(
@@ -153,9 +154,8 @@ class _MenuRowState extends State<_MenuRow> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
-    final color = widget.item.destructive
-        ? PabloColors.error
-        : PabloColors.textPrimary;
+    final color =
+        widget.item.destructive ? PabloColors.error : PabloColors.textPrimary;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),

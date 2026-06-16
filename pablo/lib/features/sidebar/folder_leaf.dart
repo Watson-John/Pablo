@@ -57,7 +57,8 @@ class _FolderLeafState extends State<FolderLeaf> {
                   overflow: TextOverflow.ellipsis,
                   style: PabloTypography.sans(
                     fontSize: 12.5,
-                    fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
+                    fontWeight:
+                        widget.selected ? FontWeight.w600 : FontWeight.w400,
                   ),
                 ),
               ),

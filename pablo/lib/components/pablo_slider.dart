@@ -121,7 +121,9 @@ class EditSlider extends StatelessWidget {
                       textAlign: TextAlign.right,
                       style: PabloTypography.mono(
                         fontSize: 10.5,
-                        color: active ? PabloColors.accentPrimary : PabloColors.textMuted,
+                        color: active
+                            ? PabloColors.accentPrimary
+                            : PabloColors.textMuted,
                         fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                       ),
                     ),
@@ -174,7 +176,8 @@ class _SliderBase extends StatefulWidget {
 class _SliderBaseState extends State<_SliderBase> {
   final GlobalKey _key = GlobalKey();
 
-  double _pct(double v) => ((v - widget.min) / (widget.max - widget.min)).clamp(0.0, 1.0);
+  double _pct(double v) =>
+      ((v - widget.min) / (widget.max - widget.min)).clamp(0.0, 1.0);
 
   void _update(double globalX) {
     final box = _key.currentContext?.findRenderObject() as RenderBox?;

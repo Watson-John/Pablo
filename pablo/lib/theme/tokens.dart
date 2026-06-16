@@ -21,33 +21,47 @@ class PabloColors {
   PabloColors._();
 
   // ── Warm-white surfaces ──────────────────────────────────────────────
-  static const Color backgroundShell = Color(0xFFF6F4F0); // --surface-canvas / warm-100
-  static const Color backgroundSidebar = Color(0xFFF1EEE7); // subtly-tinted chrome
-  static const Color backgroundSidebarHover = Color(0x0D211C15); // --surface-hover (5% ink)
-  static const Color backgroundSidebarActive = Color(0x17211C15); // --surface-active (9% ink)
-  static const Color backgroundSurface = Color(0xFFFBFAF8); // --surface-card / warm-50
-  static const Color backgroundSurfaceAlt = Color(0xFFEEECE6); // --surface-sunken / warm-150
-  static const Color backgroundRaised = Color(0xFFFFFFFF); // --surface-raised (menus/popovers)
+  static const Color backgroundShell =
+      Color(0xFFF6F4F0); // --surface-canvas / warm-100
+  static const Color backgroundSidebar =
+      Color(0xFFF1EEE7); // subtly-tinted chrome
+  static const Color backgroundSidebarHover =
+      Color(0x0D211C15); // --surface-hover (5% ink)
+  static const Color backgroundSidebarActive =
+      Color(0x17211C15); // --surface-active (9% ink)
+  static const Color backgroundSurface =
+      Color(0xFFFBFAF8); // --surface-card / warm-50
+  static const Color backgroundSurfaceAlt =
+      Color(0xFFEEECE6); // --surface-sunken / warm-150
+  static const Color backgroundRaised =
+      Color(0xFFFFFFFF); // --surface-raised (menus/popovers)
   static const Color backgroundHover = Color(0x0D211C15); // --surface-hover
   static const Color backgroundActive = Color(0x17211C15); // --surface-active
-  static const Color backgroundSelected = Color(0xFFDDE9FD); // --surface-selected / azure-100
+  static const Color backgroundSelected =
+      Color(0xFFDDE9FD); // --surface-selected / azure-100
 
   // ── Warm-neutral borders ─────────────────────────────────────────────
-  static const Color borderSubtle = Color(0xFFE6E3DB); // --border-subtle / warm-200
-  static const Color borderStrong = Color(0xFFD6D1C6); // --border-default / warm-300
+  static const Color borderSubtle =
+      Color(0xFFE6E3DB); // --border-subtle / warm-200
+  static const Color borderStrong =
+      Color(0xFFD6D1C6); // --border-default / warm-300
 
   // ── Warm-espresso ink ────────────────────────────────────────────────
-  static const Color textPrimary = Color(0xFF211C15); // --text-strong / warm-900
-  static const Color textSecondary = Color(0xFF4D4738); // --text-body / warm-700
+  static const Color textPrimary =
+      Color(0xFF211C15); // --text-strong / warm-900
+  static const Color textSecondary =
+      Color(0xFF4D4738); // --text-body / warm-700
   static const Color textMuted = Color(0xFF8A8372); // --text-muted / warm-500
-  static const Color textFaint = Color(0xFFB2AB9B); // --text-faint / warm-400 (disabled)
+  static const Color textFaint =
+      Color(0xFFB2AB9B); // --text-faint / warm-400 (disabled)
   static const Color textOnAccent = Color(0xFFFFFFFF); // white on azure
 
   // ── Azure — THE brand & action color (white text reads on azure-600) ──
   static const Color accentPrimary = Color(0xFF5283E3); // azure-600
   static const Color accentHover = Color(0xFF3866CF); // azure-700
   static const Color accentActive = Color(0xFF284C9C); // azure-800
-  static const Color accentBackground = Color(0xFFDDE9FD); // azure-100 (soft tint)
+  static const Color accentBackground =
+      Color(0xFFDDE9FD); // azure-100 (soft tint)
   static const Color accentSoft = Color(0xFFC2D6FB); // azure-200
 
   // ── Selection — also azure in the DS (unified action/selection) ───────
@@ -71,13 +85,15 @@ class PabloColors {
   static const Color warningText = Color(0xFF98591A); // amber-700
   static const Color warningBorder = Color(0xFFEEB164); // amber-300
 
-  static const Color amber = Color(0xFFD98324); // star / folder leaf (amber-500)
+  static const Color amber =
+      Color(0xFFD98324); // star / folder leaf (amber-500)
 
   // Teal — info / on-device AI accent
   static const Color info = Color(0xFF2F7D8A); // teal-500
   static const Color infoBackground = Color(0xFFCFE6E6); // teal-100
   static const Color infoText = Color(0xFF1F555E); // teal-700
-  static const Color aiAccent = Color(0xFF2F7D8A); // teal — "on-device AI" spark
+  static const Color aiAccent =
+      Color(0xFF2F7D8A); // teal — "on-device AI" spark
 
   // Plum — highlight / new (distinct from azure & teal)
   static const Color highlight = Color(0xFF7A4EA0); // plum-500
@@ -93,7 +109,8 @@ class PabloColors {
 
   // ── Dark / lightbox surfaces (near-black espresso field) ──────────────
   static const Color lightboxBackground = Color(0xFF14110C); // warm-950
-  static const Color darkSurfaceCanvas = Color(0xFF1C1813); // [data-theme=dark] canvas
+  static const Color darkSurfaceCanvas =
+      Color(0xFF1C1813); // [data-theme=dark] canvas
   static const Color darkSurfaceCard = Color(0xFF251F18);
   static const Color darkTextStrong = Color(0xFFF6EFE2);
   static const Color darkTextBody = Color(0xFFE0D6C5);
@@ -131,7 +148,8 @@ class PabloColors {
 
   // ── Controls bar specific tints ───────────────────────────────────────
   static const Color controlsIconWarm = Color(0xFF6A6353); // warm-600
-  static const Color controlsTabBackground = Color(0xFF5283E3); // azure (active segment)
+  static const Color controlsTabBackground =
+      Color(0xFF5283E3); // azure (active segment)
   static const Color controlsTabActiveFg = Color(0xFFFFFFFF);
   static const Color controlsTabDivider = Color(0x33FFFFFF);
   static const Color controlsTabHover = Color(0x14000000);
@@ -284,6 +302,8 @@ class PabloShadows {
 class PabloDurations {
   PabloDurations._();
   static const Duration instant = Duration(milliseconds: 80);
+  static const Duration control =
+      Duration(milliseconds: 120); // buttons/toggles
   static const Duration fast = Duration(milliseconds: 140);
   static const Duration base = Duration(milliseconds: 220);
   static const Duration slow = Duration(milliseconds: 320);
@@ -301,7 +321,8 @@ class PabloEasing {
   static const Cubic standard = Cubic(0.2, 0, 0, 1); // enter/exit default
   static const Cubic out = Cubic(0.16, 1, 0.3, 1); // decelerate
   static const Cubic inn = Cubic(0.4, 0, 1, 1); // accelerate
-  static const Cubic spring = Cubic(0.34, 1.4, 0.64, 1); // slight overshoot — toggles
+  static const Cubic spring =
+      Cubic(0.34, 1.4, 0.64, 1); // slight overshoot — toggles
 }
 
 class PabloIcons {

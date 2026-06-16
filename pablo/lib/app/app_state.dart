@@ -117,10 +117,9 @@ class PabloAppState extends ChangeNotifier {
   // Lightbox
   String? lightboxPhotoId;
 
-  // Tasks (background activity)
-  final List<TaskInfo> tasks = [
-    TaskInfo(id: 'scan', name: 'Scanning faces', percent: 21),
-  ];
+  // Tasks (background activity). Real tasks are added by their owners (e.g. the
+  // face-scan ingestion); there is no seeded placeholder.
+  final List<TaskInfo> tasks = <TaskInfo>[];
 
   // ── Mutators ──
   void setSelectedItem(String id, NavSection section) {
@@ -253,11 +252,11 @@ class PabloAppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Retire finished tasks. Real progress is driven by each task's owner via
+  /// [updateTaskPercent]; this just sweeps completed ones off the indicator.
   void tickTasks() {
-    for (final t in tasks) {
-      if (t.id == 'scan') t.percent = (t.percent + 0.4).clamp(0, 100);
-    }
+    final before = tasks.length;
     tasks.removeWhere((t) => t.percent >= 100);
-    notifyListeners();
+    if (tasks.length != before) notifyListeners();
   }
 }

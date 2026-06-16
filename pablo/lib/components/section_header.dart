@@ -44,8 +44,8 @@ class _CollapsibleSectionState extends State<CollapsibleSection> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(
-        PabloSpacing.base, PabloSpacing.sm, PabloSpacing.base, PabloSpacing.md),
+      margin: const EdgeInsets.fromLTRB(PabloSpacing.base, PabloSpacing.sm,
+          PabloSpacing.base, PabloSpacing.md),
       decoration: BoxDecoration(
         color: PabloColors.backgroundSurface,
         border: Border.all(color: PabloColors.borderStrong),
@@ -61,13 +61,13 @@ class _CollapsibleSectionState extends State<CollapsibleSection> {
               onTap: () => setState(() => _open = !_open),
               child: Container(
                 height: PabloSizing.controlMd, // 36
-                padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.lg),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: PabloSpacing.lg),
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
-                      color: _open
-                          ? PabloColors.borderStrong
-                          : Colors.transparent,
+                      color:
+                          _open ? PabloColors.borderStrong : Colors.transparent,
                     ),
                   ),
                 ),
@@ -77,6 +77,9 @@ class _CollapsibleSectionState extends State<CollapsibleSection> {
                       PabloIcon(
                         widget.icon!,
                         size: 14,
+                        // Nav section icons are always the filled glyph (design
+                        // navPeople/navAlbums/navFolders/navCalendar).
+                        filled: true,
                         color: widget.iconColor ?? PabloColors.textPrimary,
                       ),
                       const SizedBox(width: PabloSpacing.base),
@@ -109,6 +112,7 @@ class _CollapsibleSectionState extends State<CollapsibleSection> {
                       child: const PabloIcon(
                         PabloIconName.chevRight,
                         size: 9,
+                        strokeWidth: 2.75,
                         color: PabloColors.textPrimary,
                       ),
                     ),

@@ -64,7 +64,8 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
   Future<void> _createSlot() async {
     final TextureSlot slot;
     try {
-      slot = await TextureSlot.create(widget.engine, initialW: 64, initialH: 64);
+      slot =
+          await TextureSlot.create(widget.engine, initialW: 64, initialH: 64);
     } catch (e) {
       // Slot/texture registration failed (e.g. the platform registrar). Degrade
       // to the fallback surface rather than throwing an uncaught zone error.
@@ -132,7 +133,9 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
   void dispose() {
     _disposed = true;
     _sub?.cancel();
-    if (_inFlightRequestId != 0) widget.engine.cancelRequest(_inFlightRequestId);
+    if (_inFlightRequestId != 0) {
+      widget.engine.cancelRequest(_inFlightRequestId);
+    }
     _slot?.dispose();
     super.dispose();
   }
@@ -175,9 +178,8 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
         final cropPxW = (crop.width * fwd).clamp(1.0, fwd);
         final cropPxH = (crop.height * fhd).clamp(1.0, fhd);
         // Scale the crop to cover the tile.
-        final scale = (ow / cropPxW) > (oh / cropPxH)
-            ? ow / cropPxW
-            : oh / cropPxH;
+        final scale =
+            (ow / cropPxW) > (oh / cropPxH) ? ow / cropPxW : oh / cropPxH;
         final displayW = fwd * scale;
         final displayH = fhd * scale;
         // Center the crop's center on the tile's center.

@@ -155,8 +155,8 @@ class Sidebar extends StatelessWidget {
                                       st.activeSection == NavSection.folders
                                           ? st.selectedItem
                                           : null,
-                                  onSelect: (id) =>
-                                      st.setSelectedItem(id, NavSection.folders),
+                                  onSelect: (id) => st.setSelectedItem(
+                                      id, NavSection.folders),
                                   defaultOpen: i == 0,
                                 ),
                             ]
@@ -259,6 +259,7 @@ class _MapCardState extends State<_MapCard> {
                 PabloIcon(
                   PabloIconName.map,
                   size: 14,
+                  filled: true, // design navMap = location_on (filled)
                   color: widget.active
                       ? PabloColors.accentActive
                       : PabloColors.sectionMap,
@@ -316,7 +317,9 @@ class _FolderSortToggleState extends State<_FolderSortToggle> {
             vertical: PabloSpacing.xs,
           ),
           decoration: BoxDecoration(
-            color: _hover ? PabloColors.backgroundHover : PabloColors.backgroundSurface,
+            color: _hover
+                ? PabloColors.backgroundHover
+                : PabloColors.backgroundSurface,
             border: Border.all(color: PabloColors.borderSubtle),
             borderRadius: PabloRadius.smAll,
             boxShadow: PabloShadows.sm,

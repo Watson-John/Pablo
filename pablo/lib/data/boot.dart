@@ -52,13 +52,14 @@ class BootConfig {
     const envModels = String.fromEnvironment('PABLO_MODELS_DIR');
     const nativeThumbs =
         bool.fromEnvironment('PABLO_NATIVE_THUMBS', defaultValue: true);
-    const autoScan =
-        bool.fromEnvironment('PABLO_AUTOSCAN', defaultValue: true);
+    const autoScan = bool.fromEnvironment('PABLO_AUTOSCAN', defaultValue: true);
+    // -1 = scan the whole library. ingestLibrary treats a negative cap as "all".
     const scanCap =
-        int.fromEnvironment('PABLO_FACE_SCAN_CAP', defaultValue: 600);
+        int.fromEnvironment('PABLO_FACE_SCAN_CAP', defaultValue: -1);
 
-    final libraryRoot =
-        envLibrary.isNotEmpty ? envLibrary : (_findUp('flickr30k_images') ?? '');
+    final libraryRoot = envLibrary.isNotEmpty
+        ? envLibrary
+        : (_findUp('flickr30k_images') ?? '');
     final modelsDir = envModels.isNotEmpty
         ? envModels
         : (_findUp('native${Platform.pathSeparator}models') ?? '');

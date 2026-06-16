@@ -126,11 +126,12 @@ Future<bool> confirmNewPerson(BuildContext context, String name) async {
     builder: (ctx) => AlertDialog(
       backgroundColor: PabloColors.backgroundSurface,
       title: Text('Add new person?',
-          style: PabloTypography.sans(fontSize: 15, fontWeight: FontWeight.w600)),
+          style:
+              PabloTypography.sans(fontSize: 15, fontWeight: FontWeight.w600)),
       content: Text(
         '“$name” isn’t in your library yet. Create them as a new person?',
-        style:
-            PabloTypography.sans(fontSize: 13, color: PabloColors.textSecondary),
+        style: PabloTypography.sans(
+            fontSize: 13, color: PabloColors.textSecondary),
       ),
       actions: [
         TextButton(

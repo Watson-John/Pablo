@@ -85,7 +85,8 @@ class _FaceThumbState extends State<FaceThumb> {
     final dims = controller.assetDims(widget.face.assetId);
     final fallback = DecoratedBox(
       decoration: BoxDecoration(
-        gradient: faceTileGradient(widget.hue ?? hueForId(widget.face.clusterId)),
+        gradient:
+            faceTileGradient(widget.hue ?? hueForId(widget.face.clusterId)),
       ),
     );
 

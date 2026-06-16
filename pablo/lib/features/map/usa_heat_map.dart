@@ -47,7 +47,8 @@ class USAHeatMap extends StatelessWidget {
         },
         child: CustomPaint(
           size: Size.infinite,
-          painter: _USAHeatMapPainter(locations: locations, selectedId: selectedId),
+          painter:
+              _USAHeatMapPainter(locations: locations, selectedId: selectedId),
         ),
       );
     });
@@ -171,9 +172,8 @@ class _USAHeatMapPainter extends CustomPainter {
       final coreStroke = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = isSelected ? 2 : 1
-        ..color = isSelected
-            ? PabloColors.accentHover
-            : PabloColors.mapHeatStroke;
+        ..color =
+            isSelected ? PabloColors.accentHover : PabloColors.mapHeatStroke;
       canvas.drawCircle(Offset(loc.cx, loc.cy), r, coreStroke);
 
       final centerDot = Paint()..color = PabloColors.mapCenterDot;
@@ -186,28 +186,16 @@ class _USAHeatMapPainter extends CustomPainter {
           style: PabloTypography.sans(
             fontSize: 9.5,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-            color: isSelected ? PabloColors.accentPrimary : PabloColors.textSecondary,
+            color: isSelected
+                ? PabloColors.accentPrimary
+                : PabloColors.textSecondary,
           ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
       namePainter.paint(
         canvas,
-        Offset(loc.cx - namePainter.width / 2, loc.cy + r + 8),
-      );
-      final countPainter = TextPainter(
-        text: TextSpan(
-          text: '${loc.count} photos',
-          style: PabloTypography.sans(
-            fontSize: 8.5,
-            color: isSelected ? PabloColors.accentHover : PabloColors.textMuted,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      countPainter.paint(
-        canvas,
-        Offset(loc.cx - countPainter.width / 2, loc.cy + r + 20),
+        Offset(loc.cx - namePainter.width / 2, loc.cy + r + 15),
       );
     }
 

@@ -57,7 +57,7 @@ class _PabloIconButtonState extends State<PabloIconButton> {
     }
 
     Widget btn = AnimatedContainer(
-      duration: PabloDurations.hover,
+      duration: PabloDurations.control,
       width: widget.size,
       height: widget.size,
       decoration: BoxDecoration(

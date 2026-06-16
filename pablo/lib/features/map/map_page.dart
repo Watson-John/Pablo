@@ -89,9 +89,11 @@ class _MapPageState extends State<MapPage> {
           // Page header
           Container(
             height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.xl + 2),
+            padding:
+                const EdgeInsets.symmetric(horizontal: PabloSpacing.xl + 2),
             decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: PabloColors.borderSubtle)),
+              border:
+                  Border(bottom: BorderSide(color: PabloColors.borderSubtle)),
             ),
             child: Row(
               children: [
@@ -129,7 +131,8 @@ class _MapPageState extends State<MapPage> {
               duration: PabloDurations.slow,
               curve: PabloEasing.standard,
               height: _mapCollapsed ? 0 : _kMapHeight,
-              transform: Matrix4.translationValues(0, _mapCollapsed ? -12 : 0, 0),
+              transform:
+                  Matrix4.translationValues(0, _mapCollapsed ? -12 : 0, 0),
               clipBehavior: Clip.hardEdge,
               decoration: BoxDecoration(
                 color: PabloColors.mapOcean,

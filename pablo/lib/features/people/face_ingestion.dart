@@ -70,15 +70,18 @@ class FaceIngestion {
     _running = true;
     final total = files.length;
 
-    appState.startTask(TaskInfo(id: _taskId, name: 'Scanning faces', percent: 1));
+    appState
+        .startTask(TaskInfo(id: _taskId, name: 'Scanning faces', percent: 1));
 
-    // Face scans run on the engine's idle lane, but each is long (~hundreds of
-    // ms) and workers don't preempt. Submitting all at once lets the scan grab
-    // every worker, so an interactive thumbnail (e.g. a photo just added to the
-    // tray) waits for a worker to finish its current scan — a visible ~0.5s
-    // lag. Keep only a window of scans in flight so ≥2 workers stay free to
-    // satisfy thumbnail requests instantly.
-    final maxInFlight = (Platform.numberOfProcessors - 3).clamp(2, 8);
+    // Each face scan now pins ONNX to a single core (see detector.cpp/embed.cpp),
+    // so one in-flight scan ≈ one busy worker/core. Run the scan across most of
+    // the pool while reserving ~2 workers for interactive thumbnail decoding —
+    // enough to keep thumbnails at full speed during scroll (each decode is ~ms,
+    // and scan workers also pick up thumbnails between images via lane priority).
+    // Scales with core count instead of a fixed cap, so larger machines devote
+    // more workers to the scan and finish it faster.
+    final maxInFlight =
+        (Platform.numberOfProcessors - 3).clamp(2, Platform.numberOfProcessors);
 
     var scanned = 0; // completed (one per scanProgress)
     var submitted = 0; // requests sent
@@ -127,15 +130,24 @@ class FaceIngestion {
     sub = backend.events.listen((e) {
       if (done) return;
       if (e.kind == PhotoEventKind.scanProgress) {
+        // Progress is flowing — retire the "no scan ever started" net; from here
+        // the 3s quiesce debounce governs completion (so a long full-library
+        // scan is never cut short by a fixed overall deadline).
+        watchdog?.cancel();
+        watchdog = null;
         scanned++;
         submitMore(); // replace the finished scan, keeping the window full
         // Scans take 0..95%; the cluster rebuild finishes the bar.
-        appState.updateTaskPercent(_taskId, (scanned / total * 95).clamp(1, 95));
+        appState.updateTaskPercent(
+            _taskId, (scanned / total * 95).clamp(1, 95));
         quiesce?.cancel();
         if (scanned >= total) {
           finishRebuild();
         } else {
-          quiesce = Timer(const Duration(seconds: 3), finishRebuild);
+          // Only treat the scan as finished after a real lull. With a windowed
+          // submission several scans are always in flight, so a few slow images
+          // shouldn't look like the end — 8s tolerates that over a long run.
+          quiesce = Timer(const Duration(seconds: 8), finishRebuild);
         }
       } else if (e.kind == PhotoEventKind.clusterUpdated && rebuilt) {
         appState.updateTaskPercent(_taskId, 100); // tickTasks() retires it
@@ -145,7 +157,9 @@ class FaceIngestion {
 
     submitMore(); // prime the window
 
-    // Safety net: if no scanProgress ever arrives, still rebuild + tear down.
-    watchdog = Timer(const Duration(minutes: 10), finishRebuild);
+    // Safety net for "the scan never starts" only — the first scanProgress
+    // cancels it. A progressing scan is bounded by the 3s quiesce debounce, not
+    // by any fixed deadline, so the full library can take as long as it needs.
+    watchdog = Timer(const Duration(seconds: 90), finishRebuild);
   }
 }

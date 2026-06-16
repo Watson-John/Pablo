@@ -28,7 +28,9 @@ class _ActivityIndicatorState extends State<ActivityIndicator> {
           : SystemMouseCursors.basic,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: widget.tasks.length > 1 ? () => setState(() => _open = !_open) : null,
+        onTap: widget.tasks.length > 1
+            ? () => setState(() => _open = !_open)
+            : null,
         child: Container(
           height: 28,
           padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.lg),

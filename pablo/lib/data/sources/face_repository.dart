@@ -71,7 +71,8 @@ abstract interface class FaceRepository {
 }
 
 /// Picks the live repository when an engine is available, else the mockup.
-FaceRepository createFaceRepository({Engine? engine, Stream<PhotoEvent>? events}) {
+FaceRepository createFaceRepository(
+    {Engine? engine, Stream<PhotoEvent>? events}) {
   if (engine == null) return const MockFaceRepository();
   return NativeFaceRepository(engine, events);
 }
