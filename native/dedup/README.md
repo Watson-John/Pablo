@@ -102,11 +102,16 @@ cmake --build --preset linux-release
 The `faiss;raw` manifest features are enabled by the presets. Drop them
 (`-DVCPKG_MANIFEST_FEATURES=`) for a lean build that uses the fallbacks.
 
-**macOS prerequisite:** the `faiss` feature pulls in FAISS, whose CMake requires
-OpenMP — AppleClang has none built in, so install it first:
-`brew install libomp`. (Or drop the feature: `-DVCPKG_MANIFEST_FEATURES=raw`, or
-`=""`, to use the exact brute-force fallback instead.) `VCPKG_ROOT` must point at
-a vcpkg checkout on macOS too (the arm64 CI runners bootstrap their own).
+**Homebrew dev build (no vcpkg):** the CMake also finds system/Homebrew packages
+directly. Install deps with `brew install opencv onnxruntime faiss libomp xxhash
+yaml-cpp cpp-httplib nlohmann-json` and configure with
+`-DCMAKE_PREFIX_PATH=$(brew --prefix opencv);...` plus
+`-DONNXRUNTIME_ROOT=$(brew --prefix onnxruntime)`. FAISS is found via a manual
+`find_library` fallback when no CMake config is present; without it, the build
+uses the (slower) exact brute-force k-NN — fine for small sets, link FAISS for
+the ~300k scale. On vcpkg builds, the `faiss` feature also needs `brew install
+libomp` (AppleClang has no built-in OpenMP). `VCPKG_ROOT` must point at a vcpkg
+checkout on macOS too (the arm64 CI runners bootstrap their own).
 
 ## Model: export SSCD to ONNX (one-time)
 

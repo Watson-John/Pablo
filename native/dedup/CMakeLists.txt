@@ -52,7 +52,20 @@ find_package(Threads REQUIRED)
 # Optional acceleration / format coverage. Each is gated by a compile define so
 # the binary builds and runs (with a clear runtime message) when absent — the
 # same optional-dependency discipline as photo_core's PHOTO_HAVE_VIPS.
+# FAISS: vcpkg ships a CMake config (target `faiss`); Homebrew/system installs
+# ship only the lib + headers (no config), so fall back to a manual find and
+# build the same `faiss` imported target. (libfaiss pulls its own BLAS/OpenMP.)
 find_package(faiss CONFIG QUIET)            # vcpkg feature: faiss
+if(NOT TARGET faiss)
+  find_library(FAISS_LIBRARY NAMES faiss)
+  find_path(FAISS_INCLUDE_DIR NAMES faiss/IndexFlat.h)
+  if(FAISS_LIBRARY AND FAISS_INCLUDE_DIR)
+    add_library(faiss UNKNOWN IMPORTED)
+    set_target_properties(faiss PROPERTIES
+      IMPORTED_LOCATION "${FAISS_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${FAISS_INCLUDE_DIR}")
+  endif()
+endif()
 find_package(OnnxRuntime QUIET)             # prebuilt; see cmake/FindOnnxRuntime.cmake
 find_package(libraw CONFIG QUIET)           # vcpkg feature: raw  (LGPL — dynamic link)
 
@@ -87,13 +100,13 @@ target_link_libraries(dedup_core PUBLIC
 )
 
 # --- FAISS (exact IndexFlatIP). Fallback: blocked brute force in index.cpp ---
-if(faiss_FOUND)
+if(TARGET faiss)
   target_compile_definitions(dedup_core PUBLIC DEDUP_HAVE_FAISS=1)
   target_link_libraries(dedup_core PUBLIC faiss)
-  message(STATUS "pablo_dedup: FAISS found -> hardware-accelerated k-NN")
+  message(STATUS "pablo_dedup: FAISS found -> exact BLAS-accelerated k-NN")
 else()
-  message(STATUS "pablo_dedup: FAISS absent -> blocked brute-force k-NN fallback "
-                 "(enable with vcpkg feature 'faiss')")
+  message(STATUS "pablo_dedup: FAISS absent -> scalar brute-force k-NN fallback "
+                 "(install faiss / enable the vcpkg 'faiss' feature for the 300k scale)")
 endif()
 
 # --- ONNX Runtime (SSCD inference). No meaningful fallback for embeddings ---
