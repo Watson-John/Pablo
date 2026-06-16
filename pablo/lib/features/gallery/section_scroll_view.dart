@@ -18,7 +18,7 @@ import '../../app/app_state.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
-import '../../data/photo_factory.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 import 'photo_thumb.dart';
 

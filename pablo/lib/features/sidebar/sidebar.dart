@@ -7,15 +7,16 @@ import '../../app/app_state.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/section_header.dart';
-import '../../data/mock_data.dart';
+import '../../data/mock/mock_data.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../people/people_scope.dart';
 import 'album_row.dart';
 import 'folder_group.dart';
 import 'folder_leaf.dart';
-import 'person_row.dart';
+import '../people/person_row.dart';
 import 'timeline_tree_node.dart';
-import 'unnamed_faces_row.dart';
+import '../people/unnamed_faces_row.dart';
 
 class Sidebar extends StatelessWidget {
   const Sidebar({super.key});
@@ -23,10 +24,12 @@ class Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
+    final pc = PeopleScope.of(context);
     final narrow = st.sidebarWidth < 210;
 
-    final peopleTotal =
-        kPeople.fold<int>(0, (s, p) => s + p.count) + 247;
+    final people = pc.people();
+    final unnamedCount = pc.unnamedFaceCount();
+    final peopleTotal = pc.peopleTotal();
     final folderCount =
         kFolders.fold<int>(0, (s, f) => s + (f.children.isNotEmpty ? f.children.length : 1));
 
@@ -72,12 +75,12 @@ class Sidebar extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         UnnamedFacesRow(
-                          count: 247,
+                          count: unnamedCount,
                           selected: st.selectedItem == 'unnamed',
                           onSelect: () =>
                               st.setSelectedItem('unnamed', NavSection.unnamed),
                         ),
-                        for (final p in kPeople)
+                        for (final p in people)
                           PersonRow(
                             person: p,
                             narrow: narrow,

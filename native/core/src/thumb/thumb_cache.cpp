@@ -21,7 +21,7 @@ namespace {
 
 // New magic for the rotating-segment format. Any pre-existing PABPACK1/PABIDX01
 // files from the prior single-pack format are foreign and ignored — a one-time
-// cold start (the cache is regenerable). See DECISIONS.md.
+// cold start (the cache is regenerable). See docs/DECISIONS.md.
 constexpr char     kSegMagic[8] = {'P', 'A', 'B', 'S', 'E', 'G', '0', '2'};
 constexpr uint64_t kHeaderSize  = 8;
 constexpr uint8_t  kFlagLive    = 0x1;  // bit0: record is live (else a tombstone)

@@ -11,7 +11,8 @@
 ///   * Every request carries a generation token; stale results are dropped.
 library photo_native;
 
-export 'src/ffi/core_api.dart' show Engine, EngineConfig, LogLevel;
+export 'src/ffi/core_api.dart'
+    show Engine, EngineConfig, LogLevel, Provider, FacePerson, FaceRow;
 export 'src/ffi/event_pump.dart' show EventPump, PhotoEvent, PhotoEventKind;
 export 'src/render/texture_slot.dart' show TextureSlot;
 export 'src/render/texture_registry.dart'

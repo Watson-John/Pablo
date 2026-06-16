@@ -242,6 +242,21 @@ class PabloAppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Add (or replace) a background task and notify. Used by face ingestion.
+  void startTask(TaskInfo task) {
+    tasks.removeWhere((t) => t.id == task.id);
+    tasks.add(task);
+    notifyListeners();
+  }
+
+  /// Update a task's progress and notify. No-op if the id is unknown.
+  void updateTaskPercent(String id, double percent) {
+    for (final t in tasks) {
+      if (t.id == id) t.percent = percent.clamp(0, 100);
+    }
+    notifyListeners();
+  }
+
   void tickTasks() {
     for (final t in tasks) {
       if (t.id == 'scan') t.percent = (t.percent + 0.4).clamp(0, 100);
