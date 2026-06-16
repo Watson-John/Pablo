@@ -73,7 +73,9 @@ class NativeBackend {
   }
 
   void dispose() {
-    if (faces is NativeFaceRepository) (faces as NativeFaceRepository).dispose();
+    if (faces is NativeFaceRepository) {
+      (faces as NativeFaceRepository).dispose();
+    }
     _pump.dispose();
     engine.dispose();
   }
