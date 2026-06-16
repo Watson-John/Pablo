@@ -1,90 +1,103 @@
 // dedup_repository.dart — the Find Duplicates UI's data source.
 //
-// Mirrors face_repository.dart's seam: the staged workflow talks to a
-// [DedupRepository] read from AppScope, and [createDedupRepository] picks the
-// implementation by what's wired.
-//   * [MockDedupRepository] — synthesizes plausible exact + similar clusters
-//     from the scoped photo set so the full staged UI is demonstrable with the
-//     native backend off (same role MockFaceRepository plays for People).
-//   * NativeDedupRepository — added in the native-engine phase: submits a scan
-//     to photo_core's DedupService and maps the read-back clusters here.
+// Mirrors face_repository.dart's seam. The default [DartDedupRepository] does
+// REAL exact-duplicate detection in Dart (content hashing, off the UI thread)
+// on photos that have a real file path, and falls back to a synthetic mock for
+// path-less gradient photos so the workflow still demos. Visually-similar groups
+// are still synthetic until photo_core's native DedupService (SSCD) is wired —
+// at which point a NativeDedupRepository slots in behind this same interface.
 
+import 'dart:isolate';
+
+import '../../data/models.dart';
 import '../../features/find_duplicates/dedup_models.dart';
+import '../../features/find_duplicates/dedup_scanner.dart';
 
 abstract interface class DedupRepository {
-  /// True when backed by the live native (SSCD/FAISS) pipeline.
+  /// True when visual-similarity is backed by the live native (SSCD) pipeline.
   bool get isLive;
 
-  /// Byte/perceptual-identical groups within [photoIds]. Cheap — this is the
-  /// pass that runs automatically on import. score == 1.0.
-  Future<List<DupCluster>> findExact(List<String> photoIds);
+  /// Byte/perceptual-identical groups. Cheap — the pass that runs on import.
+  Future<List<DupCluster>> findExact(List<Photo> photos);
 
   /// Visual near-duplicate groups at the given cosine [threshold] (0..1).
-  /// Lower threshold ⇒ more/larger clusters. Backed by SSCD when live.
-  Future<List<DupCluster>> findSimilar(List<String> photoIds, double threshold);
+  /// Lower threshold ⇒ more/larger clusters.
+  Future<List<DupCluster>> findSimilar(List<Photo> photos, double threshold);
 }
 
-/// Picks the live repository when a dedup-capable engine is wired, else the
-/// mock. (Native wiring arrives with photo_core's DedupService.)
-DedupRepository createDedupRepository() => const MockDedupRepository();
+/// Picks the live repository when a dedup-capable native engine is wired, else
+/// the Dart implementation. (Native wiring arrives with photo_core's DedupService.)
+DedupRepository createDedupRepository() => const DartDedupRepository();
 
-// ---------------------------------------------------------------------------
-// Mock — deterministic synthetic clusters so the workflow is fully exercisable.
-// ---------------------------------------------------------------------------
-
-class MockDedupRepository implements DedupRepository {
-  const MockDedupRepository();
+class DartDedupRepository implements DedupRepository {
+  const DartDedupRepository();
 
   @override
-  bool get isLive => false;
+  bool get isLive => false; // exact is real; similar is still synthetic
 
   @override
-  Future<List<DupCluster>> findExact(List<String> photoIds) async {
-    // ~1 in 20 photos forms an exact pair with the next such photo.
-    final marked = [for (final id in photoIds) if (_h(id) % 20 == 0) id];
-    final clusters = <DupCluster>[];
-    for (var i = 0; i + 1 < marked.length; i += 2) {
-      final members = [marked[i], marked[i + 1]];
-      // a third identical copy now and then
-      if (i + 2 < marked.length && _h(marked[i]) % 3 == 0) members.add(marked[i + 2]);
-      clusters.add(DupCluster(
-        id: 'exact-${marked[i]}',
-        kind: DupKind.exact,
-        score: 1.0,
-        photoIds: members,
-        keeperId: members.first,
-      ).rankedBy(KeeperRule.highestRes));
-    }
-    return clusters;
+  Future<List<DupCluster>> findExact(List<Photo> photos) async {
+    final real = [
+      for (final p in photos)
+        if (p.filePath != null) (id: p.id, path: p.filePath!),
+    ];
+    if (real.isEmpty) return _mockExact(photos); // gradient-mock mode
+    // Hash off the UI thread; byte-identical files group together.
+    final groups = await Isolate.run(() => findExactGroups(real));
+    return [
+      for (final ids in groups)
+        DupCluster(
+          id: 'exact-${ids.first}',
+          kind: DupKind.exact,
+          score: 1.0,
+          photoIds: ids,
+          keeperId: ids.first,
+        ),
+    ];
   }
 
   @override
-  Future<List<DupCluster>> findSimilar(List<String> photoIds, double threshold) async {
-    // Bucket photos into synthetic "scenes"; each scene has a fixed similarity
-    // score, so lowering the threshold reveals more (and larger) clusters.
+  Future<List<DupCluster>> findSimilar(List<Photo> photos, double threshold) async {
+    // Synthetic until SSCD is wired: bucket into "scenes" with fixed scores so
+    // the slider reveals more/larger clusters as the threshold drops.
+    final ids = [for (final p in photos) p.id];
     final scenes = <int, List<String>>{};
-    final n = photoIds.length;
-    final buckets = (n ~/ 3).clamp(1, 4000);
-    for (final id in photoIds) {
+    final buckets = (ids.length ~/ 3).clamp(1, 4000);
+    for (final id in ids) {
       scenes.putIfAbsent(_h(id) % buckets, () => []).add(id);
     }
-    final clusters = <DupCluster>[];
+    final out = <DupCluster>[];
     scenes.forEach((key, members) {
       if (members.length < 2) return;
       final score = 0.55 + (key.abs() % 45) / 100.0; // 0.55..0.99
       if (score + 1e-9 < threshold) return;
-      clusters.add(DupCluster(
+      out.add(DupCluster(
         id: 'sim-$key',
         kind: DupKind.similar,
         score: score,
         photoIds: members,
         keeperId: members.first,
-      ).rankedBy(KeeperRule.highestRes));
+      ));
     });
-    clusters.sort((a, b) => b.score.compareTo(a.score));
-    return clusters;
+    out.sort((a, b) => b.score.compareTo(a.score));
+    return out;
   }
 
-  // Stable non-negative hash for an id (mock determinism only).
+  // Synthetic exact pairs for the gradient mock (no real files to hash).
+  List<DupCluster> _mockExact(List<Photo> photos) {
+    final marked = [for (final p in photos) if (_h(p.id) % 20 == 0) p.id];
+    final out = <DupCluster>[];
+    for (var i = 0; i + 1 < marked.length; i += 2) {
+      out.add(DupCluster(
+        id: 'exact-${marked[i]}',
+        kind: DupKind.exact,
+        score: 1.0,
+        photoIds: [marked[i], marked[i + 1]],
+        keeperId: marked[i],
+      ));
+    }
+    return out;
+  }
+
   static int _h(String s) => s.hashCode & 0x7fffffff;
 }

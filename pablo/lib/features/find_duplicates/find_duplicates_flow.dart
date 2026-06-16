@@ -11,12 +11,11 @@ import 'package:flutter/material.dart';
 import '../../app/app_scope.dart';
 import '../../components/pablo_button.dart';
 import '../../data/models.dart';
-import '../../data/mock/mock_data.dart';
-import '../../data/mock/photo_factory.dart';
 import '../../data/sources/dedup_repository.dart';
 import '../../theme/tokens.dart';
 import 'dedup_models.dart';
 import 'dedup_review_stage.dart';
+import 'dedup_scope.dart';
 import 'dedup_scope_stage.dart';
 
 class FindDuplicatesFlow extends StatefulWidget {
@@ -34,7 +33,7 @@ class _FindDuplicatesFlowState extends State<FindDuplicatesFlow> {
   final Set<String> _folderIds = {};
 
   final Map<String, Photo> _index = {}; // scoped photo id → Photo
-  List<String> _scopedIds = const [];
+  List<Photo> _scopedPhotos = const [];
   List<DupCluster> _exact = const [];
   List<DupCluster> _similar = const [];
 
@@ -44,56 +43,17 @@ class _FindDuplicatesFlowState extends State<FindDuplicatesFlow> {
   bool _busy = false;
 
   // ── scope resolution ──
-  List<Photo> _leafPhotos() {
-    final out = <Photo>[];
-    final seen = <String>{};
-    void walk(FolderNode n) {
-      if (n.isGroup) {
-        for (final c in n.children) {
-          walk(c);
-        }
-      } else if (_scope != DedupScopeKind.folders || _folderIds.contains(n.id)) {
-        for (final p in photosFor(n.id)) {
-          if (seen.add(p.id)) out.add(p);
-        }
-      }
-    }
-    for (final f in kFolders) {
-      walk(f);
-    }
-    return out;
-  }
-
   List<Photo> _resolvePhotos(BuildContext context) {
     final st = AppScope.read(context);
-    if (_scope == DedupScopeKind.selection) {
-      final ids = st.selectedPhotos;
-      final out = <Photo>[];
-      for (final node in _allLeafIds()) {
-        for (final p in photosFor(node)) {
-          if (ids.contains(p.id)) out.add(p);
-        }
-      }
-      return out;
+    switch (_scope) {
+      case DedupScopeKind.selection:
+        final ids = st.selectedPhotos;
+        return [for (final p in allLibraryPhotos()) if (ids.contains(p.id)) p];
+      case DedupScopeKind.folders:
+        return photosForLeaves(onlyFolderIds: _folderIds);
+      case DedupScopeKind.library:
+        return allLibraryPhotos();
     }
-    return _leafPhotos();
-  }
-
-  List<String> _allLeafIds() {
-    final ids = <String>[];
-    void walk(FolderNode n) {
-      if (n.isGroup) {
-        for (final c in n.children) {
-          walk(c);
-        }
-      } else {
-        ids.add(n.id);
-      }
-    }
-    for (final f in kFolders) {
-      walk(f);
-    }
-    return ids;
   }
 
   Future<void> _scan() async {
@@ -102,13 +62,13 @@ class _FindDuplicatesFlowState extends State<FindDuplicatesFlow> {
     _index
       ..clear()
       ..addEntries(photos.map((p) => MapEntry(p.id, p)));
-    _scopedIds = [for (final p in photos) p.id];
-    final exact = await _repo.findExact(_scopedIds);
-    final similar = await _repo.findSimilar(_scopedIds, _threshold);
+    _scopedPhotos = photos;
+    final exact = await _repo.findExact(photos);
+    final similar = await _repo.findSimilar(photos, _threshold);
     if (!mounted) return;
     setState(() {
-      _exact = [for (final c in exact) c.rankedBy(_rule)];
-      _similar = [for (final c in similar) c.rankedBy(_rule)];
+      _exact = [for (final c in exact) c.rankedBy(_rule, _index)];
+      _similar = [for (final c in similar) c.rankedBy(_rule, _index)];
       _discards.clear();
       _busy = false;
       _stage = 1;
@@ -117,18 +77,18 @@ class _FindDuplicatesFlowState extends State<FindDuplicatesFlow> {
 
   Future<void> _retuneThreshold(double v) async {
     setState(() => _threshold = v);
-    final similar = await _repo.findSimilar(_scopedIds, v);
+    final similar = await _repo.findSimilar(_scopedPhotos, v);
     if (!mounted) return;
     setState(() {
-      _similar = [for (final c in similar) c.rankedBy(_rule)];
+      _similar = [for (final c in similar) c.rankedBy(_rule, _index)];
       _discards.removeWhere((id) => !_visibleIds().contains(id));
     });
   }
 
   void _setRule(KeeperRule r) => setState(() {
         _rule = r;
-        _exact = [for (final c in _exact) c.rankedBy(r)];
-        _similar = [for (final c in _similar) c.rankedBy(r)];
+        _exact = [for (final c in _exact) c.rankedBy(r, _index)];
+        _similar = [for (final c in _similar) c.rankedBy(r, _index)];
       });
 
   Set<String> _visibleIds() =>

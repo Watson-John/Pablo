@@ -120,6 +120,9 @@ class PabloAppState extends ChangeNotifier {
   // state stays local to the FindDuplicatesFlow widget).
   bool dedupOpen = false;
 
+  /// Redundant exact copies found by the background import scan (menu badge).
+  int dupCount = 0;
+
   // Tasks (background activity)
   final List<TaskInfo> tasks = [
     TaskInfo(id: 'scan', name: 'Scanning faces', percent: 21),
@@ -243,6 +246,11 @@ class PabloAppState extends ChangeNotifier {
 
   void closeFindDuplicates() {
     dedupOpen = false;
+    notifyListeners();
+  }
+
+  void setDupCount(int n) {
+    dupCount = n;
     notifyListeners();
   }
 

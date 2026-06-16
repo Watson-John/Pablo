@@ -92,7 +92,9 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
         ],
         'Tools': [
           _MenuEntry(
-            label: 'Find Duplicates…',
+            label: st.dupCount > 0
+                ? 'Find Duplicates… (${st.dupCount})'
+                : 'Find Duplicates…',
             onTap: st.openFindDuplicates,
           ),
           _MenuEntry.sep(),

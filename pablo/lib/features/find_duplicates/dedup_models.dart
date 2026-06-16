@@ -6,7 +6,8 @@
 // user-tunable threshold). Ranking picks the "keeper" so the user can auto-keep
 // the best copy and quarantine the rest with minimal manual checking.
 
-import '../../data/mock/photo_factory.dart' show getPhotoExif;
+import '../../data/models.dart';
+import 'dedup_meta.dart';
 
 /// What the user scoped the scan to.
 enum DedupScopeKind { selection, folders, library }
@@ -59,46 +60,25 @@ class DupCluster {
         keeperId: keeperId ?? this.keeperId,
       );
 
-  /// Re-rank members by [rule], returning a copy with the keeper first.
-  DupCluster rankedBy(KeeperRule rule) {
-    final ordered = [...photoIds]..sort((a, b) => _compare(b, a, rule));
-    return copyWith(photoIds: ordered, keeperId: ordered.first);
+  /// Re-rank members by [rule] using real file metadata (via [photos]),
+  /// returning a copy with the best keeper first.
+  DupCluster rankedBy(KeeperRule rule, Map<String, Photo> photos) {
+    final ordered = [...photoIds]
+      ..sort((a, b) => _rankValue(photos[b], rule).compareTo(_rankValue(photos[a], rule)));
+    return copyWith(
+      photoIds: ordered,
+      keeperId: ordered.isEmpty ? keeperId : ordered.first,
+    );
   }
 }
 
-// ── ranking primitives (parse the mock/real EXIF strings into comparables) ──
-
-int _resolution(String id) {
-  final e = getPhotoExif(id);
-  return e.width * e.height;
-}
-
-/// "5 MB" / "820 KB" / "1.2 GB" → bytes. Best-effort.
-int _fileBytes(String id) {
-  final s = getPhotoExif(id).fileSize.trim().toUpperCase();
-  final m = RegExp(r'([\d.]+)\s*(KB|MB|GB|B)?').firstMatch(s);
-  if (m == null) return 0;
-  final v = double.tryParse(m.group(1)!) ?? 0;
-  return switch (m.group(2)) {
-    'GB' => (v * 1024 * 1024 * 1024).round(),
-    'MB' => (v * 1024 * 1024).round(),
-    'KB' => (v * 1024).round(),
-    _ => v.round(),
+/// Higher = better keeper under [rule]. Unknown photos rank lowest.
+int _rankValue(Photo? p, KeeperRule rule) {
+  if (p == null) return -1 << 62;
+  return switch (rule) {
+    KeeperRule.newest => DedupMeta.dateKey(p),
+    KeeperRule.oldest => -DedupMeta.dateKey(p),
+    KeeperRule.largest => DedupMeta.bytes(p),
+    KeeperRule.highestRes => DedupMeta.resolution(p),
   };
 }
-
-/// "YYYY-MM-DD" → sortable int (0 if unparseable).
-int _dateKey(String id) {
-  final d = getPhotoExif(id).date;
-  final m = RegExp(r'(\d{4})-(\d{2})-(\d{2})').firstMatch(d);
-  if (m == null) return 0;
-  return int.parse('${m.group(1)}${m.group(2)}${m.group(3)}');
-}
-
-/// Returns >0 if `a` ranks above `b` under `rule` (i.e. `a` is the better keeper).
-int _compare(String a, String b, KeeperRule rule) => switch (rule) {
-      KeeperRule.newest => _dateKey(a).compareTo(_dateKey(b)),
-      KeeperRule.oldest => _dateKey(b).compareTo(_dateKey(a)),
-      KeeperRule.largest => _fileBytes(a).compareTo(_fileBytes(b)),
-      KeeperRule.highestRes => _resolution(a).compareTo(_resolution(b)),
-    };
