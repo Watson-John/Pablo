@@ -93,6 +93,9 @@ void apply_overrides(Config& cfg, const Args& a) {
     if (a.has("threshold"))  cfg.threshold = a.number("threshold", cfg.threshold);
     if (a.has("k"))          cfg.k = a.integer("k", cfg.k);
     if (a.has("batch-size")) cfg.batch_size = a.integer("batch-size", cfg.batch_size);
+    if (a.has("input-size")) cfg.input_size = a.integer("input-size", cfg.input_size);
+    if (a.has("square"))     cfg.resize_mode = "squash";
+    if (a.has("resize-mode")) cfg.resize_mode = a.str("resize-mode");
     if (a.has("threads"))    cfg.decode_threads = a.integer("threads", cfg.decode_threads);
     if (a.has("port"))       cfg.server_port = a.integer("port", cfg.server_port);
     if (a.has("host"))       cfg.server_host = a.str("host");

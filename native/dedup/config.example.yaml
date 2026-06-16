@@ -45,6 +45,9 @@ cluster:
 decode:
   threads: 0                # 0 = hardware concurrency; decode + I/O is the bottleneck
   prefer_embedded_thumb: true   # RAW: pull embedded JPEG thumb (skip demosaic)
+  resize_mode: crop         # pre-embedding geometry: crop (resize+center-crop, matches
+                            #   the SSCD weights) | squash (resize to square, keeps all
+                            #   content — may help heavily-cropped/scanned dupes)
 
 # --- Exact-duplicate pre-filter ---------------------------------------------
 exact:

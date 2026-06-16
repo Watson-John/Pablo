@@ -129,15 +129,22 @@ std::optional<cv::Mat> decode_for_embedding(const ImageRecord& rec, const Config
     }
     const int S = std::max(1, cfg.input_size);
     const int w = img.cols, h = img.rows;
+
+    if (cfg.resize_mode == "squash") {
+        // Resize straight to S×S — keeps all content (no border loss), warps aspect.
+        cv::Mat out;
+        cv::resize(img, out, cv::Size(S, S), 0, 0,
+                   (w > S || h > S) ? cv::INTER_AREA : cv::INTER_LINEAR);
+        return out;
+    }
+
+    // "crop": resize short side to S, then center-crop to S×S (loses borders).
     const double scale = static_cast<double>(S) / std::min(w, h);
     const int nw = std::max(S, static_cast<int>(std::lround(w * scale)));
     const int nh = std::max(S, static_cast<int>(std::lround(h * scale)));
-
     cv::Mat resized;
     cv::resize(img, resized, cv::Size(nw, nh), 0, 0,
                scale < 1.0 ? cv::INTER_AREA : cv::INTER_LINEAR);
-
-    // Center-crop to a fixed S×S square so a batch shares one tensor shape.
     const int x = (nw - S) / 2, y = (nh - S) / 2;
     return resized(cv::Rect(x, y, S, S)).clone();
 }

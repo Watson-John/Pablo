@@ -49,6 +49,10 @@ struct Config {
     // Decode / throughput.
     int decode_threads = 0;         // 0 = hardware_concurrency
     bool prefer_embedded_thumb = true;
+    // Pre-embedding geometry: "crop" = resize short side then center-crop (loses
+    // borders); "squash" = resize straight to a square (keeps all content, warps
+    // aspect). Squash can help heavily-cropped near-dupes.
+    std::string resize_mode = "crop";
 
     // Exact-duplicate pre-filter.
     bool exact_content_hash = true;

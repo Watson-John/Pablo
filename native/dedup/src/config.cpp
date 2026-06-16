@@ -87,6 +87,7 @@ Config load_config(const std::string& path) {
     if (const auto dc = root["decode"]) {
         get(dc, "threads", cfg.decode_threads);
         get(dc, "prefer_embedded_thumb", cfg.prefer_embedded_thumb);
+        get(dc, "resize_mode", cfg.resize_mode);
     }
     if (const auto ex = root["exact"]) {
         get(ex, "content_hash", cfg.exact_content_hash);
