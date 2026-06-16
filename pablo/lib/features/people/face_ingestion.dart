@@ -13,10 +13,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:photo_native/photo_native.dart';
 
 import '../../app/app_state.dart';
 import '../../backend/native_backend.dart';
+import '../../data/mock/photo_factory.dart';
 import '../../data/models.dart';
 import '../../utils/asset_id.dart';
 import 'people_controller.dart';
@@ -36,6 +38,25 @@ class FaceIngestion {
   static const _exts = {'.jpg', '.jpeg', '.png', '.webp'};
 
   bool _running = false;
+
+  /// The one eligibility predicate + construction shared by the auto-scan hook
+  /// and the "Scan for Faces" menu action. Returns a callback that scans the
+  /// dataset folder, or null when faces can't run live (no backend / mock /
+  /// no dataset) — so callers gate enablement on the null check alone.
+  static VoidCallback? scanDatasetAction({
+    required NativeBackend? backend,
+    required PeopleController controller,
+    required PabloAppState appState,
+  }) {
+    if (backend == null || !controller.isLive || kDatasetDir.isEmpty) {
+      return null;
+    }
+    return () => FaceIngestion(
+          backend: backend,
+          controller: controller,
+          appState: appState,
+        ).ingestFolder(kDatasetDir);
+  }
 
   /// Scan up to [cap] images from [dir]. Returns immediately if already
   /// running, the folder is empty/unreadable, or the controller isn't live.

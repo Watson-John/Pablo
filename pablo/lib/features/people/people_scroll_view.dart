@@ -22,6 +22,7 @@ import '../../data/models.dart';
 import '../../data/mock/photo_factory.dart';
 import '../../theme/tokens.dart';
 import '../gallery/photo_thumb.dart';
+import 'decision_buttons.dart';
 import 'face_thumb.dart';
 import 'people_controller.dart';
 import 'people_scope.dart';
@@ -483,59 +484,22 @@ class _DecisionRow extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _DecisionBtn(
+        DecisionPill(
           width: width / 2 - 2,
-          background: PabloColors.assignGreen,
+          color: PabloColors.assignGreen,
           label: '✓',
+          borderRadius: PabloRadius.panelAll,
           onTap: onAccept,
         ),
         const SizedBox(width: PabloSpacing.sm),
-        _DecisionBtn(
+        DecisionPill(
           width: width / 2 - 2,
-          background: PabloColors.ignoreRed,
+          color: PabloColors.ignoreRed,
           label: '✕',
+          borderRadius: PabloRadius.panelAll,
           onTap: onReject,
         ),
       ],
-    );
-  }
-}
-
-class _DecisionBtn extends StatelessWidget {
-  const _DecisionBtn({
-    required this.width,
-    required this.background,
-    required this.label,
-    required this.onTap,
-  });
-  final double width;
-  final Color background;
-  final String label;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: width,
-          height: 24,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: PabloRadius.panelAll,
-          ),
-          child: Text(
-            label,
-            style: PabloTypography.sans(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: PabloColors.textOnAccent,
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

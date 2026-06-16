@@ -7,7 +7,8 @@
 // tab all route through this one helper instead of hashing inline. In dataset
 // mode a photo's id == its file path, so hashing either is equivalent.
 //
-// Masking the sign bit (rather than `.abs()`) keeps the result non-negative
-// even for hashCode == minInt. Real catalog asset ids replace this in M5.
+// Clears the top bit (rather than `.abs()`) so the result is always a
+// non-negative int — Dart's hashCode can be negative, and `.abs()` of the most
+// negative value stays negative. Real catalog asset ids replace this in M5.
 
 int assetIdFor(String key) => key.hashCode & 0x7FFFFFFFFFFFFFFF;

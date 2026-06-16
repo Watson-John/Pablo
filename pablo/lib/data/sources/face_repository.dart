@@ -17,6 +17,7 @@ import 'dart:async';
 
 import 'package:photo_native/photo_native.dart';
 
+import '../../utils/hue.dart';
 import '../mock/mock_data.dart';
 import '../models.dart';
 
@@ -159,7 +160,7 @@ class NativeFaceRepository implements FaceRepository {
             name: p.name.isEmpty ? 'Unnamed' : p.name,
             count: p.confirmedCount > 0 ? p.confirmedCount : p.faceCount,
             lastDate: '',
-            hue: _hue(p.personId),
+            hue: hueForId(p.personId),
             confirmed: p.confirmed,
           ),
       ];
@@ -169,7 +170,7 @@ class NativeFaceRepository implements FaceRepository {
         for (final c in _engine.listClusters())
           UnnamedFace(
             id: 'nc${c.clusterId}',
-            hue: _hue(c.clusterId),
+            hue: hueForId(c.clusterId),
             count: c.faceCount,
           ),
       ];
@@ -236,8 +237,4 @@ class NativeFaceRepository implements FaceRepository {
     _sub?.cancel();
     _changes.close();
   }
-
-  // Stable hue from an id so avatars get a consistent color without a stored
-  // palette (the mock rows carry an explicit hue; native rows derive one).
-  static int _hue(int id) => (id * 47) % 360;
 }

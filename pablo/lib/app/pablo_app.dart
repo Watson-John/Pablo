@@ -65,19 +65,16 @@ class _PabloAppState extends State<PabloApp> {
     super.didChangeDependencies();
     final backend = NativeBackendScope.maybeOf(context);
     _people ??= PeopleController(backend?.faces ?? const MockFaceRepository());
-    if (_autoScan &&
-        !_autoScanned &&
-        backend != null &&
-        _people!.isLive &&
-        kDatasetDir.isNotEmpty) {
-      _autoScanned = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        FaceIngestion(
-          backend: backend,
-          controller: _people!,
-          appState: _state,
-        ).ingestFolder(kDatasetDir);
-      });
+    if (_autoScan && !_autoScanned) {
+      final scan = FaceIngestion.scanDatasetAction(
+        backend: backend,
+        controller: _people!,
+        appState: _state,
+      );
+      if (scan != null) {
+        _autoScanned = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) => scan());
+      }
     }
   }
 

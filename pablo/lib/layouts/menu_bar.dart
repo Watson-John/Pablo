@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../app/app_scope.dart';
 import '../app/app_state.dart';
 import '../backend/native_backend.dart';
-import '../data/mock/photo_factory.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_scope.dart';
 import '../theme/tokens.dart';
@@ -105,18 +104,12 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
-    final backend = NativeBackendScope.maybeOf(context);
-    final pc = PeopleScope.read(context);
-    // Enable "Scan for Faces" only with a live engine; scan the displayed
-    // dataset folder so the imported photos and detected faces line up.
-    VoidCallback? onScanFaces;
-    if (backend != null && pc.isLive && kDatasetDir.isNotEmpty) {
-      onScanFaces = () => FaceIngestion(
-            backend: backend,
-            controller: pc,
-            appState: st,
-          ).ingestFolder(kDatasetDir);
-    }
+    // Enable "Scan for Faces" only with a live engine + dataset (null otherwise).
+    final onScanFaces = FaceIngestion.scanDatasetAction(
+      backend: NativeBackendScope.maybeOf(context),
+      controller: PeopleScope.read(context),
+      appState: st,
+    );
     final menus = _menus(st, onScanFaces);
     return Container(
       height: 30,

@@ -9,6 +9,7 @@ import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import 'face_palette.dart';
 import 'face_thumb.dart';
 import 'people_controller.dart';
 import 'people_scope.dart';
@@ -461,15 +462,7 @@ class _GroupCardState extends State<_GroupCard> {
 
   @override
   Widget build(BuildContext context) {
-    final tile = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        HSLColor.fromAHSL(1, widget.face.hue.toDouble(), 0.32, 0.72).toColor(),
-        HSLColor.fromAHSL(1, (widget.face.hue + 20).toDouble(), 0.44, 0.56)
-            .toColor(),
-      ],
-    );
+    final tile = faceTileGradient(widget.face.hue);
     return SizedBox(
       width: 110,
       child: Container(
@@ -720,14 +713,7 @@ class _SoloCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tile = LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        HSLColor.fromAHSL(1, face.hue.toDouble(), 0.32, 0.72).toColor(),
-        HSLColor.fromAHSL(1, (face.hue + 15).toDouble(), 0.42, 0.56).toColor(),
-      ],
-    );
+    final tile = faceTileGradient(face.hue, hueShift: 15, satBottom: 0.42);
     return SizedBox(
       width: 76,
       height: 76,
@@ -904,16 +890,8 @@ class _IgnoredCard extends StatelessWidget {
               aspectRatio: 1,
               child: Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      HSLColor.fromAHSL(1, face.hue.toDouble(), 0.18, 0.72)
-                          .toColor(),
-                      HSLColor.fromAHSL(1, (face.hue + 15).toDouble(), 0.22, 0.56)
-                          .toColor(),
-                    ],
-                  ),
+                  gradient: faceTileGradient(face.hue,
+                      satTop: 0.18, hueShift: 15, satBottom: 0.22),
                   borderRadius: PabloRadius.lgAll,
                   border: Border.all(color: PabloColors.borderSubtle),
                 ),
