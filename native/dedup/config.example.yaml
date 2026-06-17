@@ -1,0 +1,73 @@
+# Pablo dedup — example configuration.
+# Copy to config.yaml and edit. All paths may be absolute or relative to CWD.
+# CLI flags override these (e.g. --threshold 0.82).
+
+# --- Inputs -----------------------------------------------------------------
+roots:
+  - /home/me/Pictures
+  - /mnt/archive/scans
+# Extensions considered (lowercase, no dot). RAW handled when built with LibRaw.
+extensions: [jpg, jpeg, png, tif, tiff, webp, heic, cr2, cr3, nef, arw, dng, raf, rw2]
+
+# --- Workspace (persisted so embedding runs once) ---------------------------
+workspace:
+  db: ./dedup.db            # SQLite metadata (paths, hashes, EXIF, cluster ids)
+  vectors: ./vectors.f32    # flat float32 embedding store, mmap-friendly
+  quarantine: ./quarantine  # discards are MOVED here — never deleted
+
+# --- Embedding (SSCD via ONNX Runtime) --------------------------------------
+embed:
+  enabled: true             # false = HASH-ONLY mode: skip SSCD entirely (no model
+                            #   or GPU needed). ~10x faster, but only catches near-
+                            #   identical images — for low-end PCs or a fast first
+                            #   pass. The harder gamma/crop variants need SSCD.
+  model: ./models/sscd_disc_mixup.onnx
+  input_size: 288           # short-side resize before center context; ImageNet norm
+  batch_size: 64            # 32–256; tune to RAM/VRAM
+  provider: cpu             # cpu | cuda | coreml
+                            #   cuda   -> needs the onnxruntime-gpu build (NVIDIA)
+                            #   coreml -> macOS / Apple Silicon (Neural Engine/GPU)
+  intra_op_threads: 0       # 0 = ORT default (= hardware concurrency)
+
+# --- Indexing + neighbour search --------------------------------------------
+index:
+  k: 20                     # neighbours retrieved per image (10–50)
+  score_norm: false         # descriptor stretching: suppress "hub" images before
+                            #   thresholding. Small gain on small libraries, larger
+                            #   as the set grows. Shifts the score scale -> re-run
+                            #   `calibrate` after enabling.
+  score_norm_beta: 1.0      # strength of the background subtraction
+
+# --- Clustering -------------------------------------------------------------
+cluster:
+  threshold: 0.35           # cosine cutoff; calibrate per library (0.80 finds almost
+                            #   nothing — true-pair median ~0.43, random max ~0.13)
+  mutual_knn: true          # require A∈kNN(B) AND B∈kNN(A) — curbs transitive drift
+  max_cluster_size: 400     # warn + flag clusters that balloon past this (drift smell)
+  exif_time_guard: false    # if true, borderline edges need EXIF timestamps within...
+  exif_time_window_sec: 5   # ...this window to count (burst-shot false-positive guard)
+
+# --- Decode / throughput ----------------------------------------------------
+decode:
+  threads: 0                # 0 = hardware concurrency; decode + I/O is the bottleneck
+  prefer_embedded_thumb: true   # RAW: pull embedded JPEG thumb (skip demosaic)
+  resize_mode: crop         # pre-embedding geometry: crop (resize+center-crop, matches
+                            #   the SSCD weights) | squash (resize to square, keeps all
+                            #   content — may help heavily-cropped/scanned dupes)
+
+# --- Exact-duplicate pre-filter ---------------------------------------------
+exact:
+  content_hash: true        # xxh3-128 byte-identical detection
+  algorithm: phash          # perceptual hash for trivial re-saves:
+                            #   phash     64-bit DCT  (default; gamma/compression-robust)
+                            #   blockmean 256-bit     (finer, catches more — Czkawka-style)
+                            #   average   64-bit       (fastest, weakest)
+                            #   marr      576-bit       (edge-based, very fine)
+  phash_hamming: 6          # group re-saves within this Hamming distance. Scale to the
+                            #   hash width:  phash/average ~6,  blockmean ~24,  marr ~50
+                            #   (auto-clamped to width-1 to keep the LSH exact)
+
+# --- Review server ----------------------------------------------------------
+server:
+  host: 127.0.0.1
+  port: 8755
