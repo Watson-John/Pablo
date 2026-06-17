@@ -35,3 +35,13 @@ option(PHOTO_BUILD_TESTS      "Build native unit tests" ON)
 option(PHOTO_BUILD_BENCHMARKS "Build native benchmarks" ON)
 
 add_subdirectory(native/core)
+
+# Standalone near-duplicate pipeline (native/dedup). Opt-in: it pulls heavy,
+# desktop-only deps (OpenCV/FAISS/ONNX Runtime/LibRaw) via its own vcpkg manifest
+# and must NEVER enter the Flutter app build (which includes native/core directly,
+# not this root file). Off by default so the core dev build stays light; enable
+# with -DPHOTO_BUILD_DEDUP=ON to build it alongside photo_core.
+option(PHOTO_BUILD_DEDUP "Build the standalone near-duplicate pipeline (native/dedup)" OFF)
+if(PHOTO_BUILD_DEDUP)
+    add_subdirectory(native/dedup)
+endif()
