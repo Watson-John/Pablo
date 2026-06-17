@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
 import '../../components/pablo_button.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
-import '../../data/mock/mock_data.dart';
 import '../../theme/tokens.dart';
 import 'dedup_models.dart';
 
@@ -148,7 +148,7 @@ class DedupScopeStage extends StatelessWidget {
         leaves.add(n);
       }
     }
-    for (final f in kFolders) {
+    for (final f in Library.instance.folderTree) {
       walk(f);
     }
     return Container(

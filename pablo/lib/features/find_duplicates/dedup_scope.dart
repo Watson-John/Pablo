@@ -1,9 +1,8 @@
 // Resolves photo sets for duplicate scanning. Shared by the Find Duplicates
 // flow (scope picker) and the import-time auto-scan.
 
+import '../../data/library.dart';
 import '../../data/models.dart';
-import '../../data/mock/mock_data.dart';
-import '../../data/mock/photo_factory.dart';
 
 /// All photos under the folder tree's leaves, de-duplicated by id. When
 /// [onlyFolderIds] is given, only those leaf folders are included.
@@ -23,7 +22,7 @@ List<Photo> photosForLeaves({Set<String>? onlyFolderIds}) {
       }
     }
   }
-  for (final f in kFolders) {
+  for (final f in Library.instance.folderTree) {
     walk(f);
   }
   return out;

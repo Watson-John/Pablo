@@ -38,8 +38,7 @@ class DartDedupRepository implements DedupRepository {
   @override
   Future<List<DupCluster>> findExact(List<Photo> photos) async {
     final real = [
-      for (final p in photos)
-        if (p.filePath != null) (id: p.id, path: p.filePath!),
+      for (final p in photos) (id: p.id, path: p.filePath),
     ];
     if (real.isEmpty) return _mockExact(photos); // gradient-mock mode
     // Hash off the UI thread; byte-identical files group together.

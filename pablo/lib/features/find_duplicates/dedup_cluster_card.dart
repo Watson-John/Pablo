@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../gallery/photo_surface.dart';
 import 'dedup_models.dart';
 
 class DupClusterCard extends StatelessWidget {
@@ -112,13 +113,17 @@ class _Tile extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
             child: Container(
               height: 104,
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
-                gradient: photo.gradient,
                 border: Border.all(color: border, width: 2),
                 borderRadius: PabloRadius.lgAll,
               ),
               child: Stack(
+                fit: StackFit.expand,
                 children: [
+                  Positioned.fill(
+                    child: PhotoSurface(photo: photo, targetW: 104, targetH: 104),
+                  ),
                   if (isKeeper) _badge('KEEP', PabloColors.success),
                   if (discarded && !isKeeper)
                     Positioned.fill(
