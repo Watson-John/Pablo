@@ -1,0 +1,15 @@
+# Model weights (fetch with tools/download_models.sh) — large, licensed.
+/models/
+*.onnx
+*.dat
+*.dat.bz2
+
+# Harness outputs (embeddings cache, plots, report, and any built face DB).
+/eval_out/
+/faces_db/
+*.npz
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

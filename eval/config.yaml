@@ -1,0 +1,60 @@
+# Face-model evaluation harness — single source of truth.
+# Paths are relative to this file's directory (eval/) unless absolute.
+
+ingest:
+  # Source Picasa tree (only used when run.py is invoked with --ingest).
+  picasa_root: "/Volumes/X9 Pro/Pictures Partailly Sorted 2025"
+  crop_padding: 0.2
+  # The labeled face DB consumed by every downstream phase. This is the output
+  # of eval/ingest/build_face_db.py — point it at a built DB (its manifest.csv
+  # + crops/<person>/ are what the harness reads).
+  faces_db: ./faces_db
+
+detector:
+  yunet_model: ./models/face_detection_yunet_2023mar.onnx
+  score_threshold: 0.7
+  nms_threshold: 0.3
+  top_k: 5000
+
+# Adding a model = one row here (+ one Embedder subclass for a new family).
+models:
+  # Classical baselines (no learned weights) — the "Picasa / Neven-era" end.
+  - {name: eigenface, type: eigenface,    path: ./models/eigenface_basis.npz, metric: cosine, role: baseline}
+  - {name: hog,       type: hog,          metric: cosine, role: baseline}
+  # AuraFace — ResNet100 ArcFace, Apache-2.0, trained for COMMERCIAL use: a
+  # shippable model that may rival the non-commercial ceiling.
+  - {name: auraface,  type: arcface_onnx, path: ./models/auraface_glintr100.onnx, color: rgb, norm: arcface, metric: cosine, role: candidate}
+  - {name: sface,     type: sface,        path: ./models/face_recognition_sface_2021dec.onnx, metric: cosine, role: candidate}
+  - {name: dlib,      type: dlib_resnet,  path: ./models/dlib_face_recognition_resnet_model_v1.dat, predictor: ./models/shape_predictor_5_face_landmarks.dat, metric: l2, role: candidate}
+  - {name: buffalo_l, type: arcface_onnx, path: ./models/w600k_r50.onnx,    color: rgb, norm: arcface, metric: cosine, role: ceiling}
+  # ViT-Small (patch8, GAP), CosFace loss, MS1MV3 — a transformer ceiling
+  # (non-commercial: MS1MV3 training data).
+  - {name: vit_cosface, type: timm_face, hf_hub: "hf_hub:gaunernst/vit_small_patch8_gap_112.cosface_ms1mv3", metric: cosine, role: ceiling}
+  - {name: adaface,   type: arcface_onnx, path: ./models/adaface_ir101.onnx, color: bgr, norm: adaface, metric: cosine, role: ceiling}
+
+eval:
+  output_dir: ./eval_out
+  min_faces_per_person: 2     # a person needs >=2 faces to form genuine pairs
+  # Quality gate (Picasa's `facequality` idea): a face is DETECTED for coverage
+  # but only enters the RECOGNITION metrics if it clears these. Low-res / blurry
+  # scans recovered by the detection retry-ladder otherwise poison the numbers.
+  quality_gate: true
+  min_face_px: 50             # detected face must be >= this on its short side
+  min_blur_var: 40.0          # Laplacian variance of the crop (sharpness)
+  calibration_split: 0.4      # fraction of identities used to calibrate thresholds
+  impostor_to_genuine_ratio: 10
+  far_targets: [1.0e-3, 1.0e-4]
+  uncertain_band: 0.1         # +/- around threshold = prompt zone
+  # Grid-searched (5-seed CV): agglomerative avg-linkage is the most stable
+  # (sface F1 0.94 +/- 0.03); HDBSCAN adds explicit outlier handling; DBSCAN for
+  # reference. Chinese Whispers was consistently weakest — dropped from default.
+  clustering: [agglomerative, hdbscan, dbscan]
+  bootstrap_ci: true
+  seed: 1234
+
+# Decision rule tolerances (surfaced so they're easy to tune after seeing data).
+decision:
+  tar_gap_points: 1.5         # candidate TAR@FAR=1e-3 within this of buffalo_l
+  cluster_f1_gap: 0.03
+  max_auto_accept_error: 0.01
+  max_prompt_rate: 0.15
