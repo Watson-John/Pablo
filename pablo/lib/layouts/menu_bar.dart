@@ -91,9 +91,16 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           _MenuEntry(label: 'New Album…'),
           _MenuEntry(label: 'New Smart Album…'),
         ],
-        'Tools': const [
-          _MenuEntry(label: 'Batch Edit…'),
-          _MenuEntry(label: 'Options…'),
+        'Tools': [
+          _MenuEntry(
+            label: st.dupCount > 0
+                ? 'Find Duplicates… (${st.dupCount})'
+                : 'Find Duplicates…',
+            onTap: st.openFindDuplicates,
+          ),
+          _MenuEntry.sep(),
+          const _MenuEntry(label: 'Batch Edit…'),
+          const _MenuEntry(label: 'Options…'),
         ],
         'Help': const [
           _MenuEntry(label: 'Pablo Help'),

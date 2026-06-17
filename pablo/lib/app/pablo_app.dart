@@ -10,9 +10,12 @@ import '../components/resize_handle.dart';
 import '../data/boot.dart';
 import '../data/library.dart';
 import '../data/models.dart';
+import '../data/sources/dedup_repository.dart';
 import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/photo_edit_panel.dart';
+import '../features/find_duplicates/dedup_scope.dart';
+import '../features/find_duplicates/find_duplicates_flow.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/info_panel/info_panel.dart';
@@ -46,6 +49,11 @@ class _PabloAppState extends State<PabloApp> {
   Timer? _ticker;
 
   bool _autoScanned = false;
+
+  /// Import-time auto-scan: run the cheap exact-duplicate pass over the library
+  /// once on load and badge the count on the Tools menu. (A real "Import From…"
+  /// action would call the same path for just the newly-added photos.)
+  bool _dedupScanned = false;
 
   @override
   void initState() {
@@ -98,6 +106,14 @@ class _PabloAppState extends State<PabloApp> {
     final backend = NativeBackendScope.maybeOf(context);
     _people ??= PeopleController(backend?.faces ?? const MockFaceRepository());
     _maybeAutoScan();
+    if (!_dedupScanned) {
+      _dedupScanned = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final clusters = await createDedupRepository().findExact(allLibraryPhotos());
+        final n = clusters.fold<int>(0, (s, c) => s + c.discards.length);
+        if (mounted) _state.setDupCount(n);
+      });
+    }
   }
 
   @override
@@ -137,7 +153,7 @@ class _Home extends StatelessWidget {
       backgroundColor: PabloColors.backgroundShell,
       body: WindowShell(
         statusPhotoCount: photos.length,
-        body: _Body(),
+        body: st.dedupOpen ? const FindDuplicatesFlow() : _Body(),
       ),
     );
   }
