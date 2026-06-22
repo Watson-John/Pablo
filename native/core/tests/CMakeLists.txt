@@ -25,6 +25,7 @@ set(BUILD_SHARED_LIBS ${_photo_prev_shared})
 set(PHOTO_CORE_TEST_SOURCES
     smoke_test.cpp
     thumb_cache_test.cpp
+    catalog_test.cpp
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})

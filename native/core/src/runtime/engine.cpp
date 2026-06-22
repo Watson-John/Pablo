@@ -113,6 +113,19 @@ Engine::Engine(fs::path catalog_path,
     PHOTO_LOGF(PHOTO_LOG_INFO, "thumb cache %s (%zu entries)",
                cache_->ok() ? "ready" : "DISABLED",
                cache_->entry_count());
+
+#ifdef PHOTO_HAVE_SQLITE
+    // Open the durable asset catalog. A failure here degrades to "no catalog"
+    // (import/rescan report unavailable) rather than bricking the engine.
+    try {
+        catalog_ = std::make_unique<catalog::Catalog>(catalog_path_.string());
+        PHOTO_LOGF(PHOTO_LOG_INFO, "catalog ready (%lld assets)",
+                   static_cast<long long>(catalog_->count()));
+    } catch (const std::exception& e) {
+        catalog_.reset();
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "catalog DISABLED: %s", e.what());
+    }
+#endif
 }
 
 Engine::~Engine() {

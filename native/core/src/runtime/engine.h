@@ -19,6 +19,10 @@
 #include "runtime/slot_store.h"
 #include "thumb/thumb_service.h"
 
+#ifdef PHOTO_HAVE_SQLITE
+#include "catalog/catalog.h"
+#endif
+
 #ifdef PHOTO_HAVE_FACES
 #include "faces/face_service.h"
 #endif
@@ -42,6 +46,10 @@ public:
     EventRing&    events()       { return events_; }
     JobSystem&    jobs()         { return jobs_; }
     ThumbService& thumbs()       { return thumbs_; }
+#ifdef PHOTO_HAVE_SQLITE
+    // The durable asset catalog, or nullptr if SQLite init failed.
+    catalog::Catalog* catalog()  { return catalog_.get(); }
+#endif
 #ifdef PHOTO_HAVE_FACES
     faces::FaceService& faces()  { return faces_; }
 #endif
@@ -64,6 +72,12 @@ private:
     // Owned thumbnail cache. Declared first so it is destroyed last — after
     // the job system's workers, which reference it through ThumbService.
     std::unique_ptr<ThumbCache> cache_;
+
+#ifdef PHOTO_HAVE_SQLITE
+    // The asset catalog (SQLite). Declared before the job system / services so
+    // it outlives any worker that touches it. nullptr if SQLite init failed.
+    std::unique_ptr<catalog::Catalog> catalog_;
+#endif
 
     SlotStore                 slots_;
     // Sized for scroll bursts: dozens of visible tiles each emit several

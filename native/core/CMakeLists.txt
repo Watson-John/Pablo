@@ -204,6 +204,38 @@ if(PHOTO_BUILD_FACES)
 endif()
 
 # ------------------------------------------------------------------
+# M5: asset catalog (SQLite).
+#
+# The durable catalog is the keystone the import / rescan / metadata stages
+# build on, so it is wired independently of the face subsystem. PHOTO_HAVE_SQLITE
+# (distinct from the faces-only FACES_HAVE_SQLITE) gates catalog.cpp + the
+# Engine's catalog member, so the catalog compiles whenever SQLite is present,
+# with or without OpenCV.
+# ------------------------------------------------------------------
+
+option(PHOTO_BUILD_CATALOG "Build the SQLite asset catalog" ON)
+
+if(PHOTO_BUILD_CATALOG)
+    find_package(SQLite3 QUIET)
+    if(NOT SQLite3_FOUND)
+        find_package(unofficial-sqlite3 CONFIG QUIET)
+    endif()
+    if(SQLite3_FOUND OR unofficial-sqlite3_FOUND)
+        if(SQLite3_FOUND)
+            set(_photo_sqlite_tgt SQLite::SQLite3)
+        else()
+            set(_photo_sqlite_tgt unofficial::sqlite3::sqlite3)
+        endif()
+        target_sources(photo_core_objects PRIVATE src/catalog/catalog.cpp)
+        target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_SQLITE=1)
+        target_link_libraries(photo_core_objects PUBLIC ${_photo_sqlite_tgt})
+        message(STATUS "photo_core: asset catalog ENABLED (SQLite)")
+    else()
+        message(STATUS "photo_core: SQLite absent -> asset catalog disabled")
+    endif()
+endif()
+
+# ------------------------------------------------------------------
 # Tests + benchmarks
 # ------------------------------------------------------------------
 
