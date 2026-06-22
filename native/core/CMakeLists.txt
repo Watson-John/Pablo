@@ -37,46 +37,67 @@ set(PHOTO_CORE_SOURCES
 # to bring up the shared library before the dependency chain widens.
 
 # ------------------------------------------------------------------
-# Target
+# Targets
 # ------------------------------------------------------------------
+#
+# photo_core_objects — an internal OBJECT library holding every source,
+# compiled once. The SHARED library (for distribution / the Flutter plugin)
+# and the test + benchmark executables all consume it. Tests link it
+# statically, which resolves the engine's internal (visibility-hidden)
+# symbols that the SHARED dylib intentionally does not export — without this
+# split, any test touching a non-PHOTO_API class fails to link.
+#
+# All dependency wiring (OpenCV, ONNX Runtime, SQLite, libvips, …) attaches to
+# photo_core_objects with PUBLIC link libraries so both the dylib and the test
+# exes inherit the same link closure.
 
-add_library(photo_core SHARED
+add_library(photo_core_objects OBJECT
     ${PHOTO_CORE_SOURCES}
     ${PHOTO_CORE_PUBLIC_HEADERS}
 )
 
-target_include_directories(photo_core
+target_include_directories(photo_core_objects
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        # src is PUBLIC so test/bench targets can include internal headers
+        # (thumb/thumb_cache.h, catalog/catalog.h, …) for white-box testing.
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
 )
 
-set_target_properties(photo_core PROPERTIES
-    OUTPUT_NAME           photo_core
-    VERSION               ${PROJECT_VERSION}
-    SOVERSION             1                # bumped only on PHOTO_ABI_VERSION change
+set_target_properties(photo_core_objects PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     C_VISIBILITY_PRESET   hidden
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
 )
 
-target_compile_features(photo_core PUBLIC cxx_std_20)
+target_compile_features(photo_core_objects PUBLIC cxx_std_20)
 
 if(MSVC)
-    target_compile_options(photo_core PRIVATE
+    target_compile_options(photo_core_objects PRIVATE
         /W4 /permissive- /Zc:__cplusplus /utf-8
     )
 else()
-    target_compile_options(photo_core PRIVATE
+    target_compile_options(photo_core_objects PRIVATE
         -Wall -Wextra -Wpedantic -Wno-unused-parameter
     )
 endif()
 
+# The distributable shared library is just the objects + their usage
+# requirements. Linking the object library (rather than re-listing
+# $<TARGET_OBJECTS>) also propagates its PUBLIC link closure to the dylib.
+add_library(photo_core SHARED)
+target_link_libraries(photo_core PUBLIC photo_core_objects)
+
+set_target_properties(photo_core PROPERTIES
+    OUTPUT_NAME           photo_core
+    VERSION               ${PROJECT_VERSION}
+    SOVERSION             1                # bumped only on PHOTO_ABI_VERSION change
+)
+
 # ------------------------------------------------------------------
-# Sanitizers
+# Sanitizers (attached to the objects; PUBLIC so consumers link the runtime)
 # ------------------------------------------------------------------
 
 if(PHOTO_ENABLE_ASAN OR PHOTO_ENABLE_UBSAN OR PHOTO_ENABLE_TSAN)
@@ -90,8 +111,8 @@ if(PHOTO_ENABLE_ASAN OR PHOTO_ENABLE_UBSAN OR PHOTO_ENABLE_TSAN)
     if(PHOTO_ENABLE_TSAN)
         list(APPEND _san_flags -fsanitize=thread)
     endif()
-    target_compile_options(photo_core PRIVATE ${_san_flags} -fno-omit-frame-pointer)
-    target_link_options   (photo_core PRIVATE ${_san_flags})
+    target_compile_options(photo_core_objects PUBLIC ${_san_flags} -fno-omit-frame-pointer)
+    target_link_options   (photo_core_objects PUBLIC ${_san_flags})
 endif()
 
 # ------------------------------------------------------------------
@@ -135,7 +156,7 @@ if(PHOTO_BUILD_FACES)
     # calib3d provides cv::estimateAffinePartial2D (align.cpp's 5-pt warp).
     find_package(OpenCV CONFIG QUIET COMPONENTS core imgproc imgcodecs dnn calib3d)
     if(OpenCV_FOUND)
-        target_sources(photo_core PRIVATE
+        target_sources(photo_core_objects PRIVATE
             src/faces/detector.cpp
             src/faces/align.cpp
             src/faces/embed.cpp
@@ -144,14 +165,14 @@ if(PHOTO_BUILD_FACES)
             src/faces/store.cpp
             src/faces/face_service.cpp
         )
-        target_compile_definitions(photo_core PRIVATE PHOTO_HAVE_FACES=1)
-        target_link_libraries(photo_core PRIVATE ${OpenCV_LIBS})
-        target_include_directories(photo_core PRIVATE ${OpenCV_INCLUDE_DIRS})
+        target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_FACES=1)
+        target_link_libraries(photo_core_objects PUBLIC ${OpenCV_LIBS})
+        target_include_directories(photo_core_objects PUBLIC ${OpenCV_INCLUDE_DIRS})
 
         find_package(OnnxRuntime QUIET)  # cmake/FindOnnxRuntime.cmake
         if(OnnxRuntime_FOUND)
-            target_compile_definitions(photo_core PRIVATE FACES_HAVE_ORT=1)
-            target_link_libraries(photo_core PRIVATE OnnxRuntime::OnnxRuntime)
+            target_compile_definitions(photo_core_objects PUBLIC FACES_HAVE_ORT=1)
+            target_link_libraries(photo_core_objects PUBLIC OnnxRuntime::OnnxRuntime)
             message(STATUS "photo_core: faces ENABLED with ONNX Runtime "
                            "${OnnxRuntime_VERSION} (scrfd_10g + auraface)")
         else()
@@ -159,20 +180,19 @@ if(PHOTO_BUILD_FACES)
                            "-> face scan reports unavailable")
         endif()
 
-        # SQLite backs face/person persistence in the Pablo catalog. Optional at
-        # this milestone (M5 brings the catalog); without it FaceStore throws.
+        # SQLite backs face/person persistence AND the asset catalog (M5+).
         # Prefer CMake's built-in FindSQLite3 (Homebrew/system: SQLite::SQLite3);
         # fall back to vcpkg's unofficial-sqlite3 port target.
         find_package(SQLite3 QUIET)
         if(SQLite3_FOUND)
-            target_compile_definitions(photo_core PRIVATE FACES_HAVE_SQLITE=1)
-            target_link_libraries(photo_core PRIVATE SQLite::SQLite3)
+            target_compile_definitions(photo_core_objects PUBLIC FACES_HAVE_SQLITE=1)
+            target_link_libraries(photo_core_objects PUBLIC SQLite::SQLite3)
             message(STATUS "photo_core: faces persistence ENABLED (SQLite ${SQLite3_VERSION})")
         else()
             find_package(unofficial-sqlite3 CONFIG QUIET)
             if(unofficial-sqlite3_FOUND)
-                target_compile_definitions(photo_core PRIVATE FACES_HAVE_SQLITE=1)
-                target_link_libraries(photo_core PRIVATE unofficial::sqlite3::sqlite3)
+                target_compile_definitions(photo_core_objects PUBLIC FACES_HAVE_SQLITE=1)
+                target_link_libraries(photo_core_objects PUBLIC unofficial::sqlite3::sqlite3)
                 message(STATUS "photo_core: faces persistence ENABLED (SQLite, vcpkg)")
             else()
                 message(STATUS "photo_core: SQLite absent -> face persistence stubbed")

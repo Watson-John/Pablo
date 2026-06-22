@@ -38,8 +38,9 @@ TEST(SmokeEngine, CreateDestroyDefaults) {
 
     photo_config_t cfg{};
     auto cat_str = (cat / "pablo.db").string();
+    auto cache_str = cache.string();
     cfg.catalog_path_utf8 = cat_str.c_str();
-    cfg.cache_path_utf8 = cache.string().c_str();
+    cfg.cache_path_utf8 = cache_str.c_str();
 
     photo_engine_t* eng = photo_engine_create(&cfg);
     ASSERT_NE(eng, nullptr);
@@ -52,8 +53,9 @@ TEST(SmokeEngine, SlotLifecycle) {
 
     photo_config_t cfg{};
     auto cat_str = (cat / "pablo.db").string();
+    auto cache_str = cache.string();
     cfg.catalog_path_utf8 = cat_str.c_str();
-    cfg.cache_path_utf8 = cache.string().c_str();
+    cfg.cache_path_utf8 = cache_str.c_str();
 
     photo_engine_t* eng = photo_engine_create(&cfg);
     ASSERT_NE(eng, nullptr);
@@ -77,8 +79,9 @@ TEST(SmokeEvents, PollEmptyIsZero) {
 
     photo_config_t cfg{};
     auto cat_str = (cat / "pablo.db").string();
+    auto cache_str = cache.string();
     cfg.catalog_path_utf8 = cat_str.c_str();
-    cfg.cache_path_utf8 = cache.string().c_str();
+    cfg.cache_path_utf8 = cache_str.c_str();
 
     photo_engine_t* eng = photo_engine_create(&cfg);
     ASSERT_NE(eng, nullptr);
