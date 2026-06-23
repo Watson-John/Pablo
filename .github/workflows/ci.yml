@@ -28,26 +28,29 @@ env:
 
 jobs:
   # ── Native C++ core: build photo_core + run the gtest suite via ctest ──
-  #    macOS runner because Homebrew provides the whole dependency closure
-  #    (OpenCV + ONNX Runtime + SQLite + libvips); GoogleTest is fetched from
-  #    source by the test CMake. This is the only job that exercises the
-  #    native unit tests — the app-build jobs compile the core but run no ctest.
+  #    Runs on Linux (cheap) because the unit tests (catalog / import / thumb /
+  #    smoke) are platform-independent logic that does NOT need the OpenCV/ONNX
+  #    face pipeline — so we build with faces off and only need SQLite +
+  #    GoogleTest (fetched from source by the test CMake). This is the only job
+  #    that exercises the native unit tests; the app-build jobs compile the core
+  #    but run no ctest. (Face-pipeline compile coverage in CI is a follow-up.)
   native-tests:
-    name: native tests (macOS)
-    runs-on: macos-latest
+    name: native tests (Linux)
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: .
     steps:
       - uses: actions/checkout@v4
       - name: Install native deps
-        run: brew install ninja opencv onnxruntime vips sqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev
       - name: Configure
         run: >
           cmake -S . -B build/ci -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_PREFIX_PATH="$(brew --prefix)"
-          -DCMAKE_BUILD_RPATH_USE_LINK_PATH=ON
+          -DPHOTO_BUILD_FACES=OFF
           -DPHOTO_BUILD_TESTS=ON
           -DPHOTO_BUILD_BENCHMARKS=OFF
       - name: Build
