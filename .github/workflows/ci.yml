@@ -58,14 +58,13 @@ jobs:
       - name: Test
         run: ctest --test-dir build/ci --output-on-failure
 
-  # ── Fast, reliable per-slice gate: analyze + tests on all three OSes ──
+  # ── Fast, reliable per-slice gate: analyze + tests ──
+  # Linux-only: `flutter analyze` / `flutter test` are platform-independent, so
+  # running them on Windows + macOS (2x / 10x cost) only duplicated the result.
+  # Per-OS native compilation is still covered by the `build` matrix below.
   analyze:
-    name: analyze (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: analyze (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
