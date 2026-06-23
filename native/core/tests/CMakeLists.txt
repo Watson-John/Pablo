@@ -28,6 +28,7 @@ set(PHOTO_CORE_TEST_SOURCES
     catalog_test.cpp
     import_test.cpp
     metadata_test.cpp
+    codec_test.cpp
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})

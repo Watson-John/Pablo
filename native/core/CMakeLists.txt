@@ -157,6 +157,7 @@ if(PHOTO_BUILD_FACES)
     find_package(OpenCV CONFIG QUIET COMPONENTS core imgproc imgcodecs dnn calib3d)
     if(OpenCV_FOUND)
         target_sources(photo_core_objects PRIVATE
+            src/codec/codec.cpp        # full-res decode for the face pipeline (needs OpenCV)
             src/faces/detector.cpp
             src/faces/align.cpp
             src/faces/embed.cpp

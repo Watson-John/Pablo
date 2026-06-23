@@ -98,7 +98,10 @@ Pod::Spec.new do |s|
   faces_defs     = ''
   faces_cflags   = ''
   faces_libs     = ''
-  faces_excludes = %w[detector align embed cluster prototype store face_service]
+  # codec.cpp needs OpenCV (cv::Mat), so it shares the faces OpenCV gate —
+  # excluded when OpenCV is absent, compiled (with the libvips flags above) when
+  # present so the face pipeline decodes RAW/HEIC/JXL/TIFF via libvips.
+  faces_excludes = %w[codec detector align embed cluster prototype store face_service]
                      .map { |b| "Classes/core/#{b}.cpp" }
   opencv_prefix = `brew --prefix opencv 2>/dev/null`.strip
   ort_prefix    = `brew --prefix onnxruntime 2>/dev/null`.strip

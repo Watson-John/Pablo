@@ -16,7 +16,7 @@
 #include "util/log.h"
 
 #if defined(PHOTO_HAVE_FACES) && defined(FACES_HAVE_ORT)
-#include <opencv2/imgcodecs.hpp>  // cv::imread, used only on the real-scan path
+#include "codec/codec.h"  // codec::decode_bgr — full-res decode (all formats)
 #endif
 
 namespace photo::faces {
@@ -197,10 +197,10 @@ void FaceService::run_scan(uint64_t request_id, uint64_t asset_id, std::string p
             return;
         }
     }
-    // TODO(M5): route decode through the shared thumb/codec pipeline (libvips +
-    // LibRaw) instead of cv::imread, so RAW/HEIC and color management match the
-    // rest of the app. cv::imread is the scaffold path.
-    cv::Mat bgr = cv::imread(path, cv::IMREAD_COLOR);
+    // Decode through the shared codec (libvips when available) so RAW/HEIC/JXL/
+    // TIFF scan like JPEGs; falls back to cv::imread. Full resolution, so the
+    // detected boxes stay in source-image pixels.
+    cv::Mat bgr = codec::decode_bgr(path);
     if (bgr.empty()) {
         emit_scan_progress(request_id, asset_id, PHOTO_STATUS_IO_ERROR, 0);
         return;
