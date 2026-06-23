@@ -313,6 +313,12 @@ std::optional<exif::AssetMetadata> Engine::asset_metadata(int64_t asset_id) cons
     return catalog_->get_metadata(asset_id);
 }
 
+std::vector<catalog::Catalog::GeoPoint> Engine::list_geotagged() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->geotagged();
+}
+
 #endif  // PHOTO_HAVE_SQLITE
 
 }  // namespace photo

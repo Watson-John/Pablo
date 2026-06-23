@@ -15,6 +15,8 @@
 
 #include "catalog/catalog.h"
 #include "exif/exif.h"
+#include "photo_core.h"
+#include "runtime/engine.h"
 
 namespace fs = std::filesystem;
 using photo::catalog::Catalog;
@@ -89,6 +91,34 @@ TEST(Metadata, ExtractNonExifReturnsEmpty) {
     EXPECT_TRUE(m.camera.empty());
     EXPECT_FALSE(m.has_gps);
     EXPECT_EQ(m.iso, 0);
+}
+
+// Engine → catalog → list_geotagged, the path the map's C ABI uses.
+TEST(Metadata, EngineListGeotagged) {
+    auto dir = fs::temp_directory_path() / "photo_meta_engine_geo";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    const auto db = (dir / "pablo.db").string();
+    const auto cache = (dir / "cache").string();
+
+    photo_config_t cfg{};
+    cfg.catalog_path_utf8 = db.c_str();
+    cfg.cache_path_utf8 = cache.c_str();
+    auto eng = photo::Engine::create(cfg);
+    ASSERT_NE(eng, nullptr);
+    ASSERT_NE(eng->catalog(), nullptr);
+
+    AssetMetadata m;
+    m.has_gps = true;
+    m.gps_lat = 51.5074;
+    m.gps_lon = -0.1278;
+    eng->catalog()->upsert_metadata(7, m);
+
+    auto geo = eng->list_geotagged();
+    ASSERT_EQ(geo.size(), 1u);
+    EXPECT_EQ(geo[0].asset_id, 7);
+    EXPECT_NEAR(geo[0].lat, 51.5074, 1e-9);
+    EXPECT_NEAR(geo[0].lon, -0.1278, 1e-9);
 }
 
 #endif  // PHOTO_HAVE_SQLITE

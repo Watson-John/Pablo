@@ -18,12 +18,18 @@
 // negative value stays negative.
 
 Map<String, int> _catalogIds = const {};
+Map<int, String> _catalogPaths = const {};
 
 /// Install the catalog's stable path → asset_id mapping (called once after the
-/// native import completes). Replaces any prior mapping.
+/// native import completes). Replaces any prior mapping; also builds the
+/// inverse (asset_id → path) used to resolve a catalog asset back to a photo.
 void hydrateCatalogIds(Map<String, int> idByPath) {
   _catalogIds = idByPath;
+  _catalogPaths = {for (final e in idByPath.entries) e.value: e.key};
 }
 
 int assetIdFor(String key) =>
     _catalogIds[key] ?? (key.hashCode & 0x7FFFFFFFFFFFFFFF);
+
+/// Path for a stable catalog asset_id, or null if unknown (e.g. pre-hydration).
+String? pathForAssetId(int assetId) => _catalogPaths[assetId];

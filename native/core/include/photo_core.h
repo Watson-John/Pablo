@@ -412,6 +412,21 @@ PHOTO_API int32_t photo_asset_metadata(photo_engine_t* engine,
                                        uint64_t asset_id,
                                        photo_metadata_t* out);
 
+/* A geotagged asset: its id and decimal-degree coordinates. */
+typedef struct {
+    uint64_t asset_id;
+    double   lat;
+    double   lon;
+} photo_geopoint_t;
+
+/*
+ * List every geotagged asset (those with GPS EXIF). Fills up to `cap` rows and
+ * returns the TOTAL count available — grow and re-call if it exceeds `cap`.
+ * Synchronous. Drives the map.
+ */
+PHOTO_API size_t photo_list_geotagged(photo_engine_t* engine,
+                                      photo_geopoint_t* out, size_t cap);
+
 /* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */

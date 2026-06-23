@@ -285,6 +285,30 @@ PHOTO_API int32_t photo_asset_metadata(photo_engine_t* engine,
 #endif
 }
 
+PHOTO_API size_t photo_list_geotagged(photo_engine_t* engine,
+                                      photo_geopoint_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto rows = cast(engine)->list_geotagged();
+        const size_t n = rows.size();
+        if (out) {
+            for (size_t i = 0; i < n && i < cap; ++i) {
+                out[i] = photo_geopoint_t{static_cast<uint64_t>(rows[i].asset_id),
+                                          rows[i].lat, rows[i].lon};
+            }
+        }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_list_geotagged: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // ML — M6 implements.
 // ---------------------------------------------------------------------------

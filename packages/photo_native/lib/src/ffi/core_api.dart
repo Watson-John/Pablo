@@ -191,6 +191,16 @@ final class _NativeAsset extends Struct {
 /// PHOTO_ASSET_FLAG_HIDDEN.
 const int _kAssetFlagHidden = 1 << 0;
 
+/// photo_geopoint_t mirror.
+final class _NativeGeoPoint extends Struct {
+  @Uint64()
+  external int asset_id;
+  @Double()
+  external double lat;
+  @Double()
+  external double lon;
+}
+
 // ---------------------------------------------------------------------------
 // FFI function typedefs
 // ---------------------------------------------------------------------------
@@ -275,6 +285,11 @@ typedef _ListAssetsC =
     IntPtr Function(Pointer<Void>, Pointer<_NativeAsset>, IntPtr);
 typedef _ListAssetsDart =
     int Function(Pointer<Void>, Pointer<_NativeAsset>, int);
+
+typedef _ListGeotaggedC =
+    IntPtr Function(Pointer<Void>, Pointer<_NativeGeoPoint>, IntPtr);
+typedef _ListGeotaggedDart =
+    int Function(Pointer<Void>, Pointer<_NativeGeoPoint>, int);
 
 typedef _FaceApproveC = Uint64 Function(Pointer<Void>, Uint64, Uint64);
 typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
@@ -488,6 +503,28 @@ final class Engine {
       }
       final count = n < cap ? n : cap;
       return [for (var i = 0; i < count; i++) AssetRow._(buf[i])];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Every geotagged asset (those with GPS EXIF). Drives the map.
+  List<GeoPoint> listGeotagged() {
+    var cap = 256;
+    var buf = calloc<_NativeGeoPoint>(cap);
+    try {
+      var n = _Bindings.listGeotagged(_handle, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeGeoPoint>(cap);
+        n = _Bindings.listGeotagged(_handle, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [
+        for (var i = 0; i < count; i++)
+          GeoPoint(buf[i].asset_id, buf[i].lat, buf[i].lon),
+      ];
     } finally {
       calloc.free(buf);
     }
@@ -740,6 +777,15 @@ final class AssetRow {
   final bool hidden;
 }
 
+/// A geotagged asset: id + decimal-degree coordinates. Immutable projection of
+/// photo_geopoint_t.
+final class GeoPoint {
+  const GeoPoint(this.assetId, this.lat, this.lon);
+  final int assetId;
+  final double lat;
+  final double lon;
+}
+
 /// Decode a NUL-terminated UTF-8 name out of a fixed-size native char array.
 String _readCName(Array<Uint8> arr, int maxLen) {
   final bytes = <int>[];
@@ -822,6 +868,11 @@ final class _Bindings {
 
   static final _ListAssetsDart listAssets = _dylib
       .lookupFunction<_ListAssetsC, _ListAssetsDart>('photo_list_assets');
+
+  static final _ListGeotaggedDart listGeotagged = _dylib
+      .lookupFunction<_ListGeotaggedC, _ListGeotaggedDart>(
+        'photo_list_geotagged',
+      );
 
   static final _FaceApproveDart faceApprove = _dylib
       .lookupFunction<_FaceApproveC, _FaceApproveDart>('photo_face_approve');
