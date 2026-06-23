@@ -160,6 +160,10 @@ class PabloAppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Notify after toggling an asset's star (the cache lives in library.dart) so
+  /// the gallery + info panel rebuild.
+  void notifyStar() => notifyListeners();
+
   void setFolderSort(String sort) {
     folderSort = sort;
     notifyListeners();

@@ -462,6 +462,44 @@ PHOTO_API size_t photo_album_members(photo_engine_t* engine, uint64_t album_id,
                                      uint64_t* out, size_t cap);
 
 /* ------------------------------------------------------------------------- */
+/* Organize state — star / rating / caption / tags.                          */
+/*                                                                           */
+/* All catalog-only: per DECISIONS D1, user-authored metadata is NOT written  */
+/* back to the original files in v1. The mutators return photo_status_t.      */
+/* ------------------------------------------------------------------------- */
+
+PHOTO_API int32_t photo_asset_set_starred(photo_engine_t* engine,
+                                          uint64_t asset_id, int32_t starred);
+PHOTO_API int32_t photo_asset_set_rating(photo_engine_t* engine,
+                                         uint64_t asset_id, int32_t rating);
+PHOTO_API int32_t photo_asset_set_caption(photo_engine_t* engine,
+                                          uint64_t asset_id,
+                                          const char* caption_utf8);
+
+/* Star / rating / caption for one asset. */
+typedef struct {
+    int32_t starred;   /* 0/1                                                */
+    int32_t rating;    /* 0..5                                               */
+    char    caption[512];
+} photo_organize_t;
+
+PHOTO_API int32_t photo_asset_organize(photo_engine_t* engine, uint64_t asset_id,
+                                       photo_organize_t* out);
+
+PHOTO_API int32_t photo_asset_add_tag(photo_engine_t* engine, uint64_t asset_id,
+                                      const char* tag_utf8);
+PHOTO_API int32_t photo_asset_remove_tag(photo_engine_t* engine,
+                                         uint64_t asset_id, const char* tag_utf8);
+
+/*
+ * Tags of an asset as NUL-separated UTF-8 ("tag1\0tag2\0…"). Fills up to `cap`
+ * bytes into `out` and returns the TOTAL bytes needed — grow and re-call if it
+ * exceeds `cap`.
+ */
+PHOTO_API size_t photo_asset_tags(photo_engine_t* engine, uint64_t asset_id,
+                                  char* out, size_t cap);
+
+/* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */
 

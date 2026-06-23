@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../backend/native_backend.dart';
 import '../../components/pablo_button.dart';
 import '../../data/library.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
 
 class TagsTab extends StatefulWidget {
   const TagsTab({required this.photoId, super.key});
@@ -12,19 +14,25 @@ class TagsTab extends StatefulWidget {
 }
 
 class _TagsTabState extends State<TagsTab> {
-  late List<String> _base = getPhotoTags(widget.photoId);
+  // Persisted (catalog) tags when a backend is mounted; otherwise an in-memory
+  // model (_extra/_removedBase) for the offline/mock case.
+  List<String> _base = const [];
   final List<String> _extra = [];
   final Set<String> _removedBase = {};
   final TextEditingController _ctl = TextEditingController();
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reload();
+  }
+
+  @override
   void didUpdateWidget(covariant TagsTab old) {
     super.didUpdateWidget(old);
     if (old.photoId != widget.photoId) {
-      _base = getPhotoTags(widget.photoId);
-      _extra.clear();
-      _removedBase.clear();
       _ctl.clear();
+      _reload();
     }
   }
 
@@ -32,6 +40,15 @@ class _TagsTabState extends State<TagsTab> {
   void dispose() {
     _ctl.dispose();
     super.dispose();
+  }
+
+  void _reload() {
+    final engine = NativeBackendScope.maybeOf(context)?.engine;
+    _base = engine != null
+        ? engine.assetTags(assetIdFor(widget.photoId))
+        : getPhotoTags(widget.photoId);
+    _extra.clear();
+    _removedBase.clear();
   }
 
   List<String> get _tags => [
@@ -42,20 +59,35 @@ class _TagsTabState extends State<TagsTab> {
   void _add() {
     final t = _ctl.text.trim();
     if (t.isEmpty || _tags.contains(t)) return;
-    setState(() {
-      _extra.add(t);
-      _ctl.clear();
-    });
+    final engine = NativeBackendScope.maybeOf(context)?.engine;
+    if (engine != null) {
+      engine.addTag(assetIdFor(widget.photoId), t);
+      setState(() {
+        _ctl.clear();
+        _reload();
+      });
+    } else {
+      setState(() {
+        _extra.add(t);
+        _ctl.clear();
+      });
+    }
   }
 
   void _remove(String tag) {
-    setState(() {
-      if (_extra.contains(tag)) {
-        _extra.remove(tag);
-      } else {
-        _removedBase.add(tag);
-      }
-    });
+    final engine = NativeBackendScope.maybeOf(context)?.engine;
+    if (engine != null) {
+      engine.removeTag(assetIdFor(widget.photoId), tag);
+      setState(_reload);
+    } else {
+      setState(() {
+        if (_extra.contains(tag)) {
+          _extra.remove(tag);
+        } else {
+          _removedBase.add(tag);
+        }
+      });
+    }
   }
 
   @override

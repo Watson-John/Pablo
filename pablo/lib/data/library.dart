@@ -479,6 +479,15 @@ Map<String, List<Photo>> _albumSectionPhotos = const {};
 void setAlbumSectionPhotos(Map<String, List<Photo>> m) =>
     _albumSectionPhotos = m;
 
+/// Catalog star state (asset_id → starred), hydrated at import and toggled by
+/// the context menu / controls bar. Kept here (not on the immutable Photo) so
+/// star reflects the catalog without rebuilding the library.
+Map<int, bool> _starredByAsset = const {};
+void hydrateStarred(Map<int, bool> m) => _starredByAsset = m;
+bool isStarredAsset(int assetId) => _starredByAsset[assetId] ?? false;
+void setStarredLocal(int assetId, bool v) =>
+    _starredByAsset = {..._starredByAsset, assetId: v};
+
 /// Photos for a gallery section id — an album id, folder id, or timeline id.
 List<Photo> photosFor(String id) =>
     _albumSectionPhotos[id] ??

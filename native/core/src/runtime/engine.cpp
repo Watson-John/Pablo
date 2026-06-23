@@ -367,6 +367,48 @@ std::vector<int64_t> Engine::album_members(int64_t album_id) const {
     return catalog_->album_members(album_id);
 }
 
+void Engine::set_starred(int64_t asset_id, bool v) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_starred(asset_id, v);
+}
+
+void Engine::set_rating(int64_t asset_id, int32_t v) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_rating(asset_id, v);
+}
+
+void Engine::set_caption(int64_t asset_id, const std::string& v) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_caption(asset_id, v);
+}
+
+void Engine::add_tag(int64_t asset_id, const std::string& tag) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->add_tag(asset_id, tag);
+}
+
+void Engine::remove_tag(int64_t asset_id, const std::string& tag) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->remove_tag(asset_id, tag);
+}
+
+std::vector<std::string> Engine::tags_for_asset(int64_t asset_id) const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->tags_for_asset(asset_id);
+}
+
+std::optional<catalog::AssetRecord> Engine::asset(int64_t asset_id) const {
+    if (!catalog_) return std::nullopt;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->asset_by_id(asset_id);
+}
+
 #endif  // PHOTO_HAVE_SQLITE
 
 }  // namespace photo

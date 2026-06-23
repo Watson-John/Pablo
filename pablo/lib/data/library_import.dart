@@ -59,6 +59,7 @@ class LibraryImport {
 
     final assets = backend.engine.listAssets();
     hydrateCatalogIds({for (final a in assets) a.path: a.assetId});
+    hydrateStarred({for (final a in assets) a.assetId: a.starred});
     appState?.updateTaskPercent(_taskId, 100); // tickTasks() retires it
     debugPrint('[pablo] catalog hydrated: ${assets.length} assets');
     return assets.length;

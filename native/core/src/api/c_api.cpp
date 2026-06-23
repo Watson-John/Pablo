@@ -13,6 +13,7 @@
 //     functions treat NULL engine as a misuse and return a sentinel.
 
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -466,6 +467,141 @@ PHOTO_API size_t photo_album_members(photo_engine_t* engine, uint64_t album_id,
     }
 #else
     (void)engine; (void)album_id; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Organize state — star / rating / caption / tags (catalog-only).
+// ---------------------------------------------------------------------------
+
+#ifdef PHOTO_HAVE_SQLITE
+namespace {
+template <typename Fn>
+int32_t organize_mutate(photo_engine_t* engine, const char* what, Fn fn) {
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        fn(cast(engine));
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "%s: %s", what, e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+}
+}  // namespace
+#endif
+
+PHOTO_API int32_t photo_asset_set_starred(photo_engine_t* engine,
+                                          uint64_t asset_id, int32_t starred) {
+#ifdef PHOTO_HAVE_SQLITE
+    return organize_mutate(engine, "photo_asset_set_starred", [&](photo::Engine* e) {
+        e->set_starred(static_cast<int64_t>(asset_id), starred != 0);
+    });
+#else
+    (void)engine; (void)asset_id; (void)starred;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_set_rating(photo_engine_t* engine,
+                                         uint64_t asset_id, int32_t rating) {
+#ifdef PHOTO_HAVE_SQLITE
+    return organize_mutate(engine, "photo_asset_set_rating", [&](photo::Engine* e) {
+        e->set_rating(static_cast<int64_t>(asset_id), rating);
+    });
+#else
+    (void)engine; (void)asset_id; (void)rating;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_set_caption(photo_engine_t* engine,
+                                          uint64_t asset_id,
+                                          const char* caption_utf8) {
+#ifdef PHOTO_HAVE_SQLITE
+    return organize_mutate(engine, "photo_asset_set_caption", [&](photo::Engine* e) {
+        e->set_caption(static_cast<int64_t>(asset_id),
+                       caption_utf8 ? std::string(caption_utf8) : std::string{});
+    });
+#else
+    (void)engine; (void)asset_id; (void)caption_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_organize(photo_engine_t* engine, uint64_t asset_id,
+                                       photo_organize_t* out) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || !out) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        auto a = cast(engine)->asset(static_cast<int64_t>(asset_id));
+        if (!a) return PHOTO_STATUS_NOT_FOUND;
+        *out = photo_organize_t{};
+        out->starred = a->starred ? 1 : 0;
+        out->rating = a->rating;
+        std::snprintf(out->caption, sizeof(out->caption), "%s", a->caption.c_str());
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_organize: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)asset_id; (void)out;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_add_tag(photo_engine_t* engine, uint64_t asset_id,
+                                      const char* tag_utf8) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!tag_utf8 || !*tag_utf8) return PHOTO_STATUS_INVALID_ARG;
+    return organize_mutate(engine, "photo_asset_add_tag", [&](photo::Engine* e) {
+        e->add_tag(static_cast<int64_t>(asset_id), tag_utf8);
+    });
+#else
+    (void)engine; (void)asset_id; (void)tag_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_remove_tag(photo_engine_t* engine,
+                                         uint64_t asset_id, const char* tag_utf8) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!tag_utf8) return PHOTO_STATUS_INVALID_ARG;
+    return organize_mutate(engine, "photo_asset_remove_tag", [&](photo::Engine* e) {
+        e->remove_tag(static_cast<int64_t>(asset_id), tag_utf8);
+    });
+#else
+    (void)engine; (void)asset_id; (void)tag_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API size_t photo_asset_tags(photo_engine_t* engine, uint64_t asset_id,
+                                  char* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto tags = cast(engine)->tags_for_asset(static_cast<int64_t>(asset_id));
+        size_t total = 0;
+        for (const auto& t : tags) total += t.size() + 1;  // each tag + NUL
+        if (out && cap > 0) {
+            size_t pos = 0;
+            for (const auto& t : tags) {
+                const size_t need = t.size() + 1;
+                if (pos + need > cap) break;
+                std::memcpy(out + pos, t.data(), t.size());
+                out[pos + t.size()] = '\0';
+                pos += need;
+            }
+        }
+        return total;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_tags: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id; (void)out; (void)cap;
     return 0;
 #endif
 }

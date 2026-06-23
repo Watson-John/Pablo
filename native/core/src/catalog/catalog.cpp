@@ -175,6 +175,19 @@ void Catalog::migrate() {
              "CREATE INDEX IF NOT EXISTS album_member_album ON album_member(album_id);"
              "PRAGMA user_version=4;");
     }
+    if (user_version(db_) < 5) {
+        // Keywords / tags.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS tag("
+             " id INTEGER PRIMARY KEY,"
+             " name TEXT NOT NULL UNIQUE);"
+             "CREATE TABLE IF NOT EXISTS asset_tag("
+             " asset_id INTEGER NOT NULL,"
+             " tag_id INTEGER NOT NULL,"
+             " PRIMARY KEY(asset_id, tag_id));"
+             "CREATE INDEX IF NOT EXISTS asset_tag_tag ON asset_tag(tag_id);"
+             "PRAGMA user_version=5;");
+    }
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {
@@ -389,6 +402,43 @@ std::vector<int64_t> Catalog::album_members(int64_t album_id) const {
     return out;
 }
 
+// ── Tags ─────────────────────────────────────────────────────────────────────
+
+void Catalog::add_tag(int64_t asset_id, const std::string& tag) {
+    { Stmt q(db_, "INSERT OR IGNORE INTO tag(name) VALUES(?)"); q.bind(1, tag).run(); }
+    Stmt q(db_,
+           "INSERT OR IGNORE INTO asset_tag(asset_id, tag_id)"
+           " VALUES(?, (SELECT id FROM tag WHERE name=?))");
+    q.bind(1, asset_id).bind(2, tag).run();
+}
+
+void Catalog::remove_tag(int64_t asset_id, const std::string& tag) {
+    Stmt q(db_,
+           "DELETE FROM asset_tag WHERE asset_id=?"
+           " AND tag_id=(SELECT id FROM tag WHERE name=?)");
+    q.bind(1, asset_id).bind(2, tag).run();
+}
+
+std::vector<std::string> Catalog::tags_for_asset(int64_t asset_id) const {
+    std::vector<std::string> out;
+    Stmt q(db_,
+           "SELECT t.name FROM tag t JOIN asset_tag a ON a.tag_id=t.id"
+           " WHERE a.asset_id=? ORDER BY t.name");
+    q.bind(1, asset_id);
+    while (q.step()) out.push_back(q.col_text(0));
+    return out;
+}
+
+std::vector<int64_t> Catalog::assets_with_tag(const std::string& tag) const {
+    std::vector<int64_t> out;
+    Stmt q(db_,
+           "SELECT a.asset_id FROM asset_tag a JOIN tag t ON t.id=a.tag_id"
+           " WHERE t.name=?");
+    q.bind(1, tag);
+    while (q.step()) out.push_back(q.col_int(0));
+    return out;
+}
+
 #else  // !PHOTO_HAVE_SQLITE — the catalog requires SQLite.
 
 Catalog::Catalog(const std::string&) {
@@ -423,6 +473,10 @@ void Catalog::add_to_album(int64_t, int64_t) {}
 void Catalog::remove_from_album(int64_t, int64_t) {}
 std::vector<Catalog::AlbumRecord> Catalog::list_albums() const { return {}; }
 std::vector<int64_t> Catalog::album_members(int64_t) const { return {}; }
+void Catalog::add_tag(int64_t, const std::string&) {}
+void Catalog::remove_tag(int64_t, const std::string&) {}
+std::vector<std::string> Catalog::tags_for_asset(int64_t) const { return {}; }
+std::vector<int64_t> Catalog::assets_with_tag(const std::string&) const { return {}; }
 
 #endif  // PHOTO_HAVE_SQLITE
 

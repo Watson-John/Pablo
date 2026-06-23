@@ -79,6 +79,16 @@ public:
     void    remove_from_album(int64_t album_id, int64_t asset_id);
     std::vector<catalog::Catalog::AlbumRecord> list_albums() const;
     std::vector<int64_t> album_members(int64_t album_id) const;
+
+    // Organize state (all locked). Catalog-only — no file write-back (D1).
+    void set_starred(int64_t asset_id, bool v);
+    void set_rating(int64_t asset_id, int32_t v);
+    void set_caption(int64_t asset_id, const std::string& v);
+    void add_tag(int64_t asset_id, const std::string& tag);
+    void remove_tag(int64_t asset_id, const std::string& tag);
+    std::vector<std::string> tags_for_asset(int64_t asset_id) const;
+    // Full asset row (for reading star/rating/caption); nullopt if unknown.
+    std::optional<catalog::AssetRecord> asset(int64_t asset_id) const;
 #endif
 #ifdef PHOTO_HAVE_FACES
     faces::FaceService& faces()  { return faces_; }

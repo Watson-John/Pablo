@@ -5,8 +5,10 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../components/pablo_icon.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
 import 'photo_surface.dart';
 
 class PhotoThumb extends StatefulWidget {
@@ -185,7 +187,8 @@ class _PhotoThumbState extends State<PhotoThumb> {
                               Positioned.fill(
                                 child: PhotoSurface(photo: widget.photo),
                               ),
-                              if (widget.photo.starred)
+                              if (widget.photo.starred ||
+                                  isStarredAsset(assetIdFor(widget.photo.id)))
                                 const Positioned(
                                   top: 6,
                                   left: 6,

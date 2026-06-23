@@ -159,6 +159,17 @@ Photo? _resolveActivePhoto(PabloAppState st) {
 class _BodyState extends State<_Body> {
   double _sidebarStart = 260;
 
+  // Toggle the photo's star (catalog-persisted) and refresh the gallery.
+  void _toggleStar(String photoId) {
+    final engine = NativeBackendScope.maybeOf(context)?.engine;
+    if (engine == null) return;
+    final aid = assetIdFor(photoId);
+    final v = !isStarredAsset(aid);
+    engine.setStarred(aid, v);
+    setStarredLocal(aid, v);
+    AppScope.of(context).notifyStar();
+  }
+
   // Add a photo to an album the user picks (or a new one), then reload.
   Future<void> _addToAlbum(String photoId) async {
     final backend = NativeBackendScope.maybeOf(context);
@@ -295,13 +306,18 @@ class _BodyState extends State<_Body> {
                                                 st.openLightbox(id),
                                           ),
                                           ContextMenuItem(
-                                            label: (photo?.starred ?? false)
+                                            label: ((photo?.starred ?? false) ||
+                                                    isStarredAsset(
+                                                        assetIdFor(id)))
                                                 ? 'Unstar'
                                                 : 'Star',
                                             iconCharacter:
-                                                (photo?.starred ?? false)
+                                                ((photo?.starred ?? false) ||
+                                                        isStarredAsset(
+                                                            assetIdFor(id)))
                                                     ? '☆'
                                                     : '★',
+                                            onPressed: () => _toggleStar(id),
                                           ),
                                           ContextMenuItem(
                                             label: 'Add to Album',

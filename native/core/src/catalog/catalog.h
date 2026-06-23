@@ -124,6 +124,12 @@ public:
     std::vector<AlbumRecord> list_albums() const;           // ordered by created
     std::vector<int64_t>     album_members(int64_t album_id) const;  // by position
 
+    // ── Tags (tag + asset_tag tables) ───────────────────────────────────────
+    void add_tag(int64_t asset_id, const std::string& tag);     // creates if new
+    void remove_tag(int64_t asset_id, const std::string& tag);
+    std::vector<std::string> tags_for_asset(int64_t asset_id) const;  // sorted
+    std::vector<int64_t>     assets_with_tag(const std::string& tag) const;
+
 private:
     void migrate();
 

@@ -203,6 +203,16 @@ final class _NativeGeoPoint extends Struct {
   external double lon;
 }
 
+/// photo_organize_t mirror.
+final class _NativeOrganize extends Struct {
+  @Int32()
+  external int starred;
+  @Int32()
+  external int rating;
+  @Array(512)
+  external Array<Uint8> caption;
+}
+
 /// photo_album_t mirror.
 final class _NativeAlbum extends Struct {
   @Uint64()
@@ -325,6 +335,20 @@ typedef _AlbumMembersC =
     IntPtr Function(Pointer<Void>, Uint64, Pointer<Uint64>, IntPtr);
 typedef _AlbumMembersDart =
     int Function(Pointer<Void>, int, Pointer<Uint64>, int);
+
+// Organize (star/rating/caption/tags).
+typedef _AssetSetIntC = Int32 Function(Pointer<Void>, Uint64, Int32);
+typedef _AssetSetIntDart = int Function(Pointer<Void>, int, int);
+typedef _AssetSetStrC = Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _AssetSetStrDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _AssetOrganizeC =
+    Int32 Function(Pointer<Void>, Uint64, Pointer<_NativeOrganize>);
+typedef _AssetOrganizeDart =
+    int Function(Pointer<Void>, int, Pointer<_NativeOrganize>);
+typedef _AssetTagsC =
+    IntPtr Function(Pointer<Void>, Uint64, Pointer<Uint8>, IntPtr);
+typedef _AssetTagsDart =
+    int Function(Pointer<Void>, int, Pointer<Uint8>, int);
 
 typedef _FaceApproveC = Uint64 Function(Pointer<Void>, Uint64, Uint64);
 typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
@@ -617,6 +641,85 @@ final class Engine {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Organize state — star / rating / caption / tags. Catalog-only (D1).
+  // Mutators return a photo_status_t (0 == OK).
+  // -------------------------------------------------------------------------
+
+  int setStarred(int assetId, bool v) =>
+      _Bindings.assetSetStarred(_handle, assetId, v ? 1 : 0);
+
+  int setRating(int assetId, int rating) =>
+      _Bindings.assetSetRating(_handle, assetId, rating);
+
+  int setCaption(int assetId, String caption) {
+    final p = caption.toNativeUtf8();
+    try {
+      return _Bindings.assetSetCaption(_handle, assetId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Star / rating / caption for an asset, or null if unknown.
+  Organize? organize(int assetId) {
+    final out = calloc<_NativeOrganize>();
+    try {
+      if (_Bindings.assetOrganize(_handle, assetId, out) != 0) return null;
+      return Organize._(out.ref);
+    } finally {
+      calloc.free(out);
+    }
+  }
+
+  int addTag(int assetId, String tag) {
+    final p = tag.toNativeUtf8();
+    try {
+      return _Bindings.assetAddTag(_handle, assetId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  int removeTag(int assetId, String tag) {
+    final p = tag.toNativeUtf8();
+    try {
+      return _Bindings.assetRemoveTag(_handle, assetId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Tags for an asset (sorted). Decoded from the NUL-separated native buffer.
+  List<String> assetTags(int assetId) {
+    var cap = 256;
+    var buf = calloc<Uint8>(cap);
+    try {
+      var n = _Bindings.assetTags(_handle, assetId, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Uint8>(cap);
+        n = _Bindings.assetTags(_handle, assetId, buf, cap);
+      }
+      final len = n < cap ? n : cap;
+      final bytes = buf.asTypedList(len);
+      final tags = <String>[];
+      var start = 0;
+      for (var i = 0; i < len; i++) {
+        if (bytes[i] == 0) {
+          if (i > start) {
+            tags.add(utf8.decode(bytes.sublist(start, i), allowMalformed: true));
+          }
+          start = i + 1;
+        }
+      }
+      return tags;
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
   /// Member asset ids of an album, in order.
   List<int> albumMembers(int albumId) {
     var cap = 256;
@@ -892,6 +995,19 @@ final class GeoPoint {
   final double lon;
 }
 
+/// Star / rating / caption for an asset. Immutable projection of
+/// photo_organize_t.
+final class Organize {
+  Organize._(_NativeOrganize o)
+    : starred = o.starred != 0,
+      rating = o.rating,
+      caption = _readCName(o.caption, 512);
+
+  final bool starred;
+  final int rating;
+  final String caption;
+}
+
 /// A user-created album. Immutable projection of photo_album_t. [coverAssetId]
 /// is 0 when unset.
 final class Album {
@@ -1013,6 +1129,21 @@ final class _Bindings {
       .lookupFunction<_AlbumListC, _AlbumListDart>('photo_album_list');
   static final _AlbumMembersDart albumMembers = _dylib
       .lookupFunction<_AlbumMembersC, _AlbumMembersDart>('photo_album_members');
+
+  static final _AssetSetIntDart assetSetStarred = _dylib
+      .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_starred');
+  static final _AssetSetIntDart assetSetRating = _dylib
+      .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_rating');
+  static final _AssetSetStrDart assetSetCaption = _dylib
+      .lookupFunction<_AssetSetStrC, _AssetSetStrDart>('photo_asset_set_caption');
+  static final _AssetOrganizeDart assetOrganize = _dylib
+      .lookupFunction<_AssetOrganizeC, _AssetOrganizeDart>('photo_asset_organize');
+  static final _AssetSetStrDart assetAddTag = _dylib
+      .lookupFunction<_AssetSetStrC, _AssetSetStrDart>('photo_asset_add_tag');
+  static final _AssetSetStrDart assetRemoveTag = _dylib
+      .lookupFunction<_AssetSetStrC, _AssetSetStrDart>('photo_asset_remove_tag');
+  static final _AssetTagsDart assetTags = _dylib
+      .lookupFunction<_AssetTagsC, _AssetTagsDart>('photo_asset_tags');
 
   static final _FaceApproveDart faceApprove = _dylib
       .lookupFunction<_FaceApproveC, _FaceApproveDart>('photo_face_approve');
