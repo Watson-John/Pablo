@@ -251,6 +251,40 @@ PHOTO_API size_t photo_list_assets(photo_engine_t* engine,
 #endif
 }
 
+PHOTO_API int32_t photo_asset_metadata(photo_engine_t* engine,
+                                       uint64_t asset_id,
+                                       photo_metadata_t* out) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || !out) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        auto m = cast(engine)->asset_metadata(static_cast<int64_t>(asset_id));
+        if (!m) return PHOTO_STATUS_NOT_FOUND;
+        *out = photo_metadata_t{};
+        out->asset_id      = asset_id;
+        out->width         = m->width;
+        out->height        = m->height;
+        out->orientation   = m->orientation;
+        out->iso           = m->iso;
+        out->datetime_unix = m->datetime_unix;
+        out->has_gps       = m->has_gps ? 1 : 0;
+        out->gps_lat       = m->gps_lat;
+        out->gps_lon       = m->gps_lon;
+        std::snprintf(out->camera,   sizeof(out->camera),   "%s", m->camera.c_str());
+        std::snprintf(out->lens,     sizeof(out->lens),     "%s", m->lens.c_str());
+        std::snprintf(out->aperture, sizeof(out->aperture), "%s", m->aperture.c_str());
+        std::snprintf(out->shutter,  sizeof(out->shutter),  "%s", m->shutter.c_str());
+        std::snprintf(out->focal,    sizeof(out->focal),    "%s", m->focal.c_str());
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_metadata: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)asset_id; (void)out;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // ML — M6 implements.
 // ---------------------------------------------------------------------------

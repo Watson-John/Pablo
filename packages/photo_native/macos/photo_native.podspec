@@ -78,6 +78,16 @@ Pod::Spec.new do |s|
     catalog_excludes = []
   end
 
+  # ---- EXIF metadata (libexif, Homebrew; LGPL dynamically linked) ----
+  # metadata.cpp always compiles (it self-stubs without libexif, so the import
+  # path still links); libexif just enables real extraction (PHOTO_HAVE_EXIF).
+  exif_prefix = `brew --prefix libexif 2>/dev/null`.strip
+  unless exif_prefix.empty?
+    catalog_defs   += ' PHOTO_HAVE_EXIF=1'
+    catalog_cflags += " -I#{exif_prefix}/include"
+    catalog_libs   += " -L#{exif_prefix}/lib -lexif"
+  end
+
   # ---- M6/M7 face pipeline (OpenCV + ONNX Runtime, Homebrew) ----
   # Mirrors the vips probe: resolved at pod-install time. The face C++ sources
   # include OpenCV unconditionally, so when OpenCV/ORT aren't installed we

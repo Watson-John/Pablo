@@ -381,6 +381,37 @@ typedef struct {
 PHOTO_API size_t photo_list_assets(photo_engine_t* engine,
                                    photo_asset_t* out, size_t cap);
 
+/*
+ * EXIF metadata for an asset, extracted on import and stored in the catalog.
+ * Strings are libexif-formatted (e.g. aperture "f/2.8"); empty if absent.
+ */
+typedef struct {
+    uint64_t asset_id;
+    int32_t  width;
+    int32_t  height;
+    int32_t  orientation;     /* 1..8                                        */
+    int32_t  iso;
+    int64_t  datetime_unix;   /* DateTimeOriginal, unix seconds; 0 if absent  */
+    int32_t  has_gps;         /* 0/1                                          */
+    int32_t  _pad;
+    double   gps_lat;
+    double   gps_lon;
+    char     camera[128];     /* "Make Model"                                 */
+    char     lens[128];
+    char     aperture[32];
+    char     shutter[32];
+    char     focal[32];
+} photo_metadata_t;
+
+/*
+ * Read stored EXIF metadata for an asset into *out. Returns PHOTO_STATUS_OK,
+ * PHOTO_STATUS_NOT_FOUND if the asset has no metadata row, or an error code.
+ * Synchronous.
+ */
+PHOTO_API int32_t photo_asset_metadata(photo_engine_t* engine,
+                                       uint64_t asset_id,
+                                       photo_metadata_t* out);
+
 /* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */

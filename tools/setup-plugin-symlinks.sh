@@ -40,6 +40,7 @@ for rel in api/c_api.cpp \
            thumb/thumb_cache.cpp \
            util/log.cpp \
            catalog/catalog.cpp \
+           exif/exif.cpp \
            faces/detector.cpp \
            faces/align.cpp \
            faces/embed.cpp \

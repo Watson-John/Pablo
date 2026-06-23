@@ -20,6 +20,8 @@
 #include <string>
 #include <vector>
 
+#include "exif/exif.h"  // AssetMetadata (a pure, libexif-free struct)
+
 struct sqlite3;  // fwd; the full header is an implementation detail
 
 namespace photo::catalog {
@@ -89,6 +91,18 @@ public:
     // pick up files added/removed outside the app.
     void                     add_import_root(const std::string& path);
     std::vector<std::string> import_roots() const;
+
+    // Per-asset EXIF metadata (asset_metadata table), populated on import.
+    void upsert_metadata(int64_t asset_id, const exif::AssetMetadata& m);
+    std::optional<exif::AssetMetadata> get_metadata(int64_t asset_id) const;
+
+    // (asset_id, lat, lon) for every geotagged asset — drives the map.
+    struct GeoPoint {
+        int64_t asset_id;
+        double  lat;
+        double  lon;
+    };
+    std::vector<GeoPoint> geotagged() const;
 
 private:
     void migrate();

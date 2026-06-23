@@ -226,10 +226,26 @@ if(PHOTO_BUILD_CATALOG)
         else()
             set(_photo_sqlite_tgt unofficial::sqlite3::sqlite3)
         endif()
-        target_sources(photo_core_objects PRIVATE src/catalog/catalog.cpp)
+        target_sources(photo_core_objects PRIVATE
+            src/catalog/catalog.cpp
+            src/exif/exif.cpp)
         target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_SQLITE=1)
         target_link_libraries(photo_core_objects PUBLIC ${_photo_sqlite_tgt})
         message(STATUS "photo_core: asset catalog ENABLED (SQLite)")
+
+        # EXIF metadata — libexif (LGPL, dynamically linked per DECISIONS D5).
+        # Built alongside the catalog; metadata.cpp self-stubs without it.
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(LIBEXIF QUIET IMPORTED_TARGET libexif)
+        endif()
+        if(LIBEXIF_FOUND)
+            target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_EXIF=1)
+            target_link_libraries(photo_core_objects PUBLIC PkgConfig::LIBEXIF)
+            message(STATUS "photo_core: EXIF metadata ENABLED (libexif ${LIBEXIF_VERSION})")
+        else()
+            message(STATUS "photo_core: libexif absent -> EXIF metadata disabled")
+        endif()
     else()
         message(STATUS "photo_core: SQLite absent -> asset catalog disabled")
     endif()

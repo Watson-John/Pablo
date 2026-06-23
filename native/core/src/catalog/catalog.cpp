@@ -29,6 +29,7 @@ public:
     Stmt& operator=(const Stmt&) = delete;
 
     Stmt& bind(int i, int64_t v) { sqlite3_bind_int64(s_, i, v); return *this; }
+    Stmt& bind(int i, double v) { sqlite3_bind_double(s_, i, v); return *this; }
     Stmt& bind(int i, const std::string& v) {
         sqlite3_bind_text(s_, i, v.c_str(), -1, SQLITE_TRANSIENT); return *this;
     }
@@ -41,6 +42,7 @@ public:
     void run() { step(); reset(); }
     void reset() { sqlite3_reset(s_); sqlite3_clear_bindings(s_); }
     int64_t col_int(int i) const { return sqlite3_column_int64(s_, i); }
+    double col_dbl(int i) const { return sqlite3_column_double(s_, i); }
     std::string col_text(int i) const {
         const unsigned char* t = sqlite3_column_text(s_, i);
         return t ? reinterpret_cast<const char*>(t) : std::string{};
@@ -143,6 +145,20 @@ void Catalog::migrate() {
              "CREATE TABLE IF NOT EXISTS import_root(path TEXT PRIMARY KEY);"
              "PRAGMA user_version=2;");
     }
+    if (user_version(db_) < 3) {
+        // Per-asset EXIF metadata, populated on import.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS asset_metadata("
+             " asset_id INTEGER PRIMARY KEY,"
+             " camera TEXT DEFAULT '', lens TEXT DEFAULT '',"
+             " aperture TEXT DEFAULT '', shutter TEXT DEFAULT '',"
+             " focal TEXT DEFAULT '', iso INTEGER DEFAULT 0,"
+             " datetime_unix INTEGER DEFAULT 0, orientation INTEGER DEFAULT 1,"
+             " width INTEGER DEFAULT 0, height INTEGER DEFAULT 0,"
+             " has_gps INTEGER DEFAULT 0, gps_lat REAL DEFAULT 0, gps_lon REAL DEFAULT 0);"
+             "CREATE INDEX IF NOT EXISTS asset_meta_gps ON asset_metadata(has_gps);"
+             "PRAGMA user_version=3;");
+    }
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {
@@ -242,6 +258,58 @@ std::vector<std::string> Catalog::import_roots() const {
     return out;
 }
 
+void Catalog::upsert_metadata(int64_t asset_id, const exif::AssetMetadata& m) {
+    Stmt q(db_,
+           "INSERT INTO asset_metadata(asset_id,camera,lens,aperture,shutter,"
+           "focal,iso,datetime_unix,orientation,width,height,has_gps,gps_lat,gps_lon)"
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+           " ON CONFLICT(asset_id) DO UPDATE SET"
+           "  camera=excluded.camera, lens=excluded.lens,"
+           "  aperture=excluded.aperture, shutter=excluded.shutter,"
+           "  focal=excluded.focal, iso=excluded.iso,"
+           "  datetime_unix=excluded.datetime_unix, orientation=excluded.orientation,"
+           "  width=excluded.width, height=excluded.height,"
+           "  has_gps=excluded.has_gps, gps_lat=excluded.gps_lat, gps_lon=excluded.gps_lon");
+    q.bind(1, asset_id).bind(2, m.camera).bind(3, m.lens).bind(4, m.aperture)
+     .bind(5, m.shutter).bind(6, m.focal).bind(7, (int64_t)m.iso)
+     .bind(8, m.datetime_unix).bind(9, (int64_t)m.orientation)
+     .bind(10, (int64_t)m.width).bind(11, (int64_t)m.height)
+     .bind(12, (int64_t)(m.has_gps ? 1 : 0)).bind(13, m.gps_lat).bind(14, m.gps_lon);
+    q.run();
+}
+
+std::optional<exif::AssetMetadata> Catalog::get_metadata(int64_t asset_id) const {
+    Stmt q(db_,
+           "SELECT camera,lens,aperture,shutter,focal,iso,datetime_unix,"
+           "orientation,width,height,has_gps,gps_lat,gps_lon"
+           " FROM asset_metadata WHERE asset_id=?");
+    q.bind(1, asset_id);
+    if (!q.step()) return std::nullopt;
+    exif::AssetMetadata m;
+    m.camera = q.col_text(0);
+    m.lens = q.col_text(1);
+    m.aperture = q.col_text(2);
+    m.shutter = q.col_text(3);
+    m.focal = q.col_text(4);
+    m.iso = static_cast<int32_t>(q.col_int(5));
+    m.datetime_unix = q.col_int(6);
+    m.orientation = static_cast<int32_t>(q.col_int(7));
+    m.width = static_cast<int32_t>(q.col_int(8));
+    m.height = static_cast<int32_t>(q.col_int(9));
+    m.has_gps = q.col_int(10) != 0;
+    m.gps_lat = q.col_dbl(11);
+    m.gps_lon = q.col_dbl(12);
+    return m;
+}
+
+std::vector<Catalog::GeoPoint> Catalog::geotagged() const {
+    std::vector<GeoPoint> out;
+    Stmt q(db_, "SELECT asset_id,gps_lat,gps_lon FROM asset_metadata WHERE has_gps=1");
+    while (q.step())
+        out.push_back({q.col_int(0), q.col_dbl(1), q.col_dbl(2)});
+    return out;
+}
+
 #else  // !PHOTO_HAVE_SQLITE — the catalog requires SQLite.
 
 Catalog::Catalog(const std::string&) {
@@ -263,6 +331,11 @@ void Catalog::set_hidden(int64_t, bool) {}
 void Catalog::remove_asset(int64_t) {}
 void Catalog::add_import_root(const std::string&) {}
 std::vector<std::string> Catalog::import_roots() const { return {}; }
+void Catalog::upsert_metadata(int64_t, const exif::AssetMetadata&) {}
+std::optional<exif::AssetMetadata> Catalog::get_metadata(int64_t) const {
+    return std::nullopt;
+}
+std::vector<Catalog::GeoPoint> Catalog::geotagged() const { return {}; }
 
 #endif  // PHOTO_HAVE_SQLITE
 

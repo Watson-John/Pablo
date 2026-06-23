@@ -45,7 +45,7 @@ jobs:
       - name: Install native deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev
+          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev libexif-dev
       - name: Configure
         run: >
           cmake -S . -B build/ci -G Ninja

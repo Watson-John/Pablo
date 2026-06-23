@@ -27,6 +27,7 @@ set(PHOTO_CORE_TEST_SOURCES
     thumb_cache_test.cpp
     catalog_test.cpp
     import_test.cpp
+    metadata_test.cpp
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})

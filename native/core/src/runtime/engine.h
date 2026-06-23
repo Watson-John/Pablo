@@ -65,6 +65,8 @@ public:
     // Source path for an asset id, or "" if unknown. Locked, so it is safe to
     // call concurrently with an in-flight import.
     std::string path_for_asset(int64_t asset_id) const;
+    // Stored EXIF metadata for an asset (locked); nullopt if none.
+    std::optional<exif::AssetMetadata> asset_metadata(int64_t asset_id) const;
 #endif
 #ifdef PHOTO_HAVE_FACES
     faces::FaceService& faces()  { return faces_; }

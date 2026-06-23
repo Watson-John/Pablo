@@ -10,6 +10,8 @@
 #include <cctype>
 #include <chrono>
 #include <unordered_set>
+
+#include "exif/exif.h"
 #endif
 
 #include "util/log.h"
@@ -227,7 +229,8 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
 
     std::lock_guard<std::mutex> lk(catalog_mu_);
 
-    // 2. Upsert every file; report progress every 64 and at the end.
+    // 2. Upsert every file (with its EXIF metadata); report progress every 64
+    //    and at the end.
     for (const auto& f : files) {
         catalog::AssetRecord r;
         r.path = f.string();
@@ -238,8 +241,15 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
         r.mtime_ns = mtime_ns_of(f);
         r.format = format_of(f);
         r.import_time = import_time;
+        // EXIF read (no-op without libexif): fills dimensions/orientation on the
+        // asset row and the searchable asset_metadata row.
+        exif::AssetMetadata meta = exif::extract(r.path);
+        r.width = meta.width;
+        r.height = meta.height;
+        r.orientation = meta.orientation;
         try {
             catalog_->upsert_asset(r);
+            catalog_->upsert_metadata(r.id, meta);
         } catch (const std::exception& e) {
             PHOTO_LOGF(PHOTO_LOG_WARN, "import: skip %s (%s)",
                        r.path.c_str(), e.what());
@@ -295,6 +305,12 @@ std::string Engine::path_for_asset(int64_t asset_id) const {
     if (!catalog_) return {};
     std::lock_guard<std::mutex> lk(catalog_mu_);
     return catalog_->path_by_id(asset_id);
+}
+
+std::optional<exif::AssetMetadata> Engine::asset_metadata(int64_t asset_id) const {
+    if (!catalog_) return std::nullopt;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->get_metadata(asset_id);
 }
 
 #endif  // PHOTO_HAVE_SQLITE
