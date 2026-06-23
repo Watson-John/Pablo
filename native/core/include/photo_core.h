@@ -428,6 +428,40 @@ PHOTO_API size_t photo_list_geotagged(photo_engine_t* engine,
                                       photo_geopoint_t* out, size_t cap);
 
 /* ------------------------------------------------------------------------- */
+/* Albums — user-created collections.                                        */
+/* ------------------------------------------------------------------------- */
+
+typedef struct {
+    uint64_t album_id;
+    uint64_t cover_asset_id;  /* 0 if unset / empty                          */
+    int32_t  count;           /* member count                                */
+    int32_t  _pad;
+    int64_t  created;         /* ns since epoch                              */
+    char     name[128];
+} photo_album_t;
+
+/* Create an album; returns its id (0 on failure / no catalog). */
+PHOTO_API uint64_t photo_album_create(photo_engine_t* engine,
+                                      const char* name_utf8);
+/* The mutators return photo_status_t (0 == OK). */
+PHOTO_API int32_t photo_album_rename(photo_engine_t* engine, uint64_t album_id,
+                                     const char* name_utf8);
+PHOTO_API int32_t photo_album_delete(photo_engine_t* engine, uint64_t album_id);
+PHOTO_API int32_t photo_album_set_cover(photo_engine_t* engine, uint64_t album_id,
+                                        uint64_t cover_asset_id);
+PHOTO_API int32_t photo_album_add(photo_engine_t* engine, uint64_t album_id,
+                                  uint64_t asset_id);
+PHOTO_API int32_t photo_album_remove(photo_engine_t* engine, uint64_t album_id,
+                                     uint64_t asset_id);
+
+/* List all albums (ordered by creation). Fills up to `cap`, returns total. */
+PHOTO_API size_t photo_album_list(photo_engine_t* engine,
+                                  photo_album_t* out, size_t cap);
+/* Member asset ids of one album, in order. Fills up to `cap`, returns total. */
+PHOTO_API size_t photo_album_members(photo_engine_t* engine, uint64_t album_id,
+                                     uint64_t* out, size_t cap);
+
+/* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */
 

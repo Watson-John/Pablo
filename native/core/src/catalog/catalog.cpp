@@ -159,6 +159,22 @@ void Catalog::migrate() {
              "CREATE INDEX IF NOT EXISTS asset_meta_gps ON asset_metadata(has_gps);"
              "PRAGMA user_version=3;");
     }
+    if (user_version(db_) < 4) {
+        // User-created albums.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS album("
+             " id INTEGER PRIMARY KEY,"
+             " name TEXT NOT NULL DEFAULT '',"
+             " cover_asset_id INTEGER DEFAULT -1,"
+             " created INTEGER NOT NULL DEFAULT 0);"
+             "CREATE TABLE IF NOT EXISTS album_member("
+             " album_id INTEGER NOT NULL,"
+             " asset_id INTEGER NOT NULL,"
+             " position INTEGER NOT NULL DEFAULT 0,"
+             " PRIMARY KEY(album_id, asset_id));"
+             "CREATE INDEX IF NOT EXISTS album_member_album ON album_member(album_id);"
+             "PRAGMA user_version=4;");
+    }
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {
@@ -310,6 +326,69 @@ std::vector<Catalog::GeoPoint> Catalog::geotagged() const {
     return out;
 }
 
+// ── Albums ───────────────────────────────────────────────────────────────────
+
+int64_t Catalog::create_album(const std::string& name, int64_t created) {
+    Stmt q(db_, "INSERT INTO album(name, created) VALUES(?,?)");
+    q.bind(1, name).bind(2, created).run();
+    return sqlite3_last_insert_rowid(db_);
+}
+
+void Catalog::rename_album(int64_t album_id, const std::string& name) {
+    Stmt q(db_, "UPDATE album SET name=? WHERE id=?");
+    q.bind(1, name).bind(2, album_id).run();
+}
+
+void Catalog::delete_album(int64_t album_id) {
+    { Stmt q(db_, "DELETE FROM album_member WHERE album_id=?"); q.bind(1, album_id).run(); }
+    { Stmt q(db_, "DELETE FROM album WHERE id=?"); q.bind(1, album_id).run(); }
+}
+
+void Catalog::set_album_cover(int64_t album_id, int64_t cover_asset_id) {
+    Stmt q(db_, "UPDATE album SET cover_asset_id=? WHERE id=?");
+    q.bind(1, cover_asset_id).bind(2, album_id).run();
+}
+
+void Catalog::add_to_album(int64_t album_id, int64_t asset_id) {
+    // Append at the end; idempotent (the PK ignores a re-add).
+    Stmt q(db_,
+           "INSERT OR IGNORE INTO album_member(album_id, asset_id, position)"
+           " VALUES(?,?,"
+           "  (SELECT COALESCE(MAX(position),-1)+1 FROM album_member WHERE album_id=?))");
+    q.bind(1, album_id).bind(2, asset_id).bind(3, album_id).run();
+}
+
+void Catalog::remove_from_album(int64_t album_id, int64_t asset_id) {
+    Stmt q(db_, "DELETE FROM album_member WHERE album_id=? AND asset_id=?");
+    q.bind(1, album_id).bind(2, asset_id).run();
+}
+
+std::vector<Catalog::AlbumRecord> Catalog::list_albums() const {
+    std::vector<AlbumRecord> out;
+    Stmt q(db_,
+           "SELECT a.id, a.name, a.cover_asset_id, a.created,"
+           " (SELECT COUNT(*) FROM album_member m WHERE m.album_id=a.id)"
+           " FROM album a ORDER BY a.created, a.id");
+    while (q.step()) {
+        AlbumRecord r;
+        r.id = q.col_int(0);
+        r.name = q.col_text(1);
+        r.cover_asset_id = q.col_int(2);
+        r.created = q.col_int(3);
+        r.count = static_cast<int32_t>(q.col_int(4));
+        out.push_back(std::move(r));
+    }
+    return out;
+}
+
+std::vector<int64_t> Catalog::album_members(int64_t album_id) const {
+    std::vector<int64_t> out;
+    Stmt q(db_, "SELECT asset_id FROM album_member WHERE album_id=? ORDER BY position");
+    q.bind(1, album_id);
+    while (q.step()) out.push_back(q.col_int(0));
+    return out;
+}
+
 #else  // !PHOTO_HAVE_SQLITE — the catalog requires SQLite.
 
 Catalog::Catalog(const std::string&) {
@@ -336,6 +415,14 @@ std::optional<exif::AssetMetadata> Catalog::get_metadata(int64_t) const {
     return std::nullopt;
 }
 std::vector<Catalog::GeoPoint> Catalog::geotagged() const { return {}; }
+int64_t Catalog::create_album(const std::string&, int64_t) { return 0; }
+void Catalog::rename_album(int64_t, const std::string&) {}
+void Catalog::delete_album(int64_t) {}
+void Catalog::set_album_cover(int64_t, int64_t) {}
+void Catalog::add_to_album(int64_t, int64_t) {}
+void Catalog::remove_from_album(int64_t, int64_t) {}
+std::vector<Catalog::AlbumRecord> Catalog::list_albums() const { return {}; }
+std::vector<int64_t> Catalog::album_members(int64_t) const { return {}; }
 
 #endif  // PHOTO_HAVE_SQLITE
 

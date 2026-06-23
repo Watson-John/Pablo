@@ -20,7 +20,8 @@ export 'src/ffi/core_api.dart'
         FacePerson,
         FaceRow,
         AssetRow,
-        GeoPoint;
+        GeoPoint,
+        Album;
 export 'src/ffi/event_pump.dart' show EventPump, PhotoEvent, PhotoEventKind;
 export 'src/render/texture_slot.dart' show TextureSlot;
 export 'src/render/texture_registry.dart'

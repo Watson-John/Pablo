@@ -69,6 +69,16 @@ public:
     std::optional<exif::AssetMetadata> asset_metadata(int64_t asset_id) const;
     // Every geotagged asset (locked) — drives the map.
     std::vector<catalog::Catalog::GeoPoint> list_geotagged() const;
+
+    // Albums (all locked). create_album stamps the creation time itself.
+    int64_t create_album(const std::string& name);
+    void    rename_album(int64_t album_id, const std::string& name);
+    void    delete_album(int64_t album_id);
+    void    set_album_cover(int64_t album_id, int64_t cover_asset_id);
+    void    add_to_album(int64_t album_id, int64_t asset_id);
+    void    remove_from_album(int64_t album_id, int64_t asset_id);
+    std::vector<catalog::Catalog::AlbumRecord> list_albums() const;
+    std::vector<int64_t> album_members(int64_t album_id) const;
 #endif
 #ifdef PHOTO_HAVE_FACES
     faces::FaceService& faces()  { return faces_; }

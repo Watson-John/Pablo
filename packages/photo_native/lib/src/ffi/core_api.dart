@@ -42,13 +42,15 @@ abstract final class Priority {
   static const int idle = 2;
 }
 
-/// photo_provider_t mirror (for [Engine.probeProvider]).
+/// photo_provider_t mirror (for [Engine.probeProvider]). Values MUST match the
+/// C enum order in photo_core.h (CPU, WINML, DML, COREML, CUDA, OPENVINO).
 abstract final class Provider {
   static const int cpu = 0;
-  static const int coreml = 1;
+  static const int winml = 1;
   static const int directml = 2;
-  static const int winml = 3;
+  static const int coreml = 3;
   static const int cuda = 4;
+  static const int openvino = 5;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +203,22 @@ final class _NativeGeoPoint extends Struct {
   external double lon;
 }
 
+/// photo_album_t mirror.
+final class _NativeAlbum extends Struct {
+  @Uint64()
+  external int album_id;
+  @Uint64()
+  external int cover_asset_id;
+  @Int32()
+  external int count;
+  @Int32()
+  external int pad;
+  @Int64()
+  external int created;
+  @Array(128)
+  external Array<Uint8> name;
+}
+
 // ---------------------------------------------------------------------------
 // FFI function typedefs
 // ---------------------------------------------------------------------------
@@ -290,6 +308,23 @@ typedef _ListGeotaggedC =
     IntPtr Function(Pointer<Void>, Pointer<_NativeGeoPoint>, IntPtr);
 typedef _ListGeotaggedDart =
     int Function(Pointer<Void>, Pointer<_NativeGeoPoint>, int);
+
+// Albums.
+typedef _AlbumCreateC = Uint64 Function(Pointer<Void>, Pointer<Utf8>);
+typedef _AlbumCreateDart = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _AlbumRenameC = Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _AlbumRenameDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _AlbumIdC = Int32 Function(Pointer<Void>, Uint64);
+typedef _AlbumIdDart = int Function(Pointer<Void>, int);
+typedef _AlbumIdIdC = Int32 Function(Pointer<Void>, Uint64, Uint64);
+typedef _AlbumIdIdDart = int Function(Pointer<Void>, int, int);
+typedef _AlbumListC =
+    IntPtr Function(Pointer<Void>, Pointer<_NativeAlbum>, IntPtr);
+typedef _AlbumListDart = int Function(Pointer<Void>, Pointer<_NativeAlbum>, int);
+typedef _AlbumMembersC =
+    IntPtr Function(Pointer<Void>, Uint64, Pointer<Uint64>, IntPtr);
+typedef _AlbumMembersDart =
+    int Function(Pointer<Void>, int, Pointer<Uint64>, int);
 
 typedef _FaceApproveC = Uint64 Function(Pointer<Void>, Uint64, Uint64);
 typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
@@ -525,6 +560,77 @@ final class Engine {
         for (var i = 0; i < count; i++)
           GeoPoint(buf[i].asset_id, buf[i].lat, buf[i].lon),
       ];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Albums. Mutators return a photo_status_t (0 == OK); createAlbum returns the
+  // new album id (0 on failure / no catalog).
+  // -------------------------------------------------------------------------
+
+  int createAlbum(String name) {
+    final p = name.toNativeUtf8();
+    try {
+      return _Bindings.albumCreate(_handle, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  int renameAlbum(int albumId, String name) {
+    final p = name.toNativeUtf8();
+    try {
+      return _Bindings.albumRename(_handle, albumId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  int deleteAlbum(int albumId) => _Bindings.albumDelete(_handle, albumId);
+
+  int setAlbumCover(int albumId, int coverAssetId) =>
+      _Bindings.albumSetCover(_handle, albumId, coverAssetId);
+
+  int addToAlbum(int albumId, int assetId) =>
+      _Bindings.albumAdd(_handle, albumId, assetId);
+
+  int removeFromAlbum(int albumId, int assetId) =>
+      _Bindings.albumRemove(_handle, albumId, assetId);
+
+  List<Album> listAlbums() {
+    var cap = 64;
+    var buf = calloc<_NativeAlbum>(cap);
+    try {
+      var n = _Bindings.albumList(_handle, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeAlbum>(cap);
+        n = _Bindings.albumList(_handle, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [for (var i = 0; i < count; i++) Album._(buf[i])];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Member asset ids of an album, in order.
+  List<int> albumMembers(int albumId) {
+    var cap = 256;
+    var buf = calloc<Uint64>(cap);
+    try {
+      var n = _Bindings.albumMembers(_handle, albumId, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Uint64>(cap);
+        n = _Bindings.albumMembers(_handle, albumId, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [for (var i = 0; i < count; i++) buf[i]];
     } finally {
       calloc.free(buf);
     }
@@ -786,6 +892,23 @@ final class GeoPoint {
   final double lon;
 }
 
+/// A user-created album. Immutable projection of photo_album_t. [coverAssetId]
+/// is 0 when unset.
+final class Album {
+  Album._(_NativeAlbum a)
+    : id = a.album_id,
+      coverAssetId = a.cover_asset_id,
+      count = a.count,
+      created = a.created,
+      name = _readCName(a.name, 128);
+
+  final int id;
+  final String name;
+  final int coverAssetId;
+  final int count;
+  final int created;
+}
+
 /// Decode a NUL-terminated UTF-8 name out of a fixed-size native char array.
 String _readCName(Array<Uint8> arr, int maxLen) {
   final bytes = <int>[];
@@ -873,6 +996,23 @@ final class _Bindings {
       .lookupFunction<_ListGeotaggedC, _ListGeotaggedDart>(
         'photo_list_geotagged',
       );
+
+  static final _AlbumCreateDart albumCreate = _dylib
+      .lookupFunction<_AlbumCreateC, _AlbumCreateDart>('photo_album_create');
+  static final _AlbumRenameDart albumRename = _dylib
+      .lookupFunction<_AlbumRenameC, _AlbumRenameDart>('photo_album_rename');
+  static final _AlbumIdDart albumDelete = _dylib
+      .lookupFunction<_AlbumIdC, _AlbumIdDart>('photo_album_delete');
+  static final _AlbumIdIdDart albumSetCover = _dylib
+      .lookupFunction<_AlbumIdIdC, _AlbumIdIdDart>('photo_album_set_cover');
+  static final _AlbumIdIdDart albumAdd = _dylib
+      .lookupFunction<_AlbumIdIdC, _AlbumIdIdDart>('photo_album_add');
+  static final _AlbumIdIdDart albumRemove = _dylib
+      .lookupFunction<_AlbumIdIdC, _AlbumIdIdDart>('photo_album_remove');
+  static final _AlbumListDart albumList = _dylib
+      .lookupFunction<_AlbumListC, _AlbumListDart>('photo_album_list');
+  static final _AlbumMembersDart albumMembers = _dylib
+      .lookupFunction<_AlbumMembersC, _AlbumMembersDart>('photo_album_members');
 
   static final _FaceApproveDart faceApprove = _dylib
       .lookupFunction<_FaceApproveC, _FaceApproveDart>('photo_face_approve');

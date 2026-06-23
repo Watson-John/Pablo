@@ -29,6 +29,7 @@ set(PHOTO_CORE_TEST_SOURCES
     import_test.cpp
     metadata_test.cpp
     codec_test.cpp
+    album_test.cpp
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})

@@ -472,8 +472,16 @@ String _timeLabel(DateTime d) =>
 
 // ── Top-level query shims (stable names used across the widget tree) ──────────
 
-/// Photos for a gallery section id — a folder id (dir path) or a timeline id.
+/// Album section id (`album:ID`) → its member photos, set by
+/// `PabloAppState.reloadAlbums`. Checked first so the gallery's
+/// SectionScrollView renders albums through the same path as folders/timeline.
+Map<String, List<Photo>> _albumSectionPhotos = const {};
+void setAlbumSectionPhotos(Map<String, List<Photo>> m) =>
+    _albumSectionPhotos = m;
+
+/// Photos for a gallery section id — an album id, folder id, or timeline id.
 List<Photo> photosFor(String id) =>
+    _albumSectionPhotos[id] ??
     Library.instance.photosByFolder[id] ??
     Library.instance.photosByTimeline[id] ??
     const [];

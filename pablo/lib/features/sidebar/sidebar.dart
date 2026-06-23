@@ -1,9 +1,11 @@
 // Sidebar — Map nav + People + Albums + Folders + Timeline + storage footer.
 
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart' show Album;
 
 import '../../app/app_scope.dart';
 import '../../app/app_state.dart';
+import '../../backend/native_backend.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/section_header.dart';
@@ -99,12 +101,12 @@ class Sidebar extends StatelessWidget {
                     ),
                   ),
 
-                  // Albums — no albums feature yet, so this stays empty.
+                  // Albums — user-created collections from the catalog.
                   CollapsibleSection(
                     label: 'Albums',
                     icon: PabloIconName.albums,
                     iconColor: PabloColors.sectionAlbums,
-                    collapsedCount: '0',
+                    collapsedCount: '${st.albums.length}',
                     trailing: PabloIconButton(
                       icon: PabloIconName.plus,
                       size: 20,
@@ -112,22 +114,38 @@ class Sidebar extends StatelessWidget {
                       tooltip: 'New Album',
                       color: PabloColors.assignGreen,
                       elevated: true,
+                      onPressed: () => _newAlbum(context),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        PabloSpacing.xxxl,
-                        PabloSpacing.sm,
-                        PabloSpacing.xl,
-                        PabloSpacing.sm,
-                      ),
-                      child: Text(
-                        'No albums yet',
-                        style: PabloTypography.sans(
-                          fontSize: 11.5,
-                          color: PabloColors.textMuted,
-                        ).copyWith(fontStyle: FontStyle.italic),
-                      ),
-                    ),
+                    child: st.albums.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              PabloSpacing.xxxl,
+                              PabloSpacing.sm,
+                              PabloSpacing.xl,
+                              PabloSpacing.sm,
+                            ),
+                            child: Text(
+                              'No albums yet',
+                              style: PabloTypography.sans(
+                                fontSize: 11.5,
+                                color: PabloColors.textMuted,
+                              ).copyWith(fontStyle: FontStyle.italic),
+                            ),
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final a in st.albums)
+                                _AlbumRow(
+                                  album: a,
+                                  selected:
+                                      st.selectedItem == 'album:${a.id}' &&
+                                          st.activeSection == NavSection.albums,
+                                  onSelect: () => st.setSelectedItem(
+                                      'album:${a.id}', NavSection.albums),
+                                ),
+                            ],
+                          ),
                   ),
 
                   // Folders — the real directory tree under the import root.
@@ -207,6 +225,108 @@ class Sidebar extends StatelessWidget {
           onSelect: () => st.setSelectedItem(f.id, NavSection.folders),
         ),
     ];
+  }
+
+  // Prompt for a name, create the album natively, reload, and select it.
+  Future<void> _newAlbum(BuildContext context) async {
+    final backend = NativeBackendScope.maybeOf(context);
+    if (backend == null) return;
+    final st = AppScope.of(context);
+    final name = await _promptName(context);
+    if (!context.mounted) return;
+    if (name == null || name.trim().isEmpty) return;
+    final id = backend.engine.createAlbum(name.trim());
+    st.reloadAlbums(backend.engine);
+    if (id != 0) st.setSelectedItem('album:$id', NavSection.albums);
+  }
+
+  Future<String?> _promptName(BuildContext context) {
+    final ctl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Album'),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Album name'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(ctl.text),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A selectable album row in the sidebar (name + member count).
+class _AlbumRow extends StatelessWidget {
+  const _AlbumRow({
+    required this.album,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  final Album album;
+  final bool selected;
+  final VoidCallback onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? PabloColors.selectionBackground : Colors.transparent,
+      child: InkWell(
+        onTap: onSelect,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            PabloSpacing.xxxl,
+            PabloSpacing.sm,
+            PabloSpacing.xl,
+            PabloSpacing.sm,
+          ),
+          child: Row(
+            children: [
+              PabloIcon(
+                PabloIconName.albums,
+                size: 13,
+                color: selected
+                    ? PabloColors.selectionPrimary
+                    : PabloColors.sectionAlbums,
+              ),
+              const SizedBox(width: PabloSpacing.base),
+              Expanded(
+                child: Text(
+                  album.name.isEmpty ? 'Untitled album' : album.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: PabloTypography.sans(
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected
+                        ? PabloColors.selectionPrimary
+                        : PabloColors.textSecondary,
+                  ),
+                ),
+              ),
+              Text(
+                '${album.count}',
+                style: PabloTypography.mono(
+                  fontSize: 10.5,
+                  color: PabloColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

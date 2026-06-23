@@ -2,8 +2,11 @@
 // Per-feature state stays local in the relevant widget.
 
 import 'package:flutter/foundation.dart';
+import 'package:photo_native/photo_native.dart' show Album, Engine;
 
+import '../data/library.dart';
 import '../data/models.dart';
+import '../utils/asset_id.dart';
 
 class GridMode {
   static const grid = 'grid';
@@ -94,6 +97,10 @@ class PabloAppState extends ChangeNotifier {
   NavSection activeSection = NavSection.folders;
   String folderSort = FolderSort.tree;
 
+  // User-created albums (from the native catalog). Reloaded on library-ready
+  // and after any album mutation.
+  List<Album> albums = const [];
+
   // Selection
   final Set<String> selectedPhotos = <String>{};
   String? activePhotoId;
@@ -126,6 +133,30 @@ class PabloAppState extends ChangeNotifier {
     selectedItem = id;
     activeSection = section;
     selectedPhotos.clear();
+    notifyListeners();
+  }
+
+  /// Reload albums + their member photos from the catalog. The members resolve
+  /// stable asset ids back to library photos so the gallery can render them.
+  void reloadAlbums(Engine? engine) {
+    if (engine == null) {
+      albums = const [];
+      setAlbumSectionPhotos(const {});
+      notifyListeners();
+      return;
+    }
+    albums = engine.listAlbums();
+    final map = <String, List<Photo>>{};
+    for (final a in albums) {
+      final photos = <Photo>[];
+      for (final assetId in engine.albumMembers(a.id)) {
+        final path = pathForAssetId(assetId);
+        final p = path == null ? null : Library.instance.byId[path];
+        if (p != null) photos.add(p);
+      }
+      map['album:${a.id}'] = photos;
+    }
+    setAlbumSectionPhotos(map);
     notifyListeners();
   }
 

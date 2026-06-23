@@ -310,6 +310,167 @@ PHOTO_API size_t photo_list_geotagged(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
+// Albums
+// ---------------------------------------------------------------------------
+
+PHOTO_API uint64_t photo_album_create(photo_engine_t* engine,
+                                      const char* name_utf8) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        return cast(engine)->create_album(name_utf8 ? name_utf8 : "");
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_create: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)name_utf8;
+    return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_album_rename(photo_engine_t* engine, uint64_t album_id,
+                                     const char* name_utf8) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->rename_album(static_cast<int64_t>(album_id),
+                                   name_utf8 ? name_utf8 : "");
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_rename: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)album_id; (void)name_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_album_delete(photo_engine_t* engine, uint64_t album_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->delete_album(static_cast<int64_t>(album_id));
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_delete: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)album_id;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_album_set_cover(photo_engine_t* engine, uint64_t album_id,
+                                        uint64_t cover_asset_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->set_album_cover(static_cast<int64_t>(album_id),
+                                      static_cast<int64_t>(cover_asset_id));
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_set_cover: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)album_id; (void)cover_asset_id;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_album_add(photo_engine_t* engine, uint64_t album_id,
+                                  uint64_t asset_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->add_to_album(static_cast<int64_t>(album_id),
+                                   static_cast<int64_t>(asset_id));
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_add: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)album_id; (void)asset_id;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_album_remove(photo_engine_t* engine, uint64_t album_id,
+                                     uint64_t asset_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->remove_from_album(static_cast<int64_t>(album_id),
+                                        static_cast<int64_t>(asset_id));
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_remove: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)album_id; (void)asset_id;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API size_t photo_album_list(photo_engine_t* engine,
+                                  photo_album_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto rows = cast(engine)->list_albums();
+        const size_t n = rows.size();
+        if (out) {
+            for (size_t i = 0; i < n && i < cap; ++i) {
+                const auto& a = rows[i];
+                photo_album_t& d = out[i];
+                d = photo_album_t{};
+                d.album_id = static_cast<uint64_t>(a.id);
+                d.cover_asset_id =
+                    a.cover_asset_id > 0 ? static_cast<uint64_t>(a.cover_asset_id) : 0;
+                d.count = a.count;
+                d.created = a.created;
+                std::snprintf(d.name, sizeof(d.name), "%s", a.name.c_str());
+            }
+        }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_list: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+PHOTO_API size_t photo_album_members(photo_engine_t* engine, uint64_t album_id,
+                                     uint64_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto ids = cast(engine)->album_members(static_cast<int64_t>(album_id));
+        const size_t n = ids.size();
+        if (out) {
+            for (size_t i = 0; i < n && i < cap; ++i)
+                out[i] = static_cast<uint64_t>(ids[i]);
+        }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_album_members: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)album_id; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+// ---------------------------------------------------------------------------
 // ML — M6 implements.
 // ---------------------------------------------------------------------------
 

@@ -104,6 +104,26 @@ public:
     };
     std::vector<GeoPoint> geotagged() const;
 
+    // ── Albums — user-created collections (album + album_member tables) ──────
+    struct AlbumRecord {
+        int64_t     id;
+        std::string name;
+        int64_t     cover_asset_id;  // -1 if unset / empty
+        int32_t     count;           // member count
+        int64_t     created;         // ns since epoch
+    };
+
+    int64_t create_album(const std::string& name, int64_t created);
+    void    rename_album(int64_t album_id, const std::string& name);
+    void    delete_album(int64_t album_id);          // also drops its members
+    void    set_album_cover(int64_t album_id, int64_t cover_asset_id);
+    // Append asset to the album (idempotent — no duplicate membership).
+    void    add_to_album(int64_t album_id, int64_t asset_id);
+    void    remove_from_album(int64_t album_id, int64_t asset_id);
+
+    std::vector<AlbumRecord> list_albums() const;           // ordered by created
+    std::vector<int64_t>     album_members(int64_t album_id) const;  // by position
+
 private:
     void migrate();
 

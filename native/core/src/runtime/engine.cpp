@@ -319,6 +319,54 @@ std::vector<catalog::Catalog::GeoPoint> Engine::list_geotagged() const {
     return catalog_->geotagged();
 }
 
+int64_t Engine::create_album(const std::string& name) {
+    if (!catalog_) return 0;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->create_album(name, now_ns());
+}
+
+void Engine::rename_album(int64_t album_id, const std::string& name) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->rename_album(album_id, name);
+}
+
+void Engine::delete_album(int64_t album_id) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->delete_album(album_id);
+}
+
+void Engine::set_album_cover(int64_t album_id, int64_t cover_asset_id) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_album_cover(album_id, cover_asset_id);
+}
+
+void Engine::add_to_album(int64_t album_id, int64_t asset_id) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->add_to_album(album_id, asset_id);
+}
+
+void Engine::remove_from_album(int64_t album_id, int64_t asset_id) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->remove_from_album(album_id, asset_id);
+}
+
+std::vector<catalog::Catalog::AlbumRecord> Engine::list_albums() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->list_albums();
+}
+
+std::vector<int64_t> Engine::album_members(int64_t album_id) const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->album_members(album_id);
+}
+
 #endif  // PHOTO_HAVE_SQLITE
 
 }  // namespace photo
