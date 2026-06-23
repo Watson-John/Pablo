@@ -105,8 +105,10 @@ class PeopleController extends ChangeNotifier {
       _repo.nameCluster(clusterId, name);
 
   int scan({required int assetId, required String path}) {
+    // The registry still needs the path (FaceThumb renders the asset's pixels);
+    // the native scan resolves the path itself from the catalog asset id.
     registerAsset(assetId, path);
-    return _repo.scan(assetId: assetId, path: path);
+    return _repo.scan(assetId: assetId);
   }
 
   /// Re-cluster all unconfirmed faces (full recompute on the idle lane).

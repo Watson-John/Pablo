@@ -1,12 +1,17 @@
 // Search header: activity indicator (sidebar-aligned) + search input + adv
 // search settings cog + Import Photos button.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
+import '../backend/native_backend.dart';
 import '../components/pablo_button.dart';
 import '../components/pablo_icon.dart';
 import '../components/pablo_icon_button.dart';
+import '../data/boot.dart';
+import '../data/library_import.dart';
 import '../features/search/activity_indicator.dart';
 import '../theme/tokens.dart';
 
@@ -34,6 +39,20 @@ class _SearchHeaderState extends State<SearchHeader> {
     _ctl.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  // Re-import + re-scan the configured library, refreshing the catalog (stable
+  // ids), the gallery, and the face auto-scan. No-op without a native backend
+  // or a configured library root. A folder-picker import is a follow-up.
+  void _import(BuildContext context) {
+    final backend = NativeBackendScope.maybeOf(context);
+    final root = BootConfig.instance.libraryRoot;
+    if (backend == null || root.isEmpty) return;
+    unawaited(LibraryImport.refresh(
+      backend: backend,
+      root: root,
+      appState: AppScope.of(context),
+    ));
   }
 
   @override
@@ -172,7 +191,7 @@ class _SearchHeaderState extends State<SearchHeader> {
             size: PabloButtonSize.md,
             icon: PabloIconName.cameraFill,
             iconSize: 15,
-            onPressed: () {},
+            onPressed: () => _import(context),
           ),
         ],
       ),

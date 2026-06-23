@@ -161,6 +161,36 @@ final class _NativeFace extends Struct {
   external int pad;
 }
 
+/// photo_asset_t mirror (catalog hydration). Field order + sizes must match
+/// the C struct exactly.
+final class _NativeAsset extends Struct {
+  @Uint64()
+  external int asset_id;
+  @Uint64()
+  external int size;
+  @Uint64()
+  external int mtime_ns;
+  @Uint32()
+  external int width;
+  @Uint32()
+  external int height;
+  @Uint32()
+  external int orientation;
+  @Int32()
+  external int starred;
+  @Int32()
+  external int rating;
+  @Uint32()
+  external int flags;
+  @Array(3)
+  external Array<Uint32> reserved;
+  @Array(4096)
+  external Array<Uint8> path;
+}
+
+/// PHOTO_ASSET_FLAG_HIDDEN.
+const int _kAssetFlagHidden = 1 << 0;
+
 // ---------------------------------------------------------------------------
 // FFI function typedefs
 // ---------------------------------------------------------------------------
@@ -233,12 +263,18 @@ typedef _ThumbCancelDart = void Function(Pointer<Void>, int);
 typedef _FaceScanC = Uint64 Function(Pointer<Void>, Uint64, Uint32);
 typedef _FaceScanDart = int Function(Pointer<Void>, int, int);
 
-// TEST-ONLY: scan by explicit path, bypassing the (not-yet-built) catalog
-// asset lookup. Mirrors photo_face_scan_path in c_api.cpp.
-typedef _FaceScanPathC =
-    Uint64 Function(Pointer<Void>, Uint64, Pointer<Utf8>, Uint32);
-typedef _FaceScanPathDart =
-    int Function(Pointer<Void>, int, Pointer<Utf8>, int);
+// Import + catalog. import/rescan are async (return a request id; emit
+// PHOTO_EVT_IMPORT_*); list_assets is synchronous grow-and-retry.
+typedef _ImportPathC = Uint64 Function(Pointer<Void>, Pointer<Utf8>, Uint32);
+typedef _ImportPathDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+
+typedef _RescanC = Uint64 Function(Pointer<Void>, Uint32);
+typedef _RescanDart = int Function(Pointer<Void>, int);
+
+typedef _ListAssetsC =
+    IntPtr Function(Pointer<Void>, Pointer<_NativeAsset>, IntPtr);
+typedef _ListAssetsDart =
+    int Function(Pointer<Void>, Pointer<_NativeAsset>, int);
 
 typedef _FaceApproveC = Uint64 Function(Pointer<Void>, Uint64, Uint64);
 typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
@@ -416,11 +452,45 @@ final class Engine {
   int scanFaces({required int assetId, int flags = 0}) =>
       _Bindings.faceScan(_handle, assetId, flags);
 
-  /// **TEST HOOK** — scan a face by explicit file path before the catalog
-  /// (M5) can resolve asset ids. Drives the same pipeline as [scanFaces].
-  int scanFacePath({required int assetId, required String path, int flags = 0}) {
-    final pathPtr = _arena.utf8(path);
-    return _Bindings.faceScanPath(_handle, assetId, pathPtr, flags);
+  // -------------------------------------------------------------------------
+  // Import + catalog
+  // -------------------------------------------------------------------------
+
+  /// Recursively import [path] into the catalog. Async: returns a non-zero
+  /// request id (0 if there is no catalog) and emits PHOTO_EVT_IMPORT_PROGRESS
+  /// (aux64 = files done, aux64B = total) / PHOTO_EVT_IMPORT_COMPLETE with the
+  /// same request id.
+  int importPath(String path, {int flags = 0}) {
+    final p = path.toNativeUtf8();
+    try {
+      return _Bindings.importPath(_handle, p, flags);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Re-walk every recorded import root (refresh stats, prune gone files).
+  /// Same event contract as [importPath].
+  int rescan({int flags = 0}) => _Bindings.rescan(_handle, flags);
+
+  /// Snapshot of catalog assets (hidden excluded), ordered by path. Used once
+  /// at boot to hydrate the stable asset-id ⇄ path mapping.
+  List<AssetRow> listAssets() {
+    var cap = 1024;
+    var buf = calloc<_NativeAsset>(cap);
+    try {
+      var n = _Bindings.listAssets(_handle, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeAsset>(cap);
+        n = _Bindings.listAssets(_handle, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [for (var i = 0; i < count; i++) AssetRow._(buf[i])];
+    } finally {
+      calloc.free(buf);
+    }
   }
 
   /// Confirm a face's membership in a cluster/person. Folds its embedding into
@@ -643,6 +713,33 @@ final class FaceRow {
   final bool confirmed;
 }
 
+/// One catalog asset, for library hydration. Immutable projection of
+/// photo_asset_t. The [assetId] is engine-assigned and stable across runs.
+final class AssetRow {
+  AssetRow._(_NativeAsset a)
+    : assetId = a.asset_id,
+      size = a.size,
+      mtimeNs = a.mtime_ns,
+      width = a.width,
+      height = a.height,
+      orientation = a.orientation,
+      starred = a.starred != 0,
+      rating = a.rating,
+      hidden = (a.flags & _kAssetFlagHidden) != 0,
+      path = _readCName(a.path, 4096);
+
+  final int assetId;
+  final String path;
+  final int size;
+  final int mtimeNs;
+  final int width;
+  final int height;
+  final int orientation;
+  final bool starred;
+  final int rating;
+  final bool hidden;
+}
+
 /// Decode a NUL-terminated UTF-8 name out of a fixed-size native char array.
 String _readCName(Array<Uint8> arr, int maxLen) {
   final bytes = <int>[];
@@ -717,8 +814,14 @@ final class _Bindings {
   static final _FaceScanDart faceScan = _dylib
       .lookupFunction<_FaceScanC, _FaceScanDart>('photo_face_scan');
 
-  static final _FaceScanPathDart faceScanPath = _dylib
-      .lookupFunction<_FaceScanPathC, _FaceScanPathDart>('photo_face_scan_path');
+  static final _ImportPathDart importPath = _dylib
+      .lookupFunction<_ImportPathC, _ImportPathDart>('photo_import_path');
+
+  static final _RescanDart rescan =
+      _dylib.lookupFunction<_RescanC, _RescanDart>('photo_rescan');
+
+  static final _ListAssetsDart listAssets = _dylib
+      .lookupFunction<_ListAssetsC, _ListAssetsDart>('photo_list_assets');
 
   static final _FaceApproveDart faceApprove = _dylib
       .lookupFunction<_FaceApproveC, _FaceApproveDart>('photo_face_approve');
