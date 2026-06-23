@@ -351,6 +351,36 @@ PHOTO_API uint64_t photo_import_path(photo_engine_t* engine,
  */
 PHOTO_API uint64_t photo_rescan(photo_engine_t* engine, uint32_t flags);
 
+/*
+ * One catalog asset row, for hydrating the Dart library after import. The
+ * engine-assigned asset_id is stable across runs (unlike a path hash), so face
+ * data and the thumbnail cache stay valid across restarts. `path` is a
+ * NUL-terminated absolute path; the buffer holds a full Linux PATH_MAX (4096).
+ */
+typedef struct {
+    uint64_t asset_id;
+    uint64_t size;          /* bytes                                          */
+    uint64_t mtime_ns;      /* last-modified, ns since epoch                  */
+    uint32_t width;         /* 0 until a metadata/codec pass fills it         */
+    uint32_t height;
+    uint32_t orientation;   /* EXIF orientation 1..8                          */
+    int32_t  starred;       /* 0/1                                            */
+    int32_t  rating;        /* 0..5                                           */
+    uint32_t flags;         /* bit0: hidden                                   */
+    uint32_t _reserved[3];
+    char     path[4096];
+} photo_asset_t;
+
+#define PHOTO_ASSET_FLAG_HIDDEN (1u << 0)
+
+/*
+ * List catalog assets (hidden excluded), ordered by path. Fills up to `cap`
+ * rows into `out` and returns the TOTAL count available — grow and re-call if
+ * it exceeds `cap`, mirroring the photo_face_list_* calls. Synchronous.
+ */
+PHOTO_API size_t photo_list_assets(photo_engine_t* engine,
+                                   photo_asset_t* out, size_t cap);
+
 /* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */

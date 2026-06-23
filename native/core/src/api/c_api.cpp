@@ -12,6 +12,7 @@
 //   - NULL engines are tolerated by lifecycle functions (destroy). Other
 //     functions treat NULL engine as a misuse and return a sentinel.
 
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -180,17 +181,74 @@ PHOTO_API size_t photo_poll_events(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
-// Import + catalog — M3 implements.
+// Import + catalog
 // ---------------------------------------------------------------------------
 
-PHOTO_API uint64_t photo_import_path(photo_engine_t* /*engine*/,
-                                     const char* /*path_utf8*/,
+PHOTO_API uint64_t photo_import_path(photo_engine_t* engine,
+                                     const char* path_utf8,
                                      uint32_t /*flags*/) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || !path_utf8 || !*path_utf8) return 0;
+    try {
+        return cast(engine)->import_path(path_utf8);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_import_path: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)path_utf8;
     return 0;
+#endif
 }
 
-PHOTO_API uint64_t photo_rescan(photo_engine_t* /*engine*/, uint32_t /*flags*/) {
+PHOTO_API uint64_t photo_rescan(photo_engine_t* engine, uint32_t /*flags*/) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        return cast(engine)->rescan();
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_rescan: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine;
     return 0;
+#endif
+}
+
+PHOTO_API size_t photo_list_assets(photo_engine_t* engine,
+                                   photo_asset_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto rows = cast(engine)->list_assets();
+        const size_t n = rows.size();
+        if (out) {
+            for (size_t i = 0; i < n && i < cap; ++i) {
+                const auto& a = rows[i];
+                photo_asset_t& d = out[i];
+                d = photo_asset_t{};
+                d.asset_id    = static_cast<uint64_t>(a.id);
+                d.size        = static_cast<uint64_t>(a.size);
+                d.mtime_ns    = static_cast<uint64_t>(a.mtime_ns);
+                d.width       = static_cast<uint32_t>(a.width);
+                d.height      = static_cast<uint32_t>(a.height);
+                d.orientation = static_cast<uint32_t>(a.orientation);
+                d.starred     = a.starred ? 1 : 0;
+                d.rating      = a.rating;
+                d.flags       = a.hidden ? PHOTO_ASSET_FLAG_HIDDEN : 0u;
+                std::snprintf(d.path, sizeof(d.path), "%s", a.path.c_str());
+            }
+        }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_list_assets: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)out; (void)cap;
+    return 0;
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -204,18 +262,27 @@ PHOTO_API int32_t photo_provider_probe(photo_engine_t* /*engine*/,
 
 PHOTO_API uint64_t photo_face_scan(photo_engine_t* engine,
                                    uint64_t asset_id, uint32_t flags) {
-#ifdef PHOTO_HAVE_FACES
+#if defined(PHOTO_HAVE_FACES) && defined(PHOTO_HAVE_SQLITE)
     if (!engine) return 0;
     try {
-        // TODO(M5): resolve asset_id -> source path via the catalog. Until the
-        // catalog lands, callers drive the pipeline through the
-        // photo_face_scan_path test hook below.
-        return cast(engine)->faces().submit_scan(asset_id, nullptr, flags);
+        auto* eng = cast(engine);
+        if (!eng->catalog()) return 0;
+        // Locked lookup: safe against a concurrent import holding the catalog.
+        const std::string path = eng->path_for_asset(static_cast<int64_t>(asset_id));
+        if (path.empty()) {
+            PHOTO_LOGF(PHOTO_LOG_WARN,
+                       "photo_face_scan: no catalog asset %llu",
+                       static_cast<unsigned long long>(asset_id));
+            return 0;
+        }
+        return eng->faces().submit_scan(asset_id, path.c_str(), flags);
     } catch (const std::exception& e) {
         PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_scan: %s", e.what());
         return 0;
     }
 #else
+    // Without the catalog there is no asset_id -> path mapping; callers drive
+    // the pipeline through the photo_face_scan_path hook instead.
     (void)engine; (void)asset_id; (void)flags;
     return 0;
 #endif

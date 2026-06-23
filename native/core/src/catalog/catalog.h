@@ -85,6 +85,11 @@ public:
     // are left to the face subsystem to reconcile.
     void remove_asset(int64_t id);
 
+    // Import roots — the folders the user imported. rescan re-walks these to
+    // pick up files added/removed outside the app.
+    void                     add_import_root(const std::string& path);
+    std::vector<std::string> import_roots() const;
+
 private:
     void migrate();
 

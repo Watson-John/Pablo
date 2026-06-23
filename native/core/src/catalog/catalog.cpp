@@ -137,6 +137,12 @@ void Catalog::migrate() {
              "CREATE INDEX IF NOT EXISTS asset_folder ON asset(folder);"
              "PRAGMA user_version=1;");
     }
+    if (user_version(db_) < 2) {
+        // Import roots — the folders a rescan re-walks.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS import_root(path TEXT PRIMARY KEY);"
+             "PRAGMA user_version=2;");
+    }
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {
@@ -224,6 +230,18 @@ void Catalog::remove_asset(int64_t id) {
     q.bind(1, id).run();
 }
 
+void Catalog::add_import_root(const std::string& path) {
+    Stmt q(db_, "INSERT OR IGNORE INTO import_root(path) VALUES(?)");
+    q.bind(1, path).run();
+}
+
+std::vector<std::string> Catalog::import_roots() const {
+    std::vector<std::string> out;
+    Stmt q(db_, "SELECT path FROM import_root ORDER BY path");
+    while (q.step()) out.push_back(q.col_text(0));
+    return out;
+}
+
 #else  // !PHOTO_HAVE_SQLITE — the catalog requires SQLite.
 
 Catalog::Catalog(const std::string&) {
@@ -243,6 +261,8 @@ void Catalog::set_rating(int64_t, int32_t) {}
 void Catalog::set_caption(int64_t, const std::string&) {}
 void Catalog::set_hidden(int64_t, bool) {}
 void Catalog::remove_asset(int64_t) {}
+void Catalog::add_import_root(const std::string&) {}
+std::vector<std::string> Catalog::import_roots() const { return {}; }
 
 #endif  // PHOTO_HAVE_SQLITE
 
