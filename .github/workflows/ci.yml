@@ -9,7 +9,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'pablo-v*']
+    branches: [main, 'pablo-v*', 'feat/dedup-*']
   pull_request:
   workflow_dispatch:
 

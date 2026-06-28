@@ -1,0 +1,16 @@
+# Face-model evaluation harness (throwaway eval code; the app is C++).
+opencv-python>=4.9        # YuNet detector + SFace recognizer (cv2.FaceDetectorYN / FaceRecognizerSF)
+onnxruntime>=1.17         # buffalo_l + AdaFace  (swap for onnxruntime-gpu if CUDA is available)
+numpy>=1.24
+scikit-learn>=1.3         # ROC/AUC, ARI/NMI, DBSCAN
+Pillow>=10                # EXIF orientation in ingestion
+matplotlib>=3.7           # ROC / histogram plots
+pyyaml>=6
+
+# dlib candidate (Boost license). Heavy to build from source; optional — run.py
+# skips it gracefully if absent. Install with a toolchain present:
+#   pip install dlib
+# dlib
+
+# Ingestion (eval/ingest) additionally shells out to `exiftool` for RAW previews
+# and embedded-XMP face regions (system package: `brew install exiftool`).

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "pablo-dedup",
+  "version-string": "0.1.0",
+  "description": "Local near-duplicate photo detection (learned copy-detection embeddings).",
+  "dependencies": [
+    {
+      "name": "opencv4",
+      "default-features": false,
+      "features": ["contrib", "jpeg", "png", "tiff", "webp"]
+    },
+    "xxhash",
+    {
+      "name": "sqlite3",
+      "features": ["json1"]
+    },
+    "yaml-cpp",
+    "nlohmann-json",
+    "cpp-httplib"
+  ],
+  "features": {
+    "faiss": {
+      "description": "FAISS exact inner-product index (recommended for >100k images). Without it the build uses a blocked brute-force fallback.",
+      "dependencies": ["faiss"]
+    },
+    "raw": {
+      "description": "LibRaw RAW decoding via embedded thumbnails (LGPL — dynamic link).",
+      "dependencies": ["libraw"]
+    }
+  }
+}
