@@ -14,6 +14,7 @@
 // This file runs under `flutter test` in the existing CI matrix
 // (ubuntu/windows/macos), so these invariants are checked on every OS.
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -301,7 +302,8 @@ void main() {
       expect(plan.entries.single.folderSegments, ['2024']);
     });
 
-    test('overlong component fails gracefully (no throw, ok=false)', () {
+    test('overlong component is truncated to a creatable path (no throw, ok)',
+        () {
       final scheme = StorageScheme(
         id: 'l',
         name: 'l',
@@ -313,8 +315,17 @@ void main() {
         SourcePhoto(src.path,
             PhotoMeta(fileMtime: _fixed, originalName: 'i', ext: '.jpg'))
       ]);
-      final res = FileOps.applyPlan(plan, '${tmp.path}${_sep}ld');
-      expect(res.single.ok, isFalse); // >255 bytes/component on every OS
+      final res = FileOps.applyPlan(plan, '${tmp.path}${_sep}ld').single;
+      // The engine caps each component to NAME_MAX, so an over-long name now
+      // files instead of erroring: it is trimmed (extension preserved) to a path
+      // every OS can create, rather than failing the entry.
+      expect(res.ok, isTrue, reason: res.error?.toString());
+      expect(File(res.destPath).existsSync(), isTrue);
+      expect(res.destPath.endsWith('.jpg'), isTrue); // extension survives
+      for (final part in res.entry.relPath.split('/')) {
+        expect(utf8.encode(part).length, lessThanOrEqualTo(255),
+            reason: 'component over budget: $part');
+      }
     });
 
     test('missing source -> per-entry failure, no throw', () {
