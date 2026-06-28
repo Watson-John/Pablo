@@ -4,6 +4,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../data/models.dart';
+import '../data/scheme_store.dart';
+import '../data/storage_scheme.dart';
 
 class GridMode {
   static const grid = 'grid';
@@ -120,6 +122,19 @@ class PabloAppState extends ChangeNotifier {
   // Tasks (background activity). Real tasks are added by their owners (e.g. the
   // face-scan ingestion); there is no seeded placeholder.
   final List<TaskInfo> tasks = <TaskInfo>[];
+
+  // Storage schemes (organization templates). Empty until [loadSchemes] runs at
+  // startup, so widget tests that pump the app never touch the filesystem.
+  final List<StorageScheme> schemes = <StorageScheme>[];
+  String? activeSchemeId;
+
+  /// The active scheme, or the first available, or null when none are loaded.
+  StorageScheme? get activeScheme {
+    for (final s in schemes) {
+      if (s.id == activeSchemeId) return s;
+    }
+    return schemes.isEmpty ? null : schemes.first;
+  }
 
   // ── Mutators ──
   void setSelectedItem(String id, NavSection section) {
@@ -259,4 +274,48 @@ class PabloAppState extends ChangeNotifier {
     tasks.removeWhere((t) => t.percent >= 100);
     if (tasks.length != before) notifyListeners();
   }
+
+  // ── Storage schemes ──
+
+  /// Load schemes from disk (seeding presets on first run). Called once from
+  /// main(); intentionally not in the constructor so tests stay filesystem-free.
+  void loadSchemes() {
+    final data = SchemeStore.load();
+    schemes
+      ..clear()
+      ..addAll(data.schemes);
+    activeSchemeId = data.activeId;
+    notifyListeners();
+  }
+
+  void setActiveScheme(String id) {
+    activeSchemeId = id;
+    _persistSchemes();
+    notifyListeners();
+  }
+
+  /// Insert or replace [scheme] (matched by id) and make it active.
+  void upsertScheme(StorageScheme scheme) {
+    final i = schemes.indexWhere((s) => s.id == scheme.id);
+    if (i >= 0) {
+      schemes[i] = scheme;
+    } else {
+      schemes.add(scheme);
+    }
+    activeSchemeId = scheme.id;
+    _persistSchemes();
+    notifyListeners();
+  }
+
+  void deleteScheme(String id) {
+    schemes.removeWhere((s) => s.id == id);
+    if (activeSchemeId == id) {
+      activeSchemeId = schemes.isEmpty ? null : schemes.first.id;
+    }
+    _persistSchemes();
+    notifyListeners();
+  }
+
+  void _persistSchemes() =>
+      SchemeStore.save(SchemeStoreData(schemes, activeSchemeId));
 }

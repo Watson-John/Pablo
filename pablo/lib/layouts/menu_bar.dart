@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../app/app_scope.dart';
 import '../app/app_state.dart';
 import '../backend/native_backend.dart';
+import '../features/organize/storage_scheme_modal.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_scope.dart';
 import '../theme/tokens.dart';
@@ -91,9 +92,13 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           _MenuEntry(label: 'New Album…'),
           _MenuEntry(label: 'New Smart Album…'),
         ],
-        'Tools': const [
-          _MenuEntry(label: 'Batch Edit…'),
-          _MenuEntry(label: 'Options…'),
+        'Tools': [
+          const _MenuEntry(label: 'Batch Edit…'),
+          _MenuEntry(
+            label: 'Organization Scheme…',
+            onTap: () => openStorageSchemeBuilder(context, st),
+          ),
+          const _MenuEntry(label: 'Options…'),
         ],
         'Help': const [
           _MenuEntry(label: 'Pablo Help'),
@@ -210,7 +215,13 @@ class _MenuButtonState extends State<_MenuButton> {
         ],
       );
     });
-    Overlay.of(context).insert(_overlay!);
+    // _showOverlay runs from didUpdateWidget, i.e. during the menu bar's build;
+    // inserting an OverlayEntry synchronously there throws "markNeedsBuild
+    // called during build". Defer the insert to just after the frame.
+    final entry = _overlay!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _overlay == entry) Overlay.of(context).insert(entry);
+    });
   }
 
   void _removeOverlay() {
