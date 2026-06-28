@@ -27,14 +27,44 @@ env:
   FLUTTER_CHANNEL: stable
 
 jobs:
-  # ── Fast, reliable per-slice gate: analyze + tests on all three OSes ──
+  # ── Native C++ core: build photo_core + run the gtest suite via ctest ──
+  #    Runs on Linux (cheap) because the unit tests (catalog / import / thumb /
+  #    smoke) are platform-independent logic that does NOT need the OpenCV/ONNX
+  #    face pipeline — so we build with faces off and only need SQLite +
+  #    GoogleTest (fetched from source by the test CMake). This is the only job
+  #    that exercises the native unit tests; the app-build jobs compile the core
+  #    but run no ctest. (Face-pipeline compile coverage in CI is a follow-up.)
+  native-tests:
+    name: native tests (Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev libexif-dev
+      - name: Configure
+        run: >
+          cmake -S . -B build/ci -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPHOTO_BUILD_FACES=OFF
+          -DPHOTO_BUILD_TESTS=ON
+          -DPHOTO_BUILD_BENCHMARKS=OFF
+      - name: Build
+        run: cmake --build build/ci --target photo_core photo_core_tests
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure
+
+  # ── Fast, reliable per-slice gate: analyze + tests ──
+  # Linux-only: `flutter analyze` / `flutter test` are platform-independent, so
+  # running them on Windows + macOS (2x / 10x cost) only duplicated the result.
+  # Per-OS native compilation is still covered by the `build` matrix below.
   analyze:
-    name: analyze (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    name: analyze (ubuntu-latest)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2

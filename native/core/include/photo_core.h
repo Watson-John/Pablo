@@ -351,6 +351,154 @@ PHOTO_API uint64_t photo_import_path(photo_engine_t* engine,
  */
 PHOTO_API uint64_t photo_rescan(photo_engine_t* engine, uint32_t flags);
 
+/*
+ * One catalog asset row, for hydrating the Dart library after import. The
+ * engine-assigned asset_id is stable across runs (unlike a path hash), so face
+ * data and the thumbnail cache stay valid across restarts. `path` is a
+ * NUL-terminated absolute path; the buffer holds a full Linux PATH_MAX (4096).
+ */
+typedef struct {
+    uint64_t asset_id;
+    uint64_t size;          /* bytes                                          */
+    uint64_t mtime_ns;      /* last-modified, ns since epoch                  */
+    uint32_t width;         /* 0 until a metadata/codec pass fills it         */
+    uint32_t height;
+    uint32_t orientation;   /* EXIF orientation 1..8                          */
+    int32_t  starred;       /* 0/1                                            */
+    int32_t  rating;        /* 0..5                                           */
+    uint32_t flags;         /* bit0: hidden                                   */
+    uint32_t _reserved[3];
+    char     path[4096];
+} photo_asset_t;
+
+#define PHOTO_ASSET_FLAG_HIDDEN (1u << 0)
+
+/*
+ * List catalog assets (hidden excluded), ordered by path. Fills up to `cap`
+ * rows into `out` and returns the TOTAL count available — grow and re-call if
+ * it exceeds `cap`, mirroring the photo_face_list_* calls. Synchronous.
+ */
+PHOTO_API size_t photo_list_assets(photo_engine_t* engine,
+                                   photo_asset_t* out, size_t cap);
+
+/*
+ * EXIF metadata for an asset, extracted on import and stored in the catalog.
+ * Strings are libexif-formatted (e.g. aperture "f/2.8"); empty if absent.
+ */
+typedef struct {
+    uint64_t asset_id;
+    int32_t  width;
+    int32_t  height;
+    int32_t  orientation;     /* 1..8                                        */
+    int32_t  iso;
+    int64_t  datetime_unix;   /* DateTimeOriginal, unix seconds; 0 if absent  */
+    int32_t  has_gps;         /* 0/1                                          */
+    int32_t  _pad;
+    double   gps_lat;
+    double   gps_lon;
+    char     camera[128];     /* "Make Model"                                 */
+    char     lens[128];
+    char     aperture[32];
+    char     shutter[32];
+    char     focal[32];
+} photo_metadata_t;
+
+/*
+ * Read stored EXIF metadata for an asset into *out. Returns PHOTO_STATUS_OK,
+ * PHOTO_STATUS_NOT_FOUND if the asset has no metadata row, or an error code.
+ * Synchronous.
+ */
+PHOTO_API int32_t photo_asset_metadata(photo_engine_t* engine,
+                                       uint64_t asset_id,
+                                       photo_metadata_t* out);
+
+/* A geotagged asset: its id and decimal-degree coordinates. */
+typedef struct {
+    uint64_t asset_id;
+    double   lat;
+    double   lon;
+} photo_geopoint_t;
+
+/*
+ * List every geotagged asset (those with GPS EXIF). Fills up to `cap` rows and
+ * returns the TOTAL count available — grow and re-call if it exceeds `cap`.
+ * Synchronous. Drives the map.
+ */
+PHOTO_API size_t photo_list_geotagged(photo_engine_t* engine,
+                                      photo_geopoint_t* out, size_t cap);
+
+/* ------------------------------------------------------------------------- */
+/* Albums — user-created collections.                                        */
+/* ------------------------------------------------------------------------- */
+
+typedef struct {
+    uint64_t album_id;
+    uint64_t cover_asset_id;  /* 0 if unset / empty                          */
+    int32_t  count;           /* member count                                */
+    int32_t  _pad;
+    int64_t  created;         /* ns since epoch                              */
+    char     name[128];
+} photo_album_t;
+
+/* Create an album; returns its id (0 on failure / no catalog). */
+PHOTO_API uint64_t photo_album_create(photo_engine_t* engine,
+                                      const char* name_utf8);
+/* The mutators return photo_status_t (0 == OK). */
+PHOTO_API int32_t photo_album_rename(photo_engine_t* engine, uint64_t album_id,
+                                     const char* name_utf8);
+PHOTO_API int32_t photo_album_delete(photo_engine_t* engine, uint64_t album_id);
+PHOTO_API int32_t photo_album_set_cover(photo_engine_t* engine, uint64_t album_id,
+                                        uint64_t cover_asset_id);
+PHOTO_API int32_t photo_album_add(photo_engine_t* engine, uint64_t album_id,
+                                  uint64_t asset_id);
+PHOTO_API int32_t photo_album_remove(photo_engine_t* engine, uint64_t album_id,
+                                     uint64_t asset_id);
+
+/* List all albums (ordered by creation). Fills up to `cap`, returns total. */
+PHOTO_API size_t photo_album_list(photo_engine_t* engine,
+                                  photo_album_t* out, size_t cap);
+/* Member asset ids of one album, in order. Fills up to `cap`, returns total. */
+PHOTO_API size_t photo_album_members(photo_engine_t* engine, uint64_t album_id,
+                                     uint64_t* out, size_t cap);
+
+/* ------------------------------------------------------------------------- */
+/* Organize state — star / rating / caption / tags.                          */
+/*                                                                           */
+/* All catalog-only: per DECISIONS D1, user-authored metadata is NOT written  */
+/* back to the original files in v1. The mutators return photo_status_t.      */
+/* ------------------------------------------------------------------------- */
+
+PHOTO_API int32_t photo_asset_set_starred(photo_engine_t* engine,
+                                          uint64_t asset_id, int32_t starred);
+PHOTO_API int32_t photo_asset_set_rating(photo_engine_t* engine,
+                                         uint64_t asset_id, int32_t rating);
+PHOTO_API int32_t photo_asset_set_caption(photo_engine_t* engine,
+                                          uint64_t asset_id,
+                                          const char* caption_utf8);
+
+/* Star / rating / caption for one asset. */
+typedef struct {
+    int32_t starred;   /* 0/1                                                */
+    int32_t rating;    /* 0..5                                               */
+    char    caption[512];
+} photo_organize_t;
+
+PHOTO_API int32_t photo_asset_organize(photo_engine_t* engine, uint64_t asset_id,
+                                       photo_organize_t* out);
+
+PHOTO_API int32_t photo_asset_add_tag(photo_engine_t* engine, uint64_t asset_id,
+                                      const char* tag_utf8);
+PHOTO_API int32_t photo_asset_remove_tag(photo_engine_t* engine,
+                                         uint64_t asset_id, const char* tag_utf8);
+
+/*
+ * Tags of an asset as NUL-separated UTF-8 ("tag1\0tag2\0…"). Fills up to `cap`
+ * bytes into `out` and returns the TOTAL bytes needed — grow and re-call if it
+ * exceeds `cap`.
+ */
+PHOTO_API size_t photo_asset_tags(photo_engine_t* engine, uint64_t asset_id,
+                                  char* out, size_t cap);
+
 /* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */

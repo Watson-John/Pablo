@@ -12,7 +12,17 @@
 library photo_native;
 
 export 'src/ffi/core_api.dart'
-    show Engine, EngineConfig, LogLevel, Provider, FacePerson, FaceRow;
+    show
+        Engine,
+        EngineConfig,
+        LogLevel,
+        Provider,
+        FacePerson,
+        FaceRow,
+        AssetRow,
+        GeoPoint,
+        Album,
+        Organize;
 export 'src/ffi/event_pump.dart' show EventPump, PhotoEvent, PhotoEventKind;
 export 'src/render/texture_slot.dart' show TextureSlot;
 export 'src/render/texture_registry.dart'

@@ -7,8 +7,29 @@
 // tab all route through this one helper instead of hashing inline. In dataset
 // mode a photo's id == its file path, so hashing either is equivalent.
 //
-// Clears the top bit (rather than `.abs()`) so the result is always a
+// Once the catalog is imported, [hydrateCatalogIds] installs the stable,
+// engine-assigned asset id for each path; [assetIdFor] then returns that id so
+// face data and the thumbnail cache stay valid across restarts. Before
+// hydration (or for a path not in the catalog) it falls back to a hash of the
+// path — usable within a single run but not stable across runs.
+//
+// Clears the top bit (rather than `.abs()`) so the fallback is always a
 // non-negative int — Dart's hashCode can be negative, and `.abs()` of the most
-// negative value stays negative. Real catalog asset ids replace this in M5.
+// negative value stays negative.
 
-int assetIdFor(String key) => key.hashCode & 0x7FFFFFFFFFFFFFFF;
+Map<String, int> _catalogIds = const {};
+Map<int, String> _catalogPaths = const {};
+
+/// Install the catalog's stable path → asset_id mapping (called once after the
+/// native import completes). Replaces any prior mapping; also builds the
+/// inverse (asset_id → path) used to resolve a catalog asset back to a photo.
+void hydrateCatalogIds(Map<String, int> idByPath) {
+  _catalogIds = idByPath;
+  _catalogPaths = {for (final e in idByPath.entries) e.value: e.key};
+}
+
+int assetIdFor(String key) =>
+    _catalogIds[key] ?? (key.hashCode & 0x7FFFFFFFFFFFFFFF);
+
+/// Path for a stable catalog asset_id, or null if unknown (e.g. pre-hydration).
+String? pathForAssetId(int assetId) => _catalogPaths[assetId];

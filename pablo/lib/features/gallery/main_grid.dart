@@ -44,12 +44,28 @@ class MainGrid extends StatelessWidget {
       );
     }
     if (section == NavSection.albums) {
-      // Albums aren't a feature yet — nothing in the imported library is an
-      // album, so this is an honest empty state rather than fabricated data.
-      return const _EmptyView(
+      // A specific album is selected in the sidebar → render its photos.
+      if (st.selectedItem.startsWith('album:')) {
+        for (final a in st.albums) {
+          if ('album:${a.id}' == st.selectedItem) {
+            return SectionScrollView(
+              sections: [
+                GallerySectionData(
+                  id: st.selectedItem,
+                  title: a.name.isEmpty ? 'Untitled album' : a.name,
+                  subtitle: '${a.count} photos',
+                ),
+              ],
+              onPhotoSecondary: onPhotoSecondary,
+            );
+          }
+        }
+      }
+      return _EmptyView(
         icon: PabloIconName.albums,
-        message:
-            'No albums yet.\nAlbums let you group photos by hand — coming soon.',
+        message: st.albums.isEmpty
+            ? 'No albums yet.\nUse + next to Albums in the sidebar, or right-click a photo → Add to Album.'
+            : 'Select an album from the sidebar.',
       );
     }
     if (section == NavSection.timeline) {

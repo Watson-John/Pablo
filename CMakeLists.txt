@@ -34,4 +34,12 @@ option(PHOTO_ENABLE_TSAN  "Enable ThreadSanitizer"    OFF)
 option(PHOTO_BUILD_TESTS      "Build native unit tests" ON)
 option(PHOTO_BUILD_BENCHMARKS "Build native benchmarks" ON)
 
+# Enable testing at the top level so the root CTestTestfile.cmake recurses into
+# native/core and `ctest` from the build root discovers the gtest targets.
+# (native/core/CMakeLists.txt also enables testing for when it is the root, e.g.
+# the Flutter plugin build.)
+if(PHOTO_BUILD_TESTS)
+    enable_testing()
+endif()
+
 add_subdirectory(native/core)
