@@ -3,12 +3,17 @@
 // scrolls past a small threshold, and re-reveals near the top / on a new pick.
 
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart' show GeoPoint;
 
+import '../../backend/native_backend.dart';
 import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
+import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
 import 'location_photo_grid.dart';
+import 'map_data.dart';
 import 'usa_heat_map.dart';
 
 const double _kMapHeight = 300;
@@ -26,17 +31,36 @@ class _MapPageState extends State<MapPage> {
   bool _mapCollapsed = false;
   final ScrollController _scrollCtl = ScrollController();
 
+  // Markers + per-marker asset ids, built from the catalog's geotagged assets.
+  MapData _data = MapData.empty;
+
   @override
   void initState() {
     super.initState();
     _scrollCtl.addListener(_onScroll);
+    // Rebuild when the library (and its catalog metadata) becomes ready.
+    libraryRevision.addListener(_reload);
   }
 
   @override
   void dispose() {
+    libraryRevision.removeListener(_reload);
     _scrollCtl.removeListener(_onScroll);
     _scrollCtl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reload();
+  }
+
+  void _reload() {
+    final backend = NativeBackendScope.maybeOf(context);
+    final pts = backend?.engine.listGeotagged() ?? const <GeoPoint>[];
+    final data = buildMapData(pts);
+    if (mounted) setState(() => _data = data);
   }
 
   // Binary collapse with a hysteresis band so the transition fires once, not
@@ -62,13 +86,9 @@ class _MapPageState extends State<MapPage> {
     });
   }
 
-  // No geotagged photos in the dry-run library (Flickr30k has no GPS EXIF), so
-  // there are no map locations. Wired through real data — just empty.
-  final List<MapLocation> _locations = [];
-
   @override
   Widget build(BuildContext context) {
-    final locations = _locations;
+    final locations = _data.locations;
     MapLocation? selected;
     if (_selectedId != null) {
       for (final l in locations) {
@@ -78,7 +98,15 @@ class _MapPageState extends State<MapPage> {
         }
       }
     }
+    // Resolve the selected marker's catalog asset ids back to library photos.
     final photos = <Photo>[];
+    if (selected != null) {
+      for (final assetId in _data.assetIdsByLocation[selected.id] ?? const []) {
+        final path = pathForAssetId(assetId);
+        final photo = path == null ? null : Library.instance.byId[path];
+        if (photo != null) photos.add(photo);
+      }
+    }
     final totalPhotos = locations.fold<int>(0, (a, b) => a + b.count);
 
     return Container(

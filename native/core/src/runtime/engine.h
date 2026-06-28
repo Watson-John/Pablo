@@ -9,15 +9,22 @@
 
 #pragma once
 
+#include <atomic>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 #include "photo_core.h"
 #include "runtime/event_ring.h"
 #include "runtime/job_system.h"
 #include "runtime/slot_store.h"
 #include "thumb/thumb_service.h"
+
+#ifdef PHOTO_HAVE_SQLITE
+#include "catalog/catalog.h"
+#endif
 
 #ifdef PHOTO_HAVE_FACES
 #include "faces/face_service.h"
@@ -42,6 +49,47 @@ public:
     EventRing&    events()       { return events_; }
     JobSystem&    jobs()         { return jobs_; }
     ThumbService& thumbs()       { return thumbs_; }
+#ifdef PHOTO_HAVE_SQLITE
+    // The durable asset catalog, or nullptr if SQLite init failed.
+    catalog::Catalog* catalog()  { return catalog_.get(); }
+
+    // Recursively import `path` on the idle lane: upsert every image file into
+    // the catalog and emit IMPORT_PROGRESS / IMPORT_COMPLETE. Returns a request
+    // id (0 if there is no catalog).
+    uint64_t import_path(const std::string& path);
+    // Re-walk every recorded import root, upsert changes, and prune assets
+    // whose backing file is gone. Returns a request id.
+    uint64_t rescan();
+    // Snapshot of catalog assets (hidden excluded) for Dart hydration.
+    std::vector<catalog::AssetRecord> list_assets() const;
+    // Source path for an asset id, or "" if unknown. Locked, so it is safe to
+    // call concurrently with an in-flight import.
+    std::string path_for_asset(int64_t asset_id) const;
+    // Stored EXIF metadata for an asset (locked); nullopt if none.
+    std::optional<exif::AssetMetadata> asset_metadata(int64_t asset_id) const;
+    // Every geotagged asset (locked) — drives the map.
+    std::vector<catalog::Catalog::GeoPoint> list_geotagged() const;
+
+    // Albums (all locked). create_album stamps the creation time itself.
+    int64_t create_album(const std::string& name);
+    void    rename_album(int64_t album_id, const std::string& name);
+    void    delete_album(int64_t album_id);
+    void    set_album_cover(int64_t album_id, int64_t cover_asset_id);
+    void    add_to_album(int64_t album_id, int64_t asset_id);
+    void    remove_from_album(int64_t album_id, int64_t asset_id);
+    std::vector<catalog::Catalog::AlbumRecord> list_albums() const;
+    std::vector<int64_t> album_members(int64_t album_id) const;
+
+    // Organize state (all locked). Catalog-only — no file write-back (D1).
+    void set_starred(int64_t asset_id, bool v);
+    void set_rating(int64_t asset_id, int32_t v);
+    void set_caption(int64_t asset_id, const std::string& v);
+    void add_tag(int64_t asset_id, const std::string& tag);
+    void remove_tag(int64_t asset_id, const std::string& tag);
+    std::vector<std::string> tags_for_asset(int64_t asset_id) const;
+    // Full asset row (for reading star/rating/caption); nullopt if unknown.
+    std::optional<catalog::AssetRecord> asset(int64_t asset_id) const;
+#endif
 #ifdef PHOTO_HAVE_FACES
     faces::FaceService& faces()  { return faces_; }
 #endif
@@ -61,9 +109,27 @@ private:
            uint64_t disk_budget,
            uint32_t decode_threads);
 
+#ifdef PHOTO_HAVE_SQLITE
+    // Body of an import/rescan job: walk `roots`, upsert image files, emit
+    // progress, and (rescan only) prune assets whose file no longer exists.
+    void run_import(uint64_t request_id, std::vector<std::string> roots,
+                    bool prune);
+#endif
+
     // Owned thumbnail cache. Declared first so it is destroyed last — after
     // the job system's workers, which reference it through ThumbService.
     std::unique_ptr<ThumbCache> cache_;
+
+#ifdef PHOTO_HAVE_SQLITE
+    // The asset catalog (SQLite). Declared before the job system / services so
+    // it outlives any worker that touches it. nullptr if SQLite init failed.
+    std::unique_ptr<catalog::Catalog> catalog_;
+    // Serializes catalog access across the import job thread and the (Dart pump
+    // thread) read calls. SQLite's serialized mode protects single statements;
+    // this guards our multi-statement sequences (e.g. upsert's insert+select).
+    mutable std::mutex                catalog_mu_;
+    std::atomic<uint64_t>             next_import_id_{1};
+#endif
 
     SlotStore                 slots_;
     // Sized for scroll bursts: dozens of visible tiles each emit several

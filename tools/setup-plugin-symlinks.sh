@@ -39,6 +39,9 @@ for rel in api/c_api.cpp \
            thumb/thumb_service.cpp \
            thumb/thumb_cache.cpp \
            util/log.cpp \
+           catalog/catalog.cpp \
+           exif/exif.cpp \
+           codec/codec.cpp \
            faces/detector.cpp \
            faces/align.cpp \
            faces/embed.cpp \

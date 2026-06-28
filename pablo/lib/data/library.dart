@@ -472,8 +472,25 @@ String _timeLabel(DateTime d) =>
 
 // ── Top-level query shims (stable names used across the widget tree) ──────────
 
-/// Photos for a gallery section id — a folder id (dir path) or a timeline id.
+/// Album section id (`album:ID`) → its member photos, set by
+/// `PabloAppState.reloadAlbums`. Checked first so the gallery's
+/// SectionScrollView renders albums through the same path as folders/timeline.
+Map<String, List<Photo>> _albumSectionPhotos = const {};
+void setAlbumSectionPhotos(Map<String, List<Photo>> m) =>
+    _albumSectionPhotos = m;
+
+/// Catalog star state (asset_id → starred), hydrated at import and toggled by
+/// the context menu / controls bar. Kept here (not on the immutable Photo) so
+/// star reflects the catalog without rebuilding the library.
+Map<int, bool> _starredByAsset = const {};
+void hydrateStarred(Map<int, bool> m) => _starredByAsset = m;
+bool isStarredAsset(int assetId) => _starredByAsset[assetId] ?? false;
+void setStarredLocal(int assetId, bool v) =>
+    _starredByAsset = {..._starredByAsset, assetId: v};
+
+/// Photos for a gallery section id — an album id, folder id, or timeline id.
 List<Photo> photosFor(String id) =>
+    _albumSectionPhotos[id] ??
     Library.instance.photosByFolder[id] ??
     Library.instance.photosByTimeline[id] ??
     const [];

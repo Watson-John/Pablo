@@ -7,6 +7,7 @@ import 'backend/native_backend.dart';
 import 'data/aspect_store.dart';
 import 'data/boot.dart';
 import 'data/library.dart';
+import 'data/library_import.dart';
 import 'utils/window_setup.dart';
 
 Future<void> main() async {
@@ -39,14 +40,24 @@ Future<void> main() async {
   );
 
   if (config.hasLibrary) {
-    unawaited(_scanLibrary(config.libraryRoot));
+    unawaited(_scanLibrary(config.libraryRoot, backend));
   }
 }
 
 /// Scan the library off the first-frame path, then swap it in and notify the
 /// app to rebuild (and kick off the face scan) against the real data.
-Future<void> _scanLibrary(String root) async {
-  final lib = await Library.scanAsync(root);
+///
+/// The Dart filesystem walk (for the gallery) and the native catalog import
+/// (for stable asset ids) run in parallel; the catalog ids are hydrated BEFORE
+/// the gallery + face auto-scan see the library, so faces and the thumbnail
+/// cache key off ids that survive a restart.
+Future<void> _scanLibrary(String root, NativeBackend? backend) async {
+  final libFuture = Library.scanAsync(root);
+  final importFuture = backend == null
+      ? Future<int>.value(0)
+      : LibraryImport.run(backend: backend, root: root);
+  final lib = await libFuture;
+  await importFuture;
   Library.instance = lib;
   libraryScanning = false;
   libraryRevision.value++;

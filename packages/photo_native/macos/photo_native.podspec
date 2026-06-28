@@ -61,16 +61,47 @@ Pod::Spec.new do |s|
     end
   end
 
-  # ---- M6/M7 face pipeline (OpenCV + ONNX Runtime + SQLite, Homebrew) ----
+  # ---- Asset catalog (SQLite, Homebrew) ----
+  # The catalog is independent of OpenCV/ORT — it just needs SQLite. When
+  # SQLite isn't installed we exclude catalog.cpp (engine.cpp #ifdef-guards the
+  # catalog member, so the plugin still builds without it). The same SQLite
+  # probe also enables face persistence (FACES_HAVE_SQLITE) below.
+  catalog_defs     = ''
+  catalog_cflags   = ''
+  catalog_libs     = ''
+  catalog_excludes = ['Classes/core/catalog.cpp']
+  sqlite_prefix = `brew --prefix sqlite 2>/dev/null`.strip
+  unless sqlite_prefix.empty?
+    catalog_defs     = ' PHOTO_HAVE_SQLITE=1'
+    catalog_cflags   = " -I#{sqlite_prefix}/include"
+    catalog_libs     = " -L#{sqlite_prefix}/lib -lsqlite3"
+    catalog_excludes = []
+  end
+
+  # ---- EXIF metadata (libexif, Homebrew; LGPL dynamically linked) ----
+  # metadata.cpp always compiles (it self-stubs without libexif, so the import
+  # path still links); libexif just enables real extraction (PHOTO_HAVE_EXIF).
+  exif_prefix = `brew --prefix libexif 2>/dev/null`.strip
+  unless exif_prefix.empty?
+    catalog_defs   += ' PHOTO_HAVE_EXIF=1'
+    catalog_cflags += " -I#{exif_prefix}/include"
+    catalog_libs   += " -L#{exif_prefix}/lib -lexif"
+  end
+
+  # ---- M6/M7 face pipeline (OpenCV + ONNX Runtime, Homebrew) ----
   # Mirrors the vips probe: resolved at pod-install time. The face C++ sources
   # include OpenCV unconditionally, so when OpenCV/ORT aren't installed we
   # EXCLUDE them from compilation (PHOTO_HAVE_FACES stays undefined — engine.cpp
   # and c_api.cpp #ifdef-guard the FaceService, so the plugin still builds and
-  # face scans report unavailable). SQLite is additive (face persistence).
+  # face scans report unavailable). Face persistence reuses the SQLite probe
+  # above (cflags/libs already added; just flip FACES_HAVE_SQLITE).
   faces_defs     = ''
   faces_cflags   = ''
   faces_libs     = ''
-  faces_excludes = %w[detector align embed cluster prototype store face_service]
+  # codec.cpp needs OpenCV (cv::Mat), so it shares the faces OpenCV gate —
+  # excluded when OpenCV is absent, compiled (with the libvips flags above) when
+  # present so the face pipeline decodes RAW/HEIC/JXL/TIFF via libvips.
+  faces_excludes = %w[codec detector align embed cluster prototype store face_service]
                      .map { |b| "Classes/core/#{b}.cpp" }
   opencv_prefix = `brew --prefix opencv 2>/dev/null`.strip
   ort_prefix    = `brew --prefix onnxruntime 2>/dev/null`.strip
@@ -82,15 +113,12 @@ Pod::Spec.new do |s|
     faces_libs   = " -L#{opencv_prefix}/lib -lopencv_core -lopencv_imgproc" \
                    " -lopencv_imgcodecs -lopencv_dnn -lopencv_calib3d" \
                    " -L#{ort_prefix}/lib -lonnxruntime"
-    sqlite_prefix = `brew --prefix sqlite 2>/dev/null`.strip
-    unless sqlite_prefix.empty?
-      faces_defs   += ' FACES_HAVE_SQLITE=1'
-      faces_cflags += " -I#{sqlite_prefix}/include"
-      faces_libs   += " -L#{sqlite_prefix}/lib -lsqlite3"
-    end
+    faces_defs  += ' FACES_HAVE_SQLITE=1' unless sqlite_prefix.empty?
     faces_excludes = []  # OpenCV + ORT present — compile the face sources
   end
-  s.exclude_files = faces_excludes unless faces_excludes.empty?
+
+  all_excludes = faces_excludes + catalog_excludes
+  s.exclude_files = all_excludes unless all_excludes.empty?
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE'              => 'YES',
@@ -102,8 +130,8 @@ Pod::Spec.new do |s|
       '"$(PODS_TARGET_SRCROOT)/_native_core/include"',
       '"$(PODS_TARGET_SRCROOT)/_native_core/src"',
     ].join(' '),
-    'OTHER_CPLUSPLUSFLAGS' => "$(inherited) #{vips_cflags}#{faces_cflags}",
-    'GCC_PREPROCESSOR_DEFINITIONS' => "PHOTO_BUILD_STATIC=1#{vips_defs}#{faces_defs}",
+    'OTHER_CPLUSPLUSFLAGS' => "$(inherited) #{vips_cflags}#{faces_cflags}#{catalog_cflags}",
+    'GCC_PREPROCESSOR_DEFINITIONS' => "PHOTO_BUILD_STATIC=1#{vips_defs}#{faces_defs}#{catalog_defs}",
     # Default visibility — hiding it breaks Obj-C class symbol export, which
     # GeneratedPluginRegistrant references. C++ internal symbols inside
     # photo_core stay hidden via the namespace anyway; PHOTO_API marks the
@@ -113,6 +141,6 @@ Pod::Spec.new do |s|
     # search path is inherited from the parent project but we add it
     # explicitly so the plugin framework links cleanly under use_frameworks!.
     'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/FlutterMacOS"',
-    'OTHER_LDFLAGS' => "$(inherited) -framework FlutterMacOS#{vips_libs}#{faces_libs}",
+    'OTHER_LDFLAGS' => "$(inherited) -framework FlutterMacOS#{vips_libs}#{faces_libs}#{catalog_libs}",
   }
 end

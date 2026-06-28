@@ -24,6 +24,7 @@ import '../features/sidebar/sidebar.dart';
 import '../layouts/shell.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
+import '../utils/asset_id.dart';
 import 'app_scope.dart';
 import 'app_state.dart';
 
@@ -70,6 +71,8 @@ class _PabloAppState extends State<PabloApp> {
   void _onLibraryReady() {
     if (!mounted) return;
     _selectDefaultFolder();
+    // Albums reference library photos, so (re)load them once the library is in.
+    _state.reloadAlbums(NativeBackendScope.maybeOf(context)?.engine);
     setState(() {}); // rebuild the tree against the freshly-scanned library
     _maybeAutoScan(); // now that photos exist, kick off the face scan
   }
@@ -156,6 +159,87 @@ Photo? _resolveActivePhoto(PabloAppState st) {
 class _BodyState extends State<_Body> {
   double _sidebarStart = 260;
 
+  // Toggle the photo's star (catalog-persisted) and refresh the gallery.
+  void _toggleStar(String photoId) {
+    final engine = NativeBackendScope.maybeOf(context)?.engine;
+    if (engine == null) return;
+    final aid = assetIdFor(photoId);
+    final v = !isStarredAsset(aid);
+    engine.setStarred(aid, v);
+    setStarredLocal(aid, v);
+    AppScope.of(context).notifyStar();
+  }
+
+  // Add a photo to an album the user picks (or a new one), then reload.
+  Future<void> _addToAlbum(String photoId) async {
+    final backend = NativeBackendScope.maybeOf(context);
+    if (backend == null) return;
+    final st = AppScope.of(context);
+    final albumId = await _pickAlbum(st);
+    if (!mounted) return;
+    if (albumId == null || albumId == 0) return;
+    backend.engine.addToAlbum(albumId, assetIdFor(photoId));
+    st.reloadAlbums(backend.engine);
+  }
+
+  /// Pick an existing album or create a new one. Returns its id, or null if
+  /// cancelled.
+  Future<int?> _pickAlbum(PabloAppState st) {
+    final engine = NativeBackendScope.maybeOf(context)?.engine;
+    if (engine == null) return Future.value();
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Add to Album'),
+        children: [
+          for (final a in st.albums)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop(a.id),
+              child: Text(a.name.isEmpty ? 'Untitled album' : a.name),
+            ),
+          SimpleDialogOption(
+            onPressed: () async {
+              final name = await _promptAlbumName(ctx);
+              if (!ctx.mounted) return;
+              if (name == null || name.trim().isEmpty) {
+                Navigator.of(ctx).pop();
+                return;
+              }
+              Navigator.of(ctx).pop(engine.createAlbum(name.trim()));
+            },
+            child: const Text('New Album…'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _promptAlbumName(BuildContext context) {
+    final ctl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (c2) => AlertDialog(
+        title: const Text('New Album'),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Album name'),
+          onSubmitted: (v) => Navigator.of(c2).pop(v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(c2).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(c2).pop(ctl.text),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
@@ -222,17 +306,23 @@ class _BodyState extends State<_Body> {
                                                 st.openLightbox(id),
                                           ),
                                           ContextMenuItem(
-                                            label: (photo?.starred ?? false)
+                                            label: ((photo?.starred ?? false) ||
+                                                    isStarredAsset(
+                                                        assetIdFor(id)))
                                                 ? 'Unstar'
                                                 : 'Star',
                                             iconCharacter:
-                                                (photo?.starred ?? false)
+                                                ((photo?.starred ?? false) ||
+                                                        isStarredAsset(
+                                                            assetIdFor(id)))
                                                     ? '☆'
                                                     : '★',
+                                            onPressed: () => _toggleStar(id),
                                           ),
                                           ContextMenuItem(
                                             label: 'Add to Album',
                                             iconCharacter: '+',
+                                            onPressed: () => _addToAlbum(id),
                                           ),
                                           ContextMenuItem(
                                             label: 'Share',

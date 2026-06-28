@@ -48,8 +48,9 @@ abstract interface class FaceRepository {
   /// Reject a face's suggested membership. Returns a request id (0 in mock).
   int reject({required int clusterId, required int faceId});
 
-  /// Schedule a face scan for an asset by path. Returns a request id.
-  int scan({required int assetId, required String path});
+  /// Schedule a face scan for a catalog asset (the native side resolves the
+  /// path via the asset id). Returns a request id.
+  int scan({required int assetId});
 
   /// Re-cluster all unconfirmed faces (full recompute). Returns a request id
   /// (0 in mock).
@@ -117,7 +118,7 @@ class MockFaceRepository implements FaceRepository {
   int reject({required int clusterId, required int faceId}) => 0;
 
   @override
-  int scan({required int assetId, required String path}) => 0;
+  int scan({required int assetId}) => 0;
 
   @override
   int rebuildClusters() => 0;
@@ -218,8 +219,7 @@ class NativeFaceRepository implements FaceRepository {
       _engine.rejectFace(clusterId: clusterId, embeddingId: faceId);
 
   @override
-  int scan({required int assetId, required String path}) =>
-      _engine.scanFacePath(assetId: assetId, path: path);
+  int scan({required int assetId}) => _engine.scanFaces(assetId: assetId);
 
   @override
   int rebuildClusters() => _engine.rebuildClusters();
