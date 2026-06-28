@@ -46,6 +46,12 @@ jobs:
       - run: flutter pub get
       - name: Analyze (fail on any issue)
         run: flutter analyze
+      # Runs the WHOLE suite on each OS in the matrix. This is the cross-OS gate
+      # for the filesystem-touching reorganizer integration tests
+      # (test/reorganizer_property_test.dart, file_ops_test.dart,
+      # library_mover_test.dart, reorganize_controller_test.dart), whose behavior
+      # — path separators, case-sensitivity, reserved names, MAX_PATH — differs by
+      # platform. Keep all three OSes here; do not collapse to one.
       - name: Tests
         run: flutter test --reporter compact
 
