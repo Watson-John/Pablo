@@ -212,12 +212,22 @@ class SectionScrollView extends StatelessWidget {
     double? imageAspect,
     bool showLabel = true,
   }) {
+    // Drag carries the whole selection when this photo is part of it, else just
+    // this one — the paths in-app reorganize will move onto a folder.
+    final selected = st.selectedPhotos.contains(p.id);
+    final dragPaths = selected
+        ? [
+            for (final ph in photos)
+              if (st.selectedPhotos.contains(ph.id)) ph.filePath
+          ]
+        : [p.filePath];
     return PhotoThumb(
       photo: p,
       size: size,
       imageAspect: imageAspect,
       showLabel: showLabel,
-      selected: st.selectedPhotos.contains(p.id),
+      dragPaths: dragPaths,
+      selected: selected,
       inTray: st.trayPhotos.contains(p.id),
       onTap: (e) {
         st.selectPhoto(

@@ -10,6 +10,7 @@ import '../../components/section_header.dart';
 import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../organize/reorganize_controller.dart';
 import '../people/people_scope.dart';
 import 'folder_group.dart';
 import 'folder_leaf.dart';
@@ -158,9 +159,11 @@ class Sidebar extends StatelessWidget {
                                   onSelect: (id) => st.setSelectedItem(
                                       id, NavSection.folders),
                                   defaultOpen: i == 0,
+                                  onDropPaths: (destDir, paths) =>
+                                      reorganizeMove(context, st, paths, destDir),
                                 ),
                             ]
-                          : _flatAlphaLeaves(st),
+                          : _flatAlphaLeaves(context, st),
                     ),
                   ),
 
@@ -195,7 +198,7 @@ class Sidebar extends StatelessWidget {
     );
   }
 
-  List<Widget> _flatAlphaLeaves(dynamic st) {
+  List<Widget> _flatAlphaLeaves(BuildContext context, PabloAppState st) {
     final all = Library.instance.folderSections.toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     return [
@@ -205,6 +208,7 @@ class Sidebar extends StatelessWidget {
           selected:
               st.activeSection == NavSection.folders && st.selectedItem == f.id,
           onSelect: () => st.setSelectedItem(f.id, NavSection.folders),
+          onDropPaths: (paths) => reorganizeMove(context, st, paths, f.id),
         ),
     ];
   }

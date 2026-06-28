@@ -22,6 +22,7 @@ class PhotoThumb extends StatefulWidget {
     this.onAddToTray,
     this.onToggleSelect,
     this.onSecondaryTap,
+    this.dragPaths,
     super.key,
   });
 
@@ -46,6 +47,10 @@ class PhotoThumb extends StatefulWidget {
   /// membership — the same as a ctrl/cmd-click.
   final void Function()? onToggleSelect;
   final void Function(Offset globalPosition)? onSecondaryTap;
+
+  /// When non-empty, long-pressing the tile starts a drag carrying these file
+  /// paths (the drag selection) for in-app reorganize onto a sidebar folder.
+  final List<String>? dragPaths;
 
   @override
   State<PhotoThumb> createState() => _PhotoThumbState();
@@ -131,7 +136,7 @@ class _PhotoThumbState extends State<PhotoThumb> {
       return const SizedBox.shrink();
     }
 
-    return Listener(
+    final Widget tile = Listener(
       onPointerDown: (e) {
         _lastPointerEvent = e;
         if (e.kind == PointerDeviceKind.mouse &&
@@ -245,6 +250,52 @@ class _PhotoThumbState extends State<PhotoThumb> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+    if (widget.dragPaths == null || widget.dragPaths!.isEmpty) return tile;
+    return LongPressDraggable<List<String>>(
+      data: widget.dragPaths!,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      feedback: _DragFeedback(count: widget.dragPaths!.length),
+      childWhenDragging: Opacity(opacity: 0.35, child: tile),
+      child: tile,
+    );
+  }
+}
+
+/// Floating chip shown under the cursor while dragging photos to a folder.
+class _DragFeedback extends StatelessWidget {
+  const _DragFeedback({required this.count});
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+            horizontal: PabloSpacing.lg, vertical: PabloSpacing.sm),
+        decoration: BoxDecoration(
+          color: PabloColors.accentPrimary,
+          borderRadius: PabloRadius.pillAll,
+          boxShadow: PabloShadows.md,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const PabloIcon(PabloIconName.move,
+                size: 14, color: PabloColors.textOnAccent),
+            const SizedBox(width: PabloSpacing.sm),
+            Text(
+              'Move $count photo${count == 1 ? '' : 's'}',
+              style: PabloTypography.sans(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: PabloColors.textOnAccent,
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -318,4 +318,8 @@ class PabloAppState extends ChangeNotifier {
 
   void _persistSchemes() =>
       SchemeStore.save(SchemeStoreData(schemes, activeSchemeId));
+
+  /// Force AppScope dependents (sidebar, gallery) to rebuild against a freshly
+  /// re-scanned [Library.instance] — e.g. after an in-app reorganize move.
+  void libraryChanged() => notifyListeners();
 }

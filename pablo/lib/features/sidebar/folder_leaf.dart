@@ -9,6 +9,7 @@ class FolderLeaf extends StatefulWidget {
     required this.selected,
     required this.onSelect,
     this.depth = 0,
+    this.onDropPaths,
     super.key,
   });
 
@@ -17,19 +18,35 @@ class FolderLeaf extends StatefulWidget {
   final VoidCallback onSelect;
   final int depth;
 
+  /// When set, the row accepts photos dragged from the gallery and reports their
+  /// paths so they can be moved into this folder (in-app reorganize).
+  final void Function(List<String> paths)? onDropPaths;
+
   @override
   State<FolderLeaf> createState() => _FolderLeafState();
 }
 
 class _FolderLeafState extends State<FolderLeaf> {
   bool _hover = false;
+
   @override
   Widget build(BuildContext context) {
-    final bg = widget.selected
-        ? PabloColors.selectionBackground
-        : _hover
-            ? PabloColors.backgroundSidebarHover
-            : Colors.transparent;
+    if (widget.onDropPaths == null) return _row(false);
+    return DragTarget<List<String>>(
+      onWillAcceptWithDetails: (d) => d.data.isNotEmpty,
+      onAcceptWithDetails: (d) => widget.onDropPaths!(d.data),
+      builder: (context, candidate, rejected) => _row(candidate.isNotEmpty),
+    );
+  }
+
+  Widget _row(bool dropHot) {
+    final bg = dropHot
+        ? PabloColors.accentBackground
+        : widget.selected
+            ? PabloColors.selectionBackground
+            : _hover
+                ? PabloColors.backgroundSidebarHover
+                : Colors.transparent;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
@@ -48,6 +65,9 @@ class _FolderLeafState extends State<FolderLeaf> {
           decoration: BoxDecoration(
             color: bg,
             borderRadius: PabloRadius.mdAll,
+            border: dropHot
+                ? Border.all(color: PabloColors.accentPrimary)
+                : null,
           ),
           child: Row(
             children: [

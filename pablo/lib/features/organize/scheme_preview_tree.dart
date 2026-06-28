@@ -3,16 +3,14 @@
 // the resulting hierarchy as a tree. Reinforces the two-stage split: the folder
 // path is the muted tree, the file name is the highlighted (azure) leaf.
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import '../../components/pablo_icon.dart';
 import '../../data/library.dart';
+import '../../data/photo_meta_reader.dart';
 import '../../data/scheme_engine.dart';
 import '../../data/storage_scheme.dart';
 import '../../theme/tokens.dart';
-import '../../utils/exif.dart';
 
 class SchemePreviewTree extends StatefulWidget {
   const SchemePreviewTree({required this.scheme, this.samples, super.key});
@@ -130,34 +128,6 @@ class _SchemePreviewTreeState extends State<SchemePreviewTree> {
 class _Node {
   final Map<String, _Node> dirs = {};
   final List<String> files = [];
-}
-
-/// Build [PhotoMeta] for a real file: filesystem mtime + best-effort EXIF.
-PhotoMeta photoMetaForPath(String path) {
-  DateTime mtime;
-  try {
-    mtime = File(path).statSync().modified;
-  } catch (_) {
-    mtime = DateTime(2024);
-  }
-  final exif = readExif(path);
-  final parts = path.split(RegExp(r'[\\/]'))..removeWhere((e) => e.isEmpty);
-  final base = parts.isEmpty ? path : parts.last;
-  final dot = base.lastIndexOf('.');
-  final name = dot > 0 ? base.substring(0, dot) : base;
-  final ext = dot > 0 ? base.substring(dot).toLowerCase() : '.jpg';
-  final parents = parts.length >= 2
-      ? parts.sublist(0, parts.length - 1).reversed.toList()
-      : <String>[];
-  return PhotoMeta(
-    fileMtime: mtime,
-    captureDate: exif?.dateTimeOriginal,
-    originalName: name,
-    ext: ext,
-    make: exif?.make,
-    model: exif?.model,
-    parentDirs: parents,
-  );
 }
 
 List<PhotoMeta> _syntheticSamples() => [
