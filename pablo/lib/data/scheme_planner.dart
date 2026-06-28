@@ -74,17 +74,17 @@ FilingPlan planFiling(
     var name = r.filename;
     if (suffix.alwaysApply) {
       var n = 1;
-      name = _withSuffix(r.filename, suffix, n);
+      name = _withSuffix(r.filename, suffix, n, r.ext);
       while (clashes(name)) {
         n++;
-        name = _withSuffix(r.filename, suffix, n);
+        name = _withSuffix(r.filename, suffix, n, r.ext);
       }
     } else if (clashes(name)) {
       var n = 1;
-      name = _withSuffix(r.filename, suffix, n);
+      name = _withSuffix(r.filename, suffix, n, r.ext);
       while (clashes(name)) {
         n++;
-        name = _withSuffix(r.filename, suffix, n);
+        name = _withSuffix(r.filename, suffix, n, r.ext);
       }
     }
 
@@ -100,7 +100,13 @@ FilingPlan planFiling(
   return FilingPlan(entries);
 }
 
-String _withSuffix(String base, Suffix s, int n) =>
-    '$base${s.separator}${n.toString().padLeft(s.minDigits, '0')}';
+/// Append a numbered suffix, re-fitting so `base + suffix + ext` stays within
+/// the per-component byte budget — a name already capped at the limit by the
+/// engine is trimmed a little further to make room for the suffix and extension.
+String _withSuffix(String base, Suffix s, int n, String ext) => fitFilename(
+      base,
+      ext,
+      suffix: '${s.separator}${n.toString().padLeft(s.minDigits, '0')}',
+    );
 
 bool _never(String _) => false;

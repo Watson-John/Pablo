@@ -111,7 +111,9 @@ SchemeResult renderScheme(
 
   final folders = <String>[];
   for (final lane in scheme.folderLevels) {
-    final seg = renderLane(lane).trim();
+    // A folder name is one path component, so cap+harden it here.
+    final seg =
+        hardenComponent(_capUtf8(renderLane(lane).trim(), kMaxComponentBytes));
     if (seg.isNotEmpty) folders.add(seg); // never create an empty folder level
   }
 
@@ -119,6 +121,11 @@ SchemeResult renderScheme(
   if (name.isEmpty) name = _sanitize(meta.originalName);
   if (name.isEmpty) name = 'untitled';
   name = _applyCase(name, scheme.options.filenameCase);
+  // Bound the filename to one path component, reserving room for the extension
+  // (which must survive) but not the collision suffix — the planner re-fits with
+  // the suffix in hand. A stem that hardens away (all dots) → 'untitled'.
+  name = fitFilename(name, meta.ext);
+  if (name.isEmpty) name = 'untitled';
 
   if (usedCounter) counter.next++;
 
@@ -213,4 +220,87 @@ String _applyCase(String s, FilenameCase c) {
     case FilenameCase.lower:
       return s.toLowerCase();
   }
+}
+
+// --- Path-component safety: length and cross-OS legality -------------------
+//
+// A single path component (one folder name, or `filename + ext`) has a hard
+// length ceiling and a few names the OS rejects or silently rewrites. Without
+// this, a very long originalName or typed event renders a path that
+// FileOps.applyPlan simply can't create. The cap is per *component* — applied
+// to a whole assembled segment/filename, never per token — and is enforced on
+// every host so a library files identically wherever Pablo runs.
+
+/// Hard per-path-component budget, in UTF-8 bytes. `NAME_MAX` is 255 bytes on
+/// macOS APFS and Linux ext4/most filesystems; NTFS counts 255 UTF-16 units,
+/// which 255 UTF-8 bytes can never exceed. Measured in bytes so a multibyte
+/// name is bounded by what the filesystem actually stores, not its rune count.
+const int kMaxComponentBytes = 255;
+
+/// Windows reserved device names. Illegal as a path component (with or without
+/// an extension, case-insensitively) — `CON`, `CON.jpg`, and `con.tar.gz` all
+/// resolve to the console device. We neutralize them on every OS for parity.
+const Set<String> _kReservedNames = {
+  'con', 'prn', 'aux', 'nul', //
+  'com1', 'com2', 'com3', 'com4', 'com5', 'com6', 'com7', 'com8', 'com9',
+  'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9',
+};
+
+final RegExp _kTrailingDotsSpaces = RegExp(r'[ .]+$');
+
+/// UTF-8 byte length of a single Unicode code point.
+int _utf8Len(int rune) => rune <= 0x7f
+    ? 1
+    : rune <= 0x7ff
+        ? 2
+        : rune <= 0xffff
+            ? 3
+            : 4;
+
+/// Total UTF-8 byte length of [s].
+int _utf8Bytes(String s) {
+  var n = 0;
+  for (final r in s.runes) {
+    n += _utf8Len(r);
+  }
+  return n;
+}
+
+/// Truncate [s] to at most [maxBytes] UTF-8 bytes, cutting only on a whole-rune
+/// (code-point) boundary so a multibyte character is never split mid-sequence.
+String _capUtf8(String s, int maxBytes) {
+  if (maxBytes <= 0) return '';
+  if (_utf8Bytes(s) <= maxBytes) return s; // common case: nothing to do
+  final buf = StringBuffer();
+  var used = 0;
+  for (final rune in s.runes) {
+    final n = _utf8Len(rune);
+    if (used + n > maxBytes) break;
+    buf.writeCharCode(rune);
+    used += n;
+  }
+  return buf.toString();
+}
+
+/// Make [s] safe as a single path component on every desktop OS: drop trailing
+/// dots and spaces (Windows strips them silently, so a rendered "name." would
+/// not match the file actually created), and prefix a Windows reserved device
+/// name with '_'. Returns '' for an empty or all-dots input (".", "..", "...")
+/// so the caller can drop the folder level or fall back to a default name.
+String hardenComponent(String s) {
+  final trimmed = s.replaceAll(_kTrailingDotsSpaces, '');
+  if (trimmed.isEmpty) return '';
+  // Windows keys the reserved check on the name up to the first dot.
+  final stem = trimmed.split('.').first.toLowerCase();
+  return _kReservedNames.contains(stem) ? '_$trimmed' : trimmed;
+}
+
+/// Fit `stem + suffix + ext` into [kMaxComponentBytes] by trimming only the
+/// [stem]: the collision [suffix] disambiguates and the [ext] must be kept, so
+/// neither is sacrificed. The stem is byte-capped (rune-safe) then hardened.
+/// The engine calls this with no suffix; the planner passes its collision
+/// suffix so a name that is already at budget still fits once numbered.
+String fitFilename(String stem, String ext, {String suffix = ''}) {
+  final budget = kMaxComponentBytes - _utf8Bytes(ext) - _utf8Bytes(suffix);
+  return '${hardenComponent(_capUtf8(stem, budget))}$suffix';
 }
