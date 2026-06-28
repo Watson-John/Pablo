@@ -12,13 +12,18 @@ import '../../data/library_mover.dart';
 
 /// Move [paths] into [destDir], then refresh the library and show a result
 /// snackbar with Undo. No-op for an empty drop or a same-folder drop.
+///
+/// [refresh] is injectable for tests; in the app it defaults to a full re-scan
+/// of the import root ([_refreshLibrary]).
 Future<void> reorganizeMove(
   BuildContext context,
   PabloAppState st,
   List<String> paths,
-  String destDir,
-) async {
+  String destDir, {
+  Future<void> Function()? refresh,
+}) async {
   if (paths.isEmpty) return;
+  final doRefresh = refresh ?? _refreshLibrary;
   final messenger = ScaffoldMessenger.maybeOf(context);
   final batch = LibraryMover.moveInto(paths, destDir);
   if (!batch.anyMoved) {
@@ -33,7 +38,7 @@ Future<void> reorganizeMove(
       st.trayPhotos.remove(m.fromPath);
     }
   }
-  await _refreshLibrary();
+  await doRefresh();
   st.libraryChanged();
   if (!context.mounted) return;
   final n = batch.movedCount;
@@ -42,15 +47,20 @@ Future<void> reorganizeMove(
         '${batch.failedCount > 0 ? ' · ${batch.failedCount} failed' : ''}'),
     action: SnackBarAction(
       label: 'Undo',
-      onPressed: () => _undo(context, st, batch),
+      onPressed: () => _undo(context, st, batch, refresh: refresh),
     ),
   ));
 }
 
-Future<void> _undo(BuildContext context, PabloAppState st, MoveBatch batch) async {
+Future<void> _undo(
+  BuildContext context,
+  PabloAppState st,
+  MoveBatch batch, {
+  Future<void> Function()? refresh,
+}) async {
   final messenger = ScaffoldMessenger.maybeOf(context);
   final result = LibraryMover.undo(batch);
-  await _refreshLibrary();
+  await (refresh ?? _refreshLibrary)();
   st.libraryChanged();
   messenger?.showSnackBar(SnackBar(
     content: Text(result.failedCount > 0
