@@ -182,6 +182,39 @@ class PabloAppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// How many of the newest imports the "Recently Added" smart collection holds.
+  static const int recentLimit = 500;
+
+  /// Rebuild the seeded smart collections (All Photos / Recently Added /
+  /// Starred) from the catalog into `smart:*` keys. Resolves catalog asset ids
+  /// back to library photos, exactly like [reloadAlbums]. Call on library-ready,
+  /// after import, and after a star/hide toggle.
+  void reloadSmartCollections(Engine? engine) {
+    if (engine == null) {
+      setSmartSectionPhotos(const {});
+      notifyListeners();
+      return;
+    }
+    Photo? resolve(int assetId) {
+      final path = pathForAssetId(assetId);
+      return path == null ? null : Library.instance.byId[path];
+    }
+    final recent = <Photo>[
+      for (final id in engine.recentAssets(recentLimit))
+        if (resolve(id) case final p?) p,
+    ];
+    final starred = <Photo>[
+      for (final id in engine.starredAssets())
+        if (resolve(id) case final p?) p,
+    ];
+    setSmartSectionPhotos({
+      'smart:all': Library.instance.allPhotos,
+      'smart:recent': recent,
+      'smart:starred': starred,
+    });
+    notifyListeners();
+  }
+
   /// Notify after toggling an asset's star (the cache lives in library.dart) so
   /// the gallery + info panel rebuild.
   void notifyStar() => notifyListeners();
@@ -213,6 +246,16 @@ class PabloAppState extends ChangeNotifier {
 
   void setGridMode(String mode) {
     gridMode = mode;
+    notifyListeners();
+  }
+
+  /// Whether hidden photos/folders are shown. Mirrored into a top-level shim in
+  /// library.dart so the [photosFor] gallery filter (a plain function) can read
+  /// it without an AppState reference.
+  bool showHidden = false;
+  void setShowHidden(bool v) {
+    showHidden = v;
+    setLibraryShowHidden(v);
     notifyListeners();
   }
 

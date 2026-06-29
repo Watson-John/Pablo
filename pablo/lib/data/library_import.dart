@@ -60,6 +60,8 @@ class LibraryImport {
     final assets = backend.engine.listAssets();
     hydrateCatalogIds({for (final a in assets) a.path: a.assetId});
     hydrateStarred({for (final a in assets) a.assetId: a.starred});
+    // listAssets excludes hidden, so hidden paths come from a dedicated call.
+    hydrateHidden(backend.engine.hiddenAssets().toSet());
     appState?.updateTaskPercent(_taskId, 100); // tickTasks() retires it
     debugPrint('[pablo] catalog hydrated: ${assets.length} assets');
     return assets.length;

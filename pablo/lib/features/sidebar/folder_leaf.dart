@@ -10,6 +10,7 @@ class FolderLeaf extends StatefulWidget {
     required this.onSelect,
     this.depth = 0,
     this.onDropPaths,
+    this.onContextMenu,
     super.key,
   });
 
@@ -21,6 +22,9 @@ class FolderLeaf extends StatefulWidget {
   /// When set, the row accepts photos dragged from the gallery and reports their
   /// paths so they can be moved into this folder (in-app reorganize).
   final void Function(List<String> paths)? onDropPaths;
+
+  /// Right-click handler (global position) — opens the folder hide menu.
+  final void Function(Offset position)? onContextMenu;
 
   @override
   State<FolderLeaf> createState() => _FolderLeafState();
@@ -54,6 +58,9 @@ class _FolderLeafState extends State<FolderLeaf> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onSelect,
+        onSecondaryTapDown: widget.onContextMenu == null
+            ? null
+            : (d) => widget.onContextMenu!(d.globalPosition),
         child: AnimatedContainer(
           duration: PabloDurations.hover,
           margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),

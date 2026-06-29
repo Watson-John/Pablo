@@ -31,6 +31,10 @@ set(PHOTO_CORE_TEST_SOURCES
     codec_test.cpp
     album_test.cpp
     organize_test.cpp
+    hidden_test.cpp
+    smart_test.cpp
+    compact_test.cpp
+    rebase_test.cpp
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})

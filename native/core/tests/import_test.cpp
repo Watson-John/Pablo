@@ -62,6 +62,26 @@ bool wait_for_import(Engine& eng, uint64_t req, int timeout_ms = 8000) {
     return false;
 }
 
+// Like wait_for_import but returns the COMPLETE event itself, so callers can
+// read the packed incremental-rescan counts (added/updated/skipped/removed).
+// status is left -1 on timeout.
+photo_event_t wait_for_import_event(Engine& eng, uint64_t req,
+                                    int timeout_ms = 8000) {
+    using namespace std::chrono;
+    const auto deadline = steady_clock::now() + milliseconds(timeout_ms);
+    photo_event_t buf[64];
+    while (steady_clock::now() < deadline) {
+        size_t n = eng.events().pop_n(buf, 64);
+        for (size_t i = 0; i < n; ++i)
+            if (buf[i].kind == PHOTO_EVT_IMPORT_COMPLETE && buf[i].request_id == req)
+                return buf[i];
+        if (n == 0) std::this_thread::sleep_for(milliseconds(5));
+    }
+    photo_event_t miss{};
+    miss.status = -1;
+    return miss;
+}
+
 bool has_path(const std::vector<photo::catalog::AssetRecord>& v, const fs::path& p) {
     for (const auto& a : v) if (a.path == p.string()) return true;
     return false;
@@ -119,6 +139,45 @@ TEST(Import, IdempotentReimportNoDuplicates) {
     ASSERT_TRUE(wait_for_import(*eng, eng->import_path(dir.string())));
     ASSERT_TRUE(wait_for_import(*eng, eng->import_path(dir.string())));
     EXPECT_EQ(eng->list_assets().size(), 1u);
+}
+
+TEST(Import, RescanSkipsUnchanged) {
+    auto dir = make_tree("incremental");
+    write_file(dir / "a.jpg");
+    write_file(dir / "b.jpg");
+    write_file(dir / "sub" / "c.png");
+
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+
+    // First import: all three files are new.
+    auto first = wait_for_import_event(*eng, eng->import_path(dir.string()));
+    ASSERT_EQ(first.status, PHOTO_STATUS_OK);
+    EXPECT_EQ(first.aux64, 3u);          // added
+    EXPECT_EQ(first.aux64_b, 0u);        // updated
+    EXPECT_EQ(first._reserved[0], 0u);   // skipped
+
+    // Rescan with nothing changed: every file is skipped (no re-extract), and
+    // no rows are added/updated/removed.
+    auto same = wait_for_import_event(*eng, eng->rescan());
+    ASSERT_EQ(same.status, PHOTO_STATUS_OK);
+    EXPECT_EQ(same.aux64, 0u);           // added
+    EXPECT_EQ(same.aux64_b, 0u);         // updated
+    EXPECT_EQ(same._reserved[0], 3u);    // skipped
+    EXPECT_EQ(same._reserved[1], 0u);    // removed
+
+    // Modify exactly one file (new bytes change its size; bump mtime too for
+    // coarse-granularity filesystems). Rescan must re-read only that one.
+    write_file(dir / "a.jpg", "different-bytes");
+    fs::last_write_time(
+        dir / "a.jpg",
+        fs::file_time_type::clock::now() + std::chrono::seconds(2));
+    auto changed = wait_for_import_event(*eng, eng->rescan());
+    ASSERT_EQ(changed.status, PHOTO_STATUS_OK);
+    EXPECT_EQ(changed.aux64, 0u);        // added
+    EXPECT_EQ(changed.aux64_b, 1u);      // updated
+    EXPECT_EQ(changed._reserved[0], 2u); // skipped
+    EXPECT_EQ(changed._reserved[1], 0u); // removed
 }
 
 TEST(Import, AssetIdStableAcrossRestart) {

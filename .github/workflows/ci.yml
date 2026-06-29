@@ -58,6 +58,38 @@ jobs:
       - name: Test
         run: ctest --test-dir build/ci --output-on-failure
 
+  # ── Cross-FFI integration: drive the REAL libphoto_core through the Dart FFI
+  #    against an on-disk catalog.db (the only test that crosses the FFI seam).
+  ffi-tests:
+    name: ffi integration (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native deps
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev libexif-dev
+      - name: Build standalone libphoto_core
+        working-directory: .
+        run: >
+          cmake -S . -B build/ffi -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DPHOTO_BUILD_FACES=OFF
+          -DPHOTO_BUILD_TESTS=OFF
+          -DPHOTO_BUILD_BENCHMARKS=OFF &&
+          cmake --build build/ffi --target photo_core
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - run: flutter pub get
+      - name: Run cross-FFI catalog test
+        env:
+          PHOTO_CORE_LIB: ${{ github.workspace }}/build/ffi/native/core/libphoto_core.so
+        run: flutter test test/ffi/catalog_ffi_test.dart
+
   # ── Fast, reliable per-slice gate: analyze + tests ──
   # Linux-only: `flutter analyze` / `flutter test` are platform-independent, so
   # running them on Windows + macOS (2x / 10x cost) only duplicated the result.
@@ -113,7 +145,7 @@ jobs:
         working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgtk-3-dev clang cmake pkg-config libvips-dev
+          sudo apt-get install -y ninja-build libgtk-3-dev clang cmake pkg-config libvips-dev libsqlite3-dev libexif-dev
           echo "PHOTO_REQUIRE_VIPS=1" >> "$GITHUB_ENV"
       - name: Install libvips (macOS real-decode path)
         if: matrix.target == 'macos'
@@ -136,6 +168,18 @@ jobs:
           "PHOTO_VIPS_ROOT=$dev"  | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "PHOTO_REQUIRE_VIPS=1"  | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "$dev\bin"              | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Install SQLite (Windows asset catalog, vcpkg)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          # The durable catalog needs SQLite. windows-latest ships vcpkg at
+          # VCPKG_INSTALLATION_ROOT; install the dynamic triplet and expose it to
+          # the plugin CMake via VCPKG_ROOT (which appends installed/x64-windows
+          # to CMAKE_PREFIX_PATH) and put its bin dir on PATH for the bundled DLL.
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT
+          & "$vcpkg\vcpkg" install sqlite3:x64-windows
+          "VCPKG_ROOT=$vcpkg"                          | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "$vcpkg\installed\x64-windows\bin"           | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Enable ${{ matrix.target }} desktop
         run: flutter config --enable-${{ matrix.target }}-desktop
       - run: flutter pub get

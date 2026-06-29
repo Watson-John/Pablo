@@ -115,6 +115,16 @@ final class NativeEvent extends Struct {
   external Array<Uint32> reserved;
 }
 
+/// photo_catalog_stats_t mirror.
+final class _NativeCatalogStats extends Struct {
+  @Int64()
+  external int page_count;
+  @Int64()
+  external int freelist_count;
+  @Int64()
+  external int page_size;
+}
+
 /// photo_person_t mirror (face read-back).
 final class _NativePerson extends Struct {
   @Uint64()
@@ -336,6 +346,28 @@ typedef _AlbumMembersC =
 typedef _AlbumMembersDart =
     int Function(Pointer<Void>, int, Pointer<Uint64>, int);
 
+// Smart collections — id arrays (recent takes a limit; starred does not).
+typedef _SmartRecentC =
+    IntPtr Function(Pointer<Void>, Int32, Pointer<Uint64>, IntPtr);
+typedef _SmartRecentDart =
+    int Function(Pointer<Void>, int, Pointer<Uint64>, int);
+typedef _SmartStarredC = IntPtr Function(Pointer<Void>, Pointer<Uint64>, IntPtr);
+typedef _SmartStarredDart = int Function(Pointer<Void>, Pointer<Uint64>, int);
+
+// Maintenance — compact (returns request id), stats (struct out), checkpoint.
+typedef _CatalogCompactC = Uint64 Function(Pointer<Void>);
+typedef _CatalogCompactDart = int Function(Pointer<Void>);
+typedef _CatalogStatsC =
+    Int32 Function(Pointer<Void>, Pointer<_NativeCatalogStats>);
+typedef _CatalogStatsDart =
+    int Function(Pointer<Void>, Pointer<_NativeCatalogStats>);
+typedef _EngineToInt32C = Int32 Function(Pointer<Void>);
+typedef _EngineToInt32Dart = int Function(Pointer<Void>);
+typedef _LibraryRebaseC =
+    Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _LibraryRebaseDart =
+    int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+
 // Organize (star/rating/caption/tags).
 typedef _AssetSetIntC = Int32 Function(Pointer<Void>, Uint64, Int32);
 typedef _AssetSetIntDart = int Function(Pointer<Void>, int, int);
@@ -349,6 +381,14 @@ typedef _AssetTagsC =
     IntPtr Function(Pointer<Void>, Uint64, Pointer<Uint8>, IntPtr);
 typedef _AssetTagsDart =
     int Function(Pointer<Void>, int, Pointer<Uint8>, int);
+
+// Hide (folder set-hidden + hidden-folders NUL-buffer). Per-asset set-hidden
+// reuses _AssetSetIntC/Dart (photo_asset_set_hidden).
+typedef _FolderSetHiddenC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32);
+typedef _FolderSetHiddenDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _HiddenFoldersC =
+    IntPtr Function(Pointer<Void>, Pointer<Uint8>, IntPtr);
+typedef _HiddenFoldersDart = int Function(Pointer<Void>, Pointer<Uint8>, int);
 
 typedef _FaceApproveC = Uint64 Function(Pointer<Void>, Uint64, Uint64);
 typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
@@ -661,6 +701,62 @@ final class Engine {
     }
   }
 
+  /// Hide/unhide a single asset (excludes it from [listAssets]).
+  int setHidden(int assetId, bool v) =>
+      _Bindings.assetSetHidden(_handle, assetId, v ? 1 : 0);
+
+  /// Hide/unhide a whole folder ([path] is a directory) and persist the rule so
+  /// assets re-imported beneath it stay hidden. Sweeps existing assets too.
+  int setFolderHidden(String path, bool v) {
+    final p = path.toNativeUtf8();
+    try {
+      return _Bindings.folderSetHidden(_handle, p, v ? 1 : 0);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Hidden folder paths. Decoded from the NUL-separated native buffer.
+  List<String> hiddenFolders() =>
+      _decodeNulStrings((b, c) => _Bindings.hiddenFolders(_handle, b, c));
+
+  /// Paths of individually-hidden assets (list_assets excludes hidden, so this
+  /// is how the UI hydrates its hide filter on startup).
+  List<String> hiddenAssets() =>
+      _decodeNulStrings((b, c) => _Bindings.hiddenAssets(_handle, b, c));
+
+  /// Decode a NUL-separated UTF-8 string buffer filled by a grow-and-return-
+  /// total native call (hidden folders/assets, …).
+  List<String> _decodeNulStrings(
+      int Function(Pointer<Uint8> buf, int cap) fill,
+      {int cap = 1024}) {
+    var buf = calloc<Uint8>(cap);
+    try {
+      var n = fill(buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Uint8>(cap);
+        n = fill(buf, cap);
+      }
+      final len = n < cap ? n : cap;
+      final bytes = buf.asTypedList(len);
+      final out = <String>[];
+      var start = 0;
+      for (var i = 0; i < len; i++) {
+        if (bytes[i] == 0) {
+          if (i > start) {
+            out.add(utf8.decode(bytes.sublist(start, i), allowMalformed: true));
+          }
+          start = i + 1;
+        }
+      }
+      return out;
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
   /// Star / rating / caption for an asset, or null if unknown.
   Organize? organize(int assetId) {
     final out = calloc<_NativeOrganize>();
@@ -721,16 +817,69 @@ final class Engine {
   }
 
   /// Member asset ids of an album, in order.
-  List<int> albumMembers(int albumId) {
-    var cap = 256;
+  List<int> albumMembers(int albumId) =>
+      _collectIds((b, c) => _Bindings.albumMembers(_handle, albumId, b, c));
+
+  /// The [limit] most-recently-imported asset ids (smart "Recently Added").
+  List<int> recentAssets(int limit) =>
+      _collectIds((b, c) => _Bindings.smartRecent(_handle, limit, b, c));
+
+  /// Starred asset ids (smart "Starred").
+  List<int> starredAssets() =>
+      _collectIds((b, c) => _Bindings.smartStarred(_handle, b, c));
+
+  /// Compact the catalog (WAL checkpoint + VACUUM) on the idle lane. Returns a
+  /// request id; a [PhotoEventKind.maintenanceComplete] event fires on done.
+  int compactCatalog() => _Bindings.catalogCompact(_handle);
+
+  /// Current catalog size stats, or null if unavailable.
+  CatalogStats? catalogStats() {
+    final out = calloc<_NativeCatalogStats>();
+    try {
+      if (_Bindings.catalogStats(_handle, out) != 0) return null;
+      final r = out.ref;
+      return CatalogStats(
+        pageCount: r.page_count,
+        freelistCount: r.freelist_count,
+        pageSize: r.page_size,
+      );
+    } finally {
+      calloc.free(out);
+    }
+  }
+
+  /// Synchronous checkpoint + VACUUM (blocks until done). Used by the on-exit
+  /// cleanup, which must finish before the process tears down.
+  int compactCatalogSync() => _Bindings.catalogCompactSync(_handle);
+
+  /// Flush the WAL into the main DB (cheap; used before moving the DB file).
+  int catalogCheckpoint() => _Bindings.catalogCheckpoint(_handle);
+
+  /// Rebase every stored path from [oldPrefix] to [newPrefix] after the photo
+  /// library moved on disk (preserves asset ids). Returns a photo_status_t
+  /// (0 == OK; NOT_FOUND when [newPrefix] does not exist).
+  int rebaseLibrary(String oldPrefix, String newPrefix) {
+    final o = oldPrefix.toNativeUtf8();
+    final n = newPrefix.toNativeUtf8();
+    try {
+      return _Bindings.libraryRebase(_handle, o, n);
+    } finally {
+      calloc.free(o);
+      calloc.free(n);
+    }
+  }
+
+  /// Collect a uint64 id array from a grow-and-return-total native call.
+  List<int> _collectIds(int Function(Pointer<Uint64> buf, int cap) fill,
+      {int cap = 256}) {
     var buf = calloc<Uint64>(cap);
     try {
-      var n = _Bindings.albumMembers(_handle, albumId, buf, cap);
+      var n = fill(buf, cap);
       if (n > cap) {
         calloc.free(buf);
         cap = n;
         buf = calloc<Uint64>(cap);
-        n = _Bindings.albumMembers(_handle, albumId, buf, cap);
+        n = fill(buf, cap);
       }
       final count = n < cap ? n : cap;
       return [for (var i = 0; i < count; i++) buf[i]];
@@ -1025,6 +1174,25 @@ final class Album {
   final int created;
 }
 
+/// Catalog file size stats (from `photo_catalog_stats`).
+final class CatalogStats {
+  const CatalogStats({
+    required this.pageCount,
+    required this.freelistCount,
+    required this.pageSize,
+  });
+
+  final int pageCount;
+  final int freelistCount;
+  final int pageSize;
+
+  /// Approximate on-disk size of the main DB file.
+  int get sizeBytes => pageCount * pageSize;
+
+  /// Bytes a compaction would reclaim (freelist pages).
+  int get reclaimableBytes => freelistCount * pageSize;
+}
+
 /// Decode a NUL-terminated UTF-8 name out of a fixed-size native char array.
 String _readCName(Array<Uint8> arr, int maxLen) {
   final bytes = <int>[];
@@ -1129,6 +1297,24 @@ final class _Bindings {
       .lookupFunction<_AlbumListC, _AlbumListDart>('photo_album_list');
   static final _AlbumMembersDart albumMembers = _dylib
       .lookupFunction<_AlbumMembersC, _AlbumMembersDart>('photo_album_members');
+  static final _SmartRecentDart smartRecent = _dylib
+      .lookupFunction<_SmartRecentC, _SmartRecentDart>('photo_smart_recent');
+  static final _SmartStarredDart smartStarred = _dylib
+      .lookupFunction<_SmartStarredC, _SmartStarredDart>('photo_smart_starred');
+  static final _CatalogCompactDart catalogCompact = _dylib
+      .lookupFunction<_CatalogCompactC, _CatalogCompactDart>(
+          'photo_catalog_compact');
+  static final _CatalogStatsDart catalogStats = _dylib
+      .lookupFunction<_CatalogStatsC, _CatalogStatsDart>('photo_catalog_stats');
+  static final _EngineToInt32Dart catalogCompactSync = _dylib
+      .lookupFunction<_EngineToInt32C, _EngineToInt32Dart>(
+          'photo_catalog_compact_sync');
+  static final _EngineToInt32Dart catalogCheckpoint = _dylib
+      .lookupFunction<_EngineToInt32C, _EngineToInt32Dart>(
+          'photo_catalog_checkpoint');
+  static final _LibraryRebaseDart libraryRebase = _dylib
+      .lookupFunction<_LibraryRebaseC, _LibraryRebaseDart>(
+          'photo_library_rebase');
 
   static final _AssetSetIntDart assetSetStarred = _dylib
       .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_starred');
@@ -1144,6 +1330,17 @@ final class _Bindings {
       .lookupFunction<_AssetSetStrC, _AssetSetStrDart>('photo_asset_remove_tag');
   static final _AssetTagsDart assetTags = _dylib
       .lookupFunction<_AssetTagsC, _AssetTagsDart>('photo_asset_tags');
+  static final _AssetSetIntDart assetSetHidden = _dylib
+      .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_hidden');
+  static final _FolderSetHiddenDart folderSetHidden =
+      _dylib.lookupFunction<_FolderSetHiddenC, _FolderSetHiddenDart>(
+          'photo_folder_set_hidden');
+  static final _HiddenFoldersDart hiddenFolders = _dylib
+      .lookupFunction<_HiddenFoldersC, _HiddenFoldersDart>(
+          'photo_hidden_folders');
+  static final _HiddenFoldersDart hiddenAssets = _dylib
+      .lookupFunction<_HiddenFoldersC, _HiddenFoldersDart>(
+          'photo_hidden_assets');
 
   static final _FaceApproveDart faceApprove = _dylib
       .lookupFunction<_FaceApproveC, _FaceApproveDart>('photo_face_approve');

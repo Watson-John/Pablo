@@ -87,6 +87,31 @@ class MainGrid extends StatelessWidget {
         onPhotoSecondary: onPhotoSecondary,
       );
     }
+    if (section == NavSection.smart) {
+      const titles = {
+        'smart:all': 'All Photos',
+        'smart:recent': 'Recently Added',
+        'smart:starred': 'Starred',
+      };
+      final title = titles[st.selectedItem] ?? 'Photos';
+      final count = photosFor(st.selectedItem).length;
+      if (count == 0) {
+        return _EmptyView(
+          icon: PabloIconName.library,
+          message: '$title is empty.',
+        );
+      }
+      return SectionScrollView(
+        sections: [
+          GallerySectionData(
+            id: st.selectedItem,
+            title: title,
+            subtitle: '$count photos',
+          ),
+        ],
+        onPhotoSecondary: onPhotoSecondary,
+      );
+    }
     if (section == NavSection.unnamed) {
       return const UnnamedFacesPage();
     }

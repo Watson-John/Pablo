@@ -188,6 +188,16 @@ void Catalog::migrate() {
              "CREATE INDEX IF NOT EXISTS asset_tag_tag ON asset_tag(tag_id);"
              "PRAGMA user_version=5;");
     }
+    if (user_version(db_) < 6) {
+        // Folder-level hide (persisted so assets re-imported under a hidden
+        // folder stay hidden) + indexes that keep the smart-collection queries
+        // (recent by import_time, starred set) cheap on large libraries.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS hidden_folder(path TEXT PRIMARY KEY);"
+             "CREATE INDEX IF NOT EXISTS asset_import_time ON asset(import_time);"
+             "CREATE INDEX IF NOT EXISTS asset_starred ON asset(starred);"
+             "PRAGMA user_version=6;");
+    }
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {
@@ -250,6 +260,14 @@ int64_t Catalog::count() const {
     return q.step() ? q.col_int(0) : 0;
 }
 
+std::unordered_map<std::string, Catalog::FileStat> Catalog::file_stats() const {
+    std::unordered_map<std::string, FileStat> out;
+    Stmt q(db_, "SELECT path, size, mtime_ns FROM asset");
+    while (q.step())
+        out.emplace(q.col_text(0), FileStat{q.col_int(1), q.col_int(2)});
+    return out;
+}
+
 void Catalog::set_starred(int64_t id, bool v) {
     Stmt q(db_, "UPDATE asset SET starred=? WHERE id=?");
     q.bind(1, (int64_t)(v ? 1 : 0)).bind(2, id).run();
@@ -285,6 +303,148 @@ std::vector<std::string> Catalog::import_roots() const {
     Stmt q(db_, "SELECT path FROM import_root ORDER BY path");
     while (q.step()) out.push_back(q.col_text(0));
     return out;
+}
+
+namespace {
+// True if `path` is `folder` itself or sits beneath it, on a separator
+// boundary (so "/a/photos" matches "/a/photos/x" but not "/a/photoshop").
+// Accepts both separators so the check is correct on every desktop OS.
+bool path_under(const std::string& path, const std::string& folder) {
+    if (folder.empty() || path.size() < folder.size()) return false;
+    if (path.compare(0, folder.size(), folder) != 0) return false;
+    if (path.size() == folder.size()) return true;
+    const char c = path[folder.size()];
+    return c == '/' || c == '\\';
+}
+}  // namespace
+
+void Catalog::add_hidden_folder(const std::string& path) {
+    Stmt q(db_, "INSERT OR IGNORE INTO hidden_folder(path) VALUES(?)");
+    q.bind(1, path).run();
+}
+
+void Catalog::remove_hidden_folder(const std::string& path) {
+    Stmt q(db_, "DELETE FROM hidden_folder WHERE path=?");
+    q.bind(1, path).run();
+}
+
+std::vector<std::string> Catalog::hidden_folders() const {
+    std::vector<std::string> out;
+    Stmt q(db_, "SELECT path FROM hidden_folder ORDER BY path");
+    while (q.step()) out.push_back(q.col_text(0));
+    return out;
+}
+
+bool Catalog::is_path_hidden(const std::string& path) const {
+    for (const auto& h : hidden_folders())
+        if (path_under(path, h)) return true;
+    return false;
+}
+
+void Catalog::set_assets_hidden_under(const std::string& folder, bool v) {
+    // A user-initiated, cross-platform sweep: filter by separator-aware prefix
+    // in C++ (rather than a LIKE that would need separator/metachar handling)
+    // and toggle each. Folder hide is rare, so the full scan is acceptable.
+    for (const auto& a : list_assets(/*include_hidden=*/true))
+        if (path_under(a.path, folder)) set_hidden(a.id, v);
+}
+
+std::vector<std::string> Catalog::hidden_asset_paths() const {
+    std::vector<std::string> out;
+    Stmt q(db_, "SELECT path FROM asset WHERE hidden=1 ORDER BY path");
+    while (q.step()) out.push_back(q.col_text(0));
+    return out;
+}
+
+std::vector<int64_t> Catalog::recent_assets(int limit) const {
+    std::vector<int64_t> out;
+    Stmt q(db_,
+           "SELECT id FROM asset WHERE hidden=0 "
+           "ORDER BY import_time DESC, id DESC LIMIT ?");
+    q.bind(1, static_cast<int64_t>(limit));
+    while (q.step()) out.push_back(q.col_int(0));
+    return out;
+}
+
+std::vector<int64_t> Catalog::starred_assets() const {
+    std::vector<int64_t> out;
+    Stmt q(db_, "SELECT id FROM asset WHERE hidden=0 AND starred=1 ORDER BY path");
+    while (q.step()) out.push_back(q.col_int(0));
+    return out;
+}
+
+Catalog::Stats Catalog::stats() const {
+    auto pragma = [&](const char* name) -> int64_t {
+        Stmt q(db_, (std::string("PRAGMA ") + name).c_str());
+        return q.step() ? q.col_int(0) : 0;
+    };
+    Stats s;
+    s.page_count = pragma("page_count");
+    s.freelist_count = pragma("freelist_count");
+    s.page_size = pragma("page_size");
+    return s;
+}
+
+void Catalog::compact() {
+    // Checkpoint first so VACUUM starts from a clean WAL; then VACUUM rewrites
+    // the DB, dropping freelist pages. VACUUM must NOT run inside a transaction
+    // — the catalog autocommits every statement, so this is safe.
+    exec(db_, "PRAGMA wal_checkpoint(TRUNCATE);");
+    exec(db_, "VACUUM;");
+}
+
+void Catalog::checkpoint() {
+    exec(db_, "PRAGMA wal_checkpoint(TRUNCATE);");
+}
+
+int64_t Catalog::rebase_paths(const std::string& old_prefix,
+                              const std::string& new_prefix) {
+    auto strip = [](std::string s) {
+        while (!s.empty() && (s.back() == '/' || s.back() == '\\')) s.pop_back();
+        return s;
+    };
+    const std::string oldp = strip(old_prefix);
+    const std::string newp = strip(new_prefix);
+    if (oldp.empty() || newp.empty() || oldp == newp) return 0;
+    auto rebased = [&](const std::string& p) {
+        return newp + p.substr(oldp.size());
+    };
+
+    int64_t changed = 0;
+    exec(db_, "BEGIN");
+    try {
+        // Assets: rewrite path (UNIQUE) and the derived folder in place — the id
+        // is untouched, so face/album/tag references stay valid.
+        for (const auto& a : list_assets(/*include_hidden=*/true)) {
+            if (!path_under(a.path, oldp)) continue;
+            const std::string np = rebased(a.path);
+            const std::string nf =
+                path_under(a.folder, oldp) ? rebased(a.folder) : a.folder;
+            Stmt q(db_, "UPDATE asset SET path=?, folder=? WHERE id=?");
+            q.bind(1, np).bind(2, nf).bind(3, a.id).run();
+            ++changed;
+        }
+        // Import roots + hidden folders (the rescan targets / hide rules).
+        for (const auto& r : import_roots()) {
+            if (!path_under(r, oldp)) continue;
+            Stmt del(db_, "DELETE FROM import_root WHERE path=?");
+            del.bind(1, r).run();
+            Stmt ins(db_, "INSERT OR IGNORE INTO import_root(path) VALUES(?)");
+            ins.bind(1, rebased(r)).run();
+        }
+        for (const auto& h : hidden_folders()) {
+            if (!path_under(h, oldp)) continue;
+            Stmt del(db_, "DELETE FROM hidden_folder WHERE path=?");
+            del.bind(1, h).run();
+            Stmt ins(db_, "INSERT OR IGNORE INTO hidden_folder(path) VALUES(?)");
+            ins.bind(1, rebased(h)).run();
+        }
+        exec(db_, "COMMIT");
+    } catch (...) {
+        exec(db_, "ROLLBACK");
+        throw;
+    }
+    return changed;
 }
 
 void Catalog::upsert_metadata(int64_t asset_id, const exif::AssetMetadata& m) {
