@@ -24,6 +24,7 @@ import 'package:flutter/foundation.dart';
 
 import 'aspect_store.dart';
 import 'models.dart';
+import '../utils/asset_id.dart';
 import '../utils/exif.dart';
 import '../utils/hash.dart';
 import '../utils/image_dims.dart';
@@ -154,10 +155,13 @@ class Library {
     for (final e in entries) {
       if (e is! File) continue;
       DateTime? when;
+      int size = 0;
       try {
-        when = e.statSync().modified;
+        final st = e.statSync();
+        when = st.modified;
+        size = st.size;
       } catch (_) {}
-      ctx.addFile(e.path, when);
+      ctx.addFile(e.path, when, size);
     }
     return ctx.assemble();
   }
@@ -174,10 +178,13 @@ class Library {
       await for (final e in rootDir.list(recursive: true, followLinks: false)) {
         if (e is! File) continue;
         DateTime? when;
+        int size = 0;
         try {
-          when = (await e.stat()).modified;
+          final st = await e.stat();
+          when = st.modified;
+          size = st.size;
         } catch (_) {}
-        ctx.addFile(e.path, when);
+        ctx.addFile(e.path, when, size);
       }
     } catch (_) {}
     return ctx.assemble();
@@ -259,13 +266,19 @@ class _ScanCtx {
   /// Ensure the root exists as a node even if it holds no images directly.
   void init() => _accFor(absRoot);
 
-  void addFile(String path, DateTime? when) {
+  void addFile(String path, DateTime? when, [int sizeBytes = 0]) {
     final dot = path.lastIndexOf('.');
     if (dot < 0) return;
     if (!_kImageExts.contains(path.substring(dot).toLowerCase())) return;
 
     final name = path.substring(path.lastIndexOf(Platform.pathSeparator) + 1);
-    final photo = Photo(id: path, label: name, filePath: path);
+    final photo = Photo(
+      id: path,
+      label: name,
+      filePath: path,
+      modified: when,
+      sizeBytes: sizeBytes,
+    );
     byId[path] = photo;
 
     final dirPath = path.substring(
@@ -476,24 +489,34 @@ String _timeLabel(DateTime d) =>
 /// `PabloAppState.reloadAlbums`. Checked first so the gallery's
 /// SectionScrollView renders albums through the same path as folders/timeline.
 Map<String, List<Photo>> _albumSectionPhotos = const {};
-void setAlbumSectionPhotos(Map<String, List<Photo>> m) =>
-    _albumSectionPhotos = m;
+void setAlbumSectionPhotos(Map<String, List<Photo>> m) {
+  _albumSectionPhotos = m;
+  _invalidateGallery();
+}
 
 /// Smart-collection key (`smart:all` / `smart:recent` / `smart:starred`) → its
 /// photos, set by `PabloAppState.reloadSmartCollections`. Checked first in
 /// [photosFor] so seeded virtual collections render through the same path.
 Map<String, List<Photo>> _smartSectionPhotos = const {};
-void setSmartSectionPhotos(Map<String, List<Photo>> m) =>
-    _smartSectionPhotos = m;
+void setSmartSectionPhotos(Map<String, List<Photo>> m) {
+  _smartSectionPhotos = m;
+  _invalidateGallery();
+}
 
 /// Catalog star state (asset_id → starred), hydrated at import and toggled by
 /// the context menu / controls bar. Kept here (not on the immutable Photo) so
 /// star reflects the catalog without rebuilding the library.
 Map<int, bool> _starredByAsset = const {};
-void hydrateStarred(Map<int, bool> m) => _starredByAsset = m;
+void hydrateStarred(Map<int, bool> m) {
+  _starredByAsset = m;
+  _invalidateGallery();
+}
+
 bool isStarredAsset(int assetId) => _starredByAsset[assetId] ?? false;
-void setStarredLocal(int assetId, bool v) =>
-    _starredByAsset = {..._starredByAsset, assetId: v};
+void setStarredLocal(int assetId, bool v) {
+  _starredByAsset = {..._starredByAsset, assetId: v};
+  _invalidateGallery();
+}
 
 /// Catalog hidden state as a set of hidden file paths (== Photo.id), hydrated at
 /// import and toggled by the context menu. Hidden photos are filtered out of
@@ -501,7 +524,11 @@ void setStarredLocal(int assetId, bool v) =>
 /// id) so the gallery filter — which sees [Photo]s — needs no id lookup.
 Set<String> _hiddenPaths = const {};
 bool libraryShowHidden = false;
-void hydrateHidden(Set<String> paths) => _hiddenPaths = paths;
+void hydrateHidden(Set<String> paths) {
+  _hiddenPaths = paths;
+  _invalidateGallery();
+}
+
 bool isHiddenPhoto(String pathId) => _hiddenPaths.contains(pathId);
 void setHiddenLocal(String pathId, bool v) {
   final next = {..._hiddenPaths};
@@ -511,21 +538,114 @@ void setHiddenLocal(String pathId, bool v) {
     next.remove(pathId);
   }
   _hiddenPaths = next;
+  _invalidateGallery();
 }
 
-void setLibraryShowHidden(bool v) => libraryShowHidden = v;
+void setLibraryShowHidden(bool v) {
+  libraryShowHidden = v;
+  _invalidateGallery();
+}
+
+// ── Gallery sort (mirrored from PabloAppState; [photosFor] is a plain function
+// with no AppState reference — same shim pattern as [setLibraryShowHidden]) ───
+
+class PhotoSort {
+  static const name = 'name';
+  static const date = 'date';
+  static const size = 'size';
+  static const rating = 'rating';
+}
+
+String _librarySortKey = PhotoSort.name;
+bool _librarySortReversed = false;
+
+void setLibrarySort(String key, bool reversed) {
+  _librarySortKey = key;
+  _librarySortReversed = reversed;
+  _invalidateGallery();
+}
+
+/// Default (ascending/natural) order for the active sort key. Name → A–Z, Date
+/// → oldest first, Size → smallest first, Rating → starred first. `reversed`
+/// flips the whole result. File path (`id`) breaks ties so order is stable.
+int _comparePhotos(Photo a, Photo b) {
+  switch (_librarySortKey) {
+    case PhotoSort.date:
+      final am = a.modified, bm = b.modified;
+      if (am == null && bm == null) return a.id.compareTo(b.id);
+      if (am == null) return 1; // unknown dates sort last
+      if (bm == null) return -1;
+      final c = am.compareTo(bm);
+      return c != 0 ? c : a.id.compareTo(b.id);
+    case PhotoSort.size:
+      final c = a.sizeBytes.compareTo(b.sizeBytes);
+      return c != 0 ? c : a.id.compareTo(b.id);
+    case PhotoSort.rating:
+      final ar = isStarredAsset(assetIdFor(a.id)) ? 1 : 0;
+      final br = isStarredAsset(assetIdFor(b.id)) ? 1 : 0;
+      final c = br.compareTo(ar); // starred first
+      return c != 0
+          ? c
+          : a.label.toLowerCase().compareTo(b.label.toLowerCase());
+    case PhotoSort.name:
+    default:
+      final c = a.label.toLowerCase().compareTo(b.label.toLowerCase());
+      return c != 0 ? c : a.id.compareTo(b.id);
+  }
+}
+
+// Memo so [photosFor] doesn't re-filter+sort on every rebuild (a flat folder is
+// tens of thousands of photos). Invalidated by [_invalidateGallery] (sort,
+// hidden, star, section-set changes) and by a new library revision.
+int _galleryGen = 0;
+void _invalidateGallery() => _galleryGen++;
+final Map<String, List<Photo>> _photosForCache = <String, List<Photo>>{};
+final List<String> _photosForOrder = <String>[];
+
+/// Curated smart collections whose intrinsic order is meaningful (Recently
+/// Added = recency, Starred = engine order) and must NOT be re-sorted by the
+/// gallery sort. "All Photos" and folders/albums/timeline ARE sorted.
+const Set<String> _unsortedSections = {'smart:recent', 'smart:starred'};
 
 /// Photos for a gallery section id — a smart-collection key, album id, folder
 /// id, or timeline id — with hidden photos filtered out (unless
-/// [libraryShowHidden]).
+/// [libraryShowHidden]) and ordered by the active gallery sort (except the
+/// curated collections in [_unsortedSections]). Memoized per (section, gallery
+/// generation, library revision) so scroll/hover rebuilds don't re-sort a
+/// tens-of-thousands-of-photo section.
 List<Photo> photosFor(String id) {
   final raw = _smartSectionPhotos[id] ??
       _albumSectionPhotos[id] ??
       Library.instance.photosByFolder[id] ??
       Library.instance.photosByTimeline[id] ??
       const <Photo>[];
-  if (libraryShowHidden || _hiddenPaths.isEmpty) return raw;
-  return [for (final p in raw) if (!_hiddenPaths.contains(p.id)) p];
+  if (raw.isEmpty) return raw;
+
+  final key = '$id|$_galleryGen|${libraryRevision.value}';
+  final cached = _photosForCache[key];
+  if (cached != null) return cached;
+
+  final visible = (libraryShowHidden || _hiddenPaths.isEmpty)
+      ? raw
+      : [
+          for (final p in raw)
+            if (!_hiddenPaths.contains(p.id)) p
+        ];
+
+  final List<Photo> result;
+  if (_unsortedSections.contains(id)) {
+    result = visible; // keep curated order
+  } else {
+    final sorted = List<Photo>.from(visible)..sort(_comparePhotos);
+    result = _librarySortReversed ? sorted.reversed.toList() : sorted;
+  }
+
+  _photosForCache[key] = result;
+  _photosForOrder.add(key);
+  while (_photosForOrder.length > 12) {
+    _photosForCache.remove(_photosForOrder.removeAt(0));
+  }
+  return result;
 }
 
 /// Look up a single photo by its id (== file path).

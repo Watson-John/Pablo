@@ -17,6 +17,7 @@ import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/photo_edit_panel.dart';
 import '../features/find_duplicates/dedup_scope.dart';
 import '../features/find_duplicates/find_duplicates_flow.dart';
+import '../features/gallery/compare_view.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/info_panel/info_panel.dart';
@@ -145,7 +146,8 @@ class _PabloAppState extends State<PabloApp> with WidgetsBindingObserver {
     if (!_dedupScanned) {
       _dedupScanned = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        final clusters = await createDedupRepository().findExact(allLibraryPhotos());
+        final clusters =
+            await createDedupRepository().findExact(allLibraryPhotos());
         final n = clusters.fold<int>(0, (s, c) => s + c.discards.length);
         if (mounted) _state.setDupCount(n);
       });
@@ -185,6 +187,26 @@ class _Home extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
+
+    // Immersive fullscreen: render only the lightbox, edge-to-edge, bypassing
+    // all app chrome (menu/search bars, sidebar, edit panel, controls bar,
+    // tray). Toggled with the F key / toolbar button inside the lightbox.
+    final fsPhoto = (st.lightboxFullscreen && st.lightboxPhotoId != null)
+        ? _resolvePhotoById(st.lightboxPhotoId!)
+        : null;
+    if (fsPhoto != null) {
+      return Scaffold(
+        backgroundColor: PabloColors.lightboxBackground,
+        body: LightboxView(
+          photos: _contextPhotosFor(st, fsPhoto),
+          initialId: fsPhoto.id,
+          onClose: st.closeLightbox,
+          fullscreen: true,
+          onToggleFullscreen: st.toggleLightboxFullscreen,
+        ),
+      );
+    }
+
     final photos = photosFor(st.selectedItem);
     return Scaffold(
       backgroundColor: PabloColors.backgroundShell,
@@ -365,127 +387,143 @@ class _BodyState extends State<_Body> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: lightboxPhoto != null
-                    ? LightboxView(
-                        photos: contextPhotos,
-                        initialId: lightboxPhoto.id,
-                        onClose: st.closeLightbox,
+                child: st.compareIds.length >= 2
+                    ? CompareView(
+                        ids: st.compareIds,
+                        onClose: st.closeCompare,
                       )
-                    : Stack(
-                        children: [
-                          Positioned.fill(
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(
-                                  child: MainGrid(
-                                    onPhotoSecondary: (pos, id) {
-                                      final photo = _resolvePhotoById(id);
-                                      PabloContextMenu.show(
-                                        context,
-                                        position: pos,
-                                        items: [
-                                          ContextMenuItem(
-                                            label: 'View',
-                                            iconCharacter: '👁',
-                                            onPressed: () =>
-                                                st.openLightbox(id),
-                                          ),
-                                          ContextMenuItem(
-                                            label: 'Edit',
-                                            iconCharacter: '✏️',
-                                            onPressed: () =>
-                                                st.openLightbox(id),
-                                          ),
-                                          ContextMenuItem(
-                                            label: ((photo?.starred ?? false) ||
-                                                    isStarredAsset(
-                                                        assetIdFor(id)))
-                                                ? 'Unstar'
-                                                : 'Star',
-                                            iconCharacter:
-                                                ((photo?.starred ?? false) ||
+                    : lightboxPhoto != null
+                        ? LightboxView(
+                            photos: contextPhotos,
+                            initialId: lightboxPhoto.id,
+                            onClose: st.closeLightbox,
+                            onToggleFullscreen: st.toggleLightboxFullscreen,
+                          )
+                        : Stack(
+                            children: [
+                              Positioned.fill(
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Expanded(
+                                      child: MainGrid(
+                                        onPhotoSecondary: (pos, id) {
+                                          final photo = _resolvePhotoById(id);
+                                          PabloContextMenu.show(
+                                            context,
+                                            position: pos,
+                                            items: [
+                                              ContextMenuItem(
+                                                label: 'View',
+                                                iconCharacter: '👁',
+                                                onPressed: () =>
+                                                    st.openLightbox(id),
+                                              ),
+                                              ContextMenuItem(
+                                                label: 'Edit',
+                                                iconCharacter: '✏️',
+                                                onPressed: () =>
+                                                    st.openLightbox(id),
+                                              ),
+                                              ContextMenuItem(
+                                                label: ((photo?.starred ??
+                                                            false) ||
                                                         isStarredAsset(
                                                             assetIdFor(id)))
-                                                    ? '☆'
-                                                    : '★',
-                                            onPressed: () => _toggleStar(id),
-                                          ),
-                                          ContextMenuItem(
-                                            label: 'Add to Album',
-                                            iconCharacter: '+',
-                                            onPressed: () => _addToAlbum(id),
-                                          ),
-                                          if (_currentAlbumId(st) != null) ...[
-                                            ContextMenuItem(
-                                              label: 'Set as Album Cover',
-                                              iconCharacter: '🖼',
-                                              onPressed: () =>
-                                                  _setAlbumCover(id),
-                                            ),
-                                            ContextMenuItem(
-                                              label: 'Remove from Album',
-                                              iconCharacter: '−',
-                                              onPressed: () =>
-                                                  _removeFromCurrentAlbum(id),
-                                            ),
-                                          ],
-                                          ContextMenuItem(
-                                            label: isHiddenPhoto(id)
-                                                ? 'Unhide'
-                                                : 'Hide',
-                                            iconCharacter:
-                                                isHiddenPhoto(id) ? '◉' : '⊘',
-                                            onPressed: () => _toggleHidden(id),
-                                          ),
-                                          ContextMenuItem(
-                                            label: 'Share',
-                                            iconCharacter: '📤',
-                                          ),
-                                          ContextMenuItem.separator(),
-                                          ContextMenuItem(
-                                            label: 'Print',
-                                            iconCharacter: '🖨',
-                                          ),
-                                          ContextMenuItem(
-                                            label: 'Rotate Left',
-                                            iconCharacter: '↺',
-                                          ),
-                                          ContextMenuItem(
-                                            label: 'Rotate Right',
-                                            iconCharacter: '↻',
-                                          ),
-                                          ContextMenuItem.separator(),
-                                          ContextMenuItem(
-                                            label: 'Delete',
-                                            iconCharacter: '🗑',
-                                            destructive: true,
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  ),
+                                                    ? 'Unstar'
+                                                    : 'Star',
+                                                iconCharacter:
+                                                    ((photo?.starred ??
+                                                                false) ||
+                                                            isStarredAsset(
+                                                                assetIdFor(id)))
+                                                        ? '☆'
+                                                        : '★',
+                                                onPressed: () =>
+                                                    _toggleStar(id),
+                                              ),
+                                              ContextMenuItem(
+                                                label: 'Add to Album',
+                                                iconCharacter: '+',
+                                                onPressed: () =>
+                                                    _addToAlbum(id),
+                                              ),
+                                              if (_currentAlbumId(st) !=
+                                                  null) ...[
+                                                ContextMenuItem(
+                                                  label: 'Set as Album Cover',
+                                                  iconCharacter: '🖼',
+                                                  onPressed: () =>
+                                                      _setAlbumCover(id),
+                                                ),
+                                                ContextMenuItem(
+                                                  label: 'Remove from Album',
+                                                  iconCharacter: '−',
+                                                  onPressed: () =>
+                                                      _removeFromCurrentAlbum(
+                                                          id),
+                                                ),
+                                              ],
+                                              ContextMenuItem(
+                                                label: isHiddenPhoto(id)
+                                                    ? 'Unhide'
+                                                    : 'Hide',
+                                                iconCharacter: isHiddenPhoto(id)
+                                                    ? '◉'
+                                                    : '⊘',
+                                                onPressed: () =>
+                                                    _toggleHidden(id),
+                                              ),
+                                              ContextMenuItem(
+                                                label: 'Share',
+                                                iconCharacter: '📤',
+                                              ),
+                                              ContextMenuItem.separator(),
+                                              ContextMenuItem(
+                                                label: 'Print',
+                                                iconCharacter: '🖨',
+                                              ),
+                                              ContextMenuItem(
+                                                label: 'Rotate Left',
+                                                iconCharacter: '↺',
+                                              ),
+                                              ContextMenuItem(
+                                                label: 'Rotate Right',
+                                                iconCharacter: '↻',
+                                              ),
+                                              ContextMenuItem.separator(),
+                                              ContextMenuItem(
+                                                label: 'Delete',
+                                                iconCharacter: '🗑',
+                                                destructive: true,
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    if (st.infoPanelTab != null)
+                                      PhotoInfoPanel(
+                                        photo: _resolveActivePhoto(st),
+                                        activeTab: st.infoPanelTab!,
+                                        onClose: () => st.setInfoPanelTab(null),
+                                        onTabChange: (t) =>
+                                            st.setInfoPanelTab(t),
+                                      ),
+                                  ],
                                 ),
-                                if (st.infoPanelTab != null)
-                                  PhotoInfoPanel(
-                                    photo: _resolveActivePhoto(st),
-                                    activeTab: st.infoPanelTab!,
-                                    onClose: () => st.setInfoPanelTab(null),
-                                    onTabChange: (t) => st.setInfoPanelTab(t),
-                                  ),
-                              ],
-                            ),
+                              ),
+                              // Floating tray overlay — bottom-anchored, sized to
+                              // its content, and click-through everywhere else.
+                              const Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: PabloSpacing.xxxl,
+                                child: FloatingPhotoTray(),
+                              ),
+                            ],
                           ),
-                          // Floating tray overlay — bottom-anchored, sized to
-                          // its content, and click-through everywhere else.
-                          const Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: PabloSpacing.xxxl,
-                            child: FloatingPhotoTray(),
-                          ),
-                        ],
-                      ),
               ),
               const ControlsBar(),
             ],

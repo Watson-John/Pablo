@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'app/pablo_app.dart';
 import 'backend/native_backend.dart';
 import 'data/aspect_store.dart';
+import 'data/caption_store.dart';
 import 'data/boot.dart';
 import 'data/library.dart';
 import 'data/library_import.dart';
@@ -31,6 +32,7 @@ Future<void> main() async {
   // disabled or the engine fails to boot; either way the app still runs and
   // unloaded thumbnails show a neutral loading surface.
   final backend = await NativeBackend.initialize(config);
+  if (backend != null) CaptionStore.instance.attach(backend.engine);
 
   runApp(
     NativeBackendScope(

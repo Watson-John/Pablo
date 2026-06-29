@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../components/pablo_icon.dart';
+import '../../data/caption_store.dart';
 import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
@@ -208,6 +209,15 @@ class _PhotoThumbState extends State<PhotoThumb> {
                                   child: overlayCheck(),
                                 ),
                               ),
+                              // Caption overlay — a bottom band shown only when
+                              // the asset carries a user caption. Reactive to
+                              // CaptionStore so it appears as captions stream in.
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: _CaptionBand(photoId: widget.photo.id),
+                              ),
                               if (_hover && !widget.inTray)
                                 Positioned(
                                   bottom: 4,
@@ -301,6 +311,52 @@ class _DragFeedback extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Bottom caption band over a thumbnail — a dark-to-transparent gradient with
+/// one line of the asset's user caption. Renders nothing (zero footprint) when
+/// the asset has no caption. Reactive to [CaptionStore.captionRevision] so it
+/// appears the moment a caption is read or edited.
+class _CaptionBand extends StatelessWidget {
+  const _CaptionBand({required this.photoId});
+  final String photoId;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: CaptionStore.instance.captionRevision,
+      builder: (context, _, __) {
+        final cap = CaptionStore.instance.captionOf(assetIdFor(photoId));
+        if (cap == null || cap.isEmpty) return const SizedBox.shrink();
+        return Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: PabloSpacing.base,
+            vertical: PabloSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.62),
+                Colors.black.withValues(alpha: 0),
+              ],
+            ),
+          ),
+          child: Text(
+            cap,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: PabloTypography.sans(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
+              color: Colors.white,
+            ),
+          ),
+        );
+      },
     );
   }
 }
