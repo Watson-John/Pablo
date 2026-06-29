@@ -81,6 +81,8 @@ class Photo {
     required this.filePath,
     this.starred = false,
     this.aspect,
+    this.modified,
+    this.sizeBytes = 0,
   });
 
   final String id;
@@ -96,6 +98,14 @@ class Photo {
   /// header). Null at import time — the masonry layout then falls back to a
   /// stable hash-derived ratio until real dimensions are read.
   final double? aspect;
+
+  /// File modified time, captured during the scan's `stat()`. Drives the
+  /// gallery's "Sort by Date". Null when the stat failed.
+  final DateTime? modified;
+
+  /// File size in bytes, captured during the scan's `stat()`. Drives the
+  /// gallery's "Sort by Size". 0 when unknown.
+  final int sizeBytes;
 }
 
 /// EXIF / file metadata for one photo. Fields that the file doesn't carry are

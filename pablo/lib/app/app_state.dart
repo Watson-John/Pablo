@@ -120,11 +120,25 @@ class PabloAppState extends ChangeNotifier {
   double thumbSize = 200;
   String gridMode = GridMode.grid;
 
+  // Gallery sort. Mirrored into the library.dart shim so the [photosFor] filter
+  // (a plain function) can read it without an AppState reference.
+  String photoSort = PhotoSort.name;
+  bool sortReversed = false;
+
   /// One of `'people' | 'tags' | 'info'` or null to hide the right info panel.
   String? infoPanelTab;
 
   // Lightbox
   String? lightboxPhotoId;
+
+  /// Immersive lightbox: hides all app chrome (menu/search bars, sidebar, edit
+  /// panel, controls bar) for edge-to-edge viewing. Only meaningful while a
+  /// lightbox photo is open; reset whenever the lightbox opens or closes.
+  bool lightboxFullscreen = false;
+
+  // Compare view — 2-up side-by-side of selected/tray photos. Mutually
+  // exclusive with the lightbox.
+  List<String> compareIds = const [];
 
   // Find Duplicates workflow (full-screen flow; its stage/cluster/selection
   // state stays local to the FindDuplicatesFlow widget).
@@ -199,6 +213,7 @@ class PabloAppState extends ChangeNotifier {
       final path = pathForAssetId(assetId);
       return path == null ? null : Library.instance.byId[path];
     }
+
     final recent = <Photo>[
       for (final id in engine.recentAssets(recentLimit))
         if (resolve(id) case final p?) p,
@@ -246,6 +261,18 @@ class PabloAppState extends ChangeNotifier {
 
   void setGridMode(String mode) {
     gridMode = mode;
+    notifyListeners();
+  }
+
+  void setPhotoSort(String key) {
+    photoSort = key;
+    setLibrarySort(photoSort, sortReversed);
+    notifyListeners();
+  }
+
+  void setSortReversed(bool v) {
+    sortReversed = v;
+    setLibrarySort(photoSort, sortReversed);
     notifyListeners();
   }
 
@@ -344,11 +371,34 @@ class PabloAppState extends ChangeNotifier {
 
   void openLightbox(String photoId) {
     lightboxPhotoId = photoId;
+    lightboxFullscreen = false;
+    compareIds = const [];
+    notifyListeners();
+  }
+
+  /// Open the 2-up compare view over [ids] (the first two are shown). Closes any
+  /// open lightbox first.
+  void openCompare(List<String> ids) {
+    if (ids.length < 2) return;
+    compareIds = List<String>.from(ids);
+    lightboxPhotoId = null;
+    lightboxFullscreen = false;
+    notifyListeners();
+  }
+
+  void closeCompare() {
+    compareIds = const [];
     notifyListeners();
   }
 
   void closeLightbox() {
     lightboxPhotoId = null;
+    lightboxFullscreen = false;
+    notifyListeners();
+  }
+
+  void toggleLightboxFullscreen() {
+    lightboxFullscreen = !lightboxFullscreen;
     notifyListeners();
   }
 

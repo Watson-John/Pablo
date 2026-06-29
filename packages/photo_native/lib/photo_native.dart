@@ -17,6 +17,8 @@ export 'src/ffi/core_api.dart'
         EngineConfig,
         LogLevel,
         Provider,
+        Priority,
+        Stage,
         FacePerson,
         FaceRow,
         AssetRow,

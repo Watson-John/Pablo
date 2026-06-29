@@ -15,10 +15,14 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../app/app_scope.dart';
 import '../../app/app_state.dart';
+import '../../backend/native_backend.dart';
+import '../../backend/prefetch_controller.dart';
 import '../../data/aspect_store.dart';
+import '../../data/caption_store.dart';
 import '../../data/models.dart';
 import '../../data/library.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
 import 'justified_rows.dart';
 import 'photo_thumb.dart';
 
@@ -45,6 +49,24 @@ List<JRow> _rowPlanFor(String sectionId, List<Photo> photos, double avail,
     _planCache.remove(_planOrder.removeAt(0));
   }
   return rows;
+}
+
+/// Queue idle-lane warming for photos in the index range [from]..[toInclusive]
+/// (clamped to the list). Used by the masonry path, which has no row plan.
+void _warmAhead(
+  PrefetchController? prefetch,
+  List<Photo> photos,
+  int from,
+  int toInclusive,
+) {
+  if (prefetch == null) return;
+  final lo = from < 0 ? 0 : from;
+  final hi = toInclusive >= photos.length ? photos.length - 1 : toInclusive;
+  if (hi < lo) return;
+  prefetch.warm([
+    for (var k = lo; k <= hi; k++)
+      (assetId: assetIdFor(photos[k].id), path: photos[k].filePath),
+  ]);
 }
 
 class GallerySectionData {
@@ -76,6 +98,9 @@ class SectionScrollView extends StatelessWidget {
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
     final masonry = st.gridMode == GridMode.masonry;
+    // Speculative prefetch warms upcoming thumbnails on the idle lane. Null when
+    // the native backend is off (tests) → all warm calls become no-ops.
+    final prefetch = NativeBackendScope.maybeOf(context)?.prefetch;
     return Container(
       color: PabloColors.backgroundSurface,
       // Re-pack rows as real aspect ratios stream in from the background reader.
@@ -117,25 +142,42 @@ class SectionScrollView extends StatelessWidget {
                         mainAxisSpacing: _spacing,
                         crossAxisSpacing: _spacing,
                         childCount: photos.length,
-                        itemBuilder: (context, i) => RepaintBoundary(
-                          child: _thumbCell(
-                            st,
-                            photos,
-                            photos[i],
-                            cw,
-                            imageAspect: aspectFor(photos[i]),
-                            showLabel: false,
-                          ),
-                        ),
+                        itemBuilder: (context, i) {
+                          // Warm ~two columns of upcoming tiles ahead of this
+                          // one on the idle lane.
+                          _warmAhead(prefetch, photos, i + 1, i + cols * 2);
+                          return RepaintBoundary(
+                            child: _thumbCell(
+                              st,
+                              photos,
+                              photos[i],
+                              cw,
+                              imageAspect: aspectFor(photos[i]),
+                              showLabel: false,
+                            ),
+                          );
+                        },
                       )
                     : _justifiedSliver(
-                        st, section.id, photos, avail, targetH, rev),
+                        st, section.id, photos, avail, targetH, rev, prefetch),
               ));
             }
 
-            // Prefetch ~1.5 screens ahead so thumbnails are requested (and
-            // cached by the native engine) before they scroll into view.
-            return CustomScrollView(cacheExtent: 1200, slivers: slivers);
+            // Flutter's own build-ahead margin (~1.5 screens): tiles within it
+            // mount and request at viewport priority. The PrefetchController
+            // then warms a few rows BEYOND that on the idle lane. Suppress
+            // warming during fast flings so decodes aren't spent on frames
+            // whipping past.
+            return NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                if (n is ScrollUpdateNotification &&
+                    (n.scrollDelta?.abs() ?? 0) > 60) {
+                  prefetch?.pauseBriefly();
+                }
+                return false;
+              },
+              child: CustomScrollView(cacheExtent: 1200, slivers: slivers),
+            );
           },
         ),
       ),
@@ -152,6 +194,7 @@ class SectionScrollView extends StatelessWidget {
     double avail,
     double targetH,
     int rev,
+    PrefetchController? prefetch,
   ) {
     final rows = _rowPlanFor(sectionId, photos, avail, targetH, _spacing, rev);
     return SliverList(
@@ -162,6 +205,20 @@ class SectionScrollView extends StatelessWidget {
           AspectStore.instance.prioritize([
             for (var k = 0; k < r.count; k++) photos[r.start + k].filePath,
           ]);
+          // Warm the next few rows on the idle lane (beyond Flutter's build
+          // margin) so they are cache-hot by the time they scroll in.
+          if (prefetch != null) {
+            final ahead = lookAheadIndices(rows, rowIdx, 3);
+            if (ahead.isNotEmpty) {
+              prefetch.warm([
+                for (final idx in ahead)
+                  (
+                    assetId: assetIdFor(photos[idx].id),
+                    path: photos[idx].filePath
+                  ),
+              ]);
+            }
+          }
           return RepaintBoundary(
             child: Padding(
               padding: const EdgeInsets.only(bottom: _spacing),
@@ -212,6 +269,8 @@ class SectionScrollView extends StatelessWidget {
     double? imageAspect,
     bool showLabel = true,
   }) {
+    // Read this photo's caption off the build path so the overlay can paint.
+    CaptionStore.instance.prioritize([assetIdFor(p.id)]);
     // Drag carries the whole selection when this photo is part of it, else just
     // this one — the paths in-app reorganize will move onto a folder.
     final selected = st.selectedPhotos.contains(p.id);

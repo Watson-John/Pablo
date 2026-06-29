@@ -1,11 +1,14 @@
 // LightboxView — dark surface, filmstrip, arrow nav, EXIF strip.
 
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:photo_native/photo_native.dart';
 
 import '../../components/pablo_icon.dart';
+import '../../data/caption_store.dart';
 import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
@@ -19,12 +22,22 @@ class LightboxView extends StatefulWidget {
     required this.photos,
     required this.initialId,
     required this.onClose,
+    this.fullscreen = false,
+    this.onToggleFullscreen,
     super.key,
   });
 
   final List<Photo> photos;
   final String initialId;
   final VoidCallback onClose;
+
+  /// Immersive edge-to-edge mode: the top bar, filmstrip, and caption bar
+  /// auto-hide (reveal on mouse-move); only the image + nav arrows remain.
+  final bool fullscreen;
+
+  /// Toggles immersive mode (the `F` key + the toolbar button). When null the
+  /// fullscreen control is hidden.
+  final VoidCallback? onToggleFullscreen;
 
   @override
   State<LightboxView> createState() => _LightboxViewState();
@@ -34,6 +47,30 @@ class _LightboxViewState extends State<LightboxView> {
   late String _currentId = widget.initialId;
   final FocusNode _focus = FocusNode();
   final ScrollController _filmCtl = ScrollController();
+
+  // Immersive-mode chrome auto-hide.
+  bool _chromeVisible = true;
+  Timer? _hideTimer;
+
+  void _revealChrome() {
+    if (!widget.fullscreen) return;
+    _hideTimer?.cancel();
+    if (!_chromeVisible) setState(() => _chromeVisible = true);
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && widget.fullscreen) setState(() => _chromeVisible = false);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant LightboxView old) {
+    super.didUpdateWidget(old);
+    if (widget.fullscreen && !old.fullscreen) {
+      _revealChrome(); // entered fullscreen: show chrome, then fade it out
+    } else if (!widget.fullscreen && old.fullscreen) {
+      _hideTimer?.cancel();
+      _chromeVisible = true;
+    }
+  }
 
   // The photos list can be tens of thousands long for a flat folder, so build()
   // resolves the current index once into a local. This getter is only for the
@@ -66,11 +103,23 @@ class _LightboxViewState extends State<LightboxView> {
       _goTo(_idx - 1);
       return KeyEventResult.handled;
     }
-    if (e.logicalKey == LogicalKeyboardKey.escape) {
-      widget.onClose();
+    if (e.logicalKey == LogicalKeyboardKey.keyF &&
+        widget.onToggleFullscreen != null) {
+      widget.onToggleFullscreen!();
       return KeyEventResult.handled;
     }
+    // Escape is handled via CallbackShortcuts (the Actions layer) rather than
+    // here — Focus.onKeyEvent doesn't reliably receive Escape on desktop.
     return KeyEventResult.ignored;
+  }
+
+  void _onEscape() {
+    // Exit fullscreen first, then close on a second press.
+    if (widget.fullscreen && widget.onToggleFullscreen != null) {
+      widget.onToggleFullscreen!();
+    } else {
+      widget.onClose();
+    }
   }
 
   @override
@@ -81,6 +130,7 @@ class _LightboxViewState extends State<LightboxView> {
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _focus.dispose();
     _filmCtl.dispose();
     super.dispose();
@@ -105,197 +155,235 @@ class _LightboxViewState extends State<LightboxView> {
     // hover-to-name boxes over the big image.
     final pc = PeopleScope.of(context);
     final faces = pc.facesForAsset(assetIdFor(photo.id));
+    // In immersive mode the chrome (top bar, filmstrip, caption) auto-hides.
+    final showChrome = !widget.fullscreen || _chromeVisible;
 
-    return Focus(
-      focusNode: _focus,
-      onKeyEvent: _onKey,
-      child: Container(
-        color: PabloColors.lightboxBackground,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                PabloSpacing.xxl,
-                PabloSpacing.lg,
-                PabloSpacing.xxl,
-                PabloSpacing.md,
-              ),
-              child: Row(
-                children: [
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: widget.onClose,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: PabloSpacing.xxl,
-                        ),
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: PabloColors.selectionPrimary,
-                          borderRadius: PabloRadius.pillAll,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const PabloIcon(
-                              PabloIconName.arrowLeft,
-                              size: 14,
-                              color: PabloColors.textOnAccent,
-                            ),
-                            const SizedBox(width: 7),
-                            Text(
-                              'Back',
-                              style: PabloTypography.sans(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: PabloColors.textOnAccent,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): _onEscape,
+      },
+      child: Focus(
+        focusNode: _focus,
+        // Grab keyboard focus as soon as this instance mounts. The windowed and
+        // fullscreen lightbox live in different parts of the tree, so toggling
+        // fullscreen disposes one LightboxView and mounts another — autofocus
+        // ensures the fresh instance owns the keyboard (Esc / F / arrows)
+        // without racing a post-frame requestFocus.
+        autofocus: true,
+        onKeyEvent: _onKey,
+        child: MouseRegion(
+          onHover: (_) => _revealChrome(),
+          child: Container(
+            color: PabloColors.lightboxBackground,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (showChrome)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      PabloSpacing.xxl,
+                      PabloSpacing.lg,
+                      PabloSpacing.xxl,
+                      PabloSpacing.md,
                     ),
-                  ),
-                  const SizedBox(width: PabloSpacing.xl),
-                  Text(
-                    photo.label,
-                    style: PabloTypography.mono(
-                      fontSize: 12.5,
-                      color: Colors.white.withValues(alpha: 0.55),
-                    ),
-                  ),
-                  const SizedBox(width: PabloSpacing.xl),
-                  Expanded(
-                    child: Text(
-                      exifLine,
-                      overflow: TextOverflow.ellipsis,
-                      style: PabloTypography.sans(
-                        fontSize: 11,
-                        color: Colors.white.withValues(alpha: 0.28),
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${idx + 1} / ${widget.photos.length}',
-                    style: PabloTypography.mono(
-                      fontSize: 11,
-                      color: Colors.white.withValues(alpha: 0.28),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Filmstrip
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: PabloSpacing.xxl,
-                vertical: PabloSpacing.base,
-              ),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.07),
-                  ),
-                ),
-              ),
-              child: SizedBox(
-                height: 52,
-                child: Stack(
-                  children: [
-                    ListView.separated(
-                      controller: _filmCtl,
-                      scrollDirection: Axis.horizontal,
-                      itemCount: widget.photos.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 5),
-                      itemBuilder: (_, i) {
-                        final p = widget.photos[i];
-                        final current = p.id == _currentId;
-                        return MouseRegion(
+                    child: Row(
+                      children: [
+                        MouseRegion(
                           cursor: SystemMouseCursors.click,
                           child: GestureDetector(
-                            onTap: () => _goTo(i),
-                            child: AnimatedScale(
-                              scale: current ? 1.08 : 1.0,
-                              duration: PabloDurations.hover,
-                              child: Container(
-                                width: 72,
-                                height: 52,
-                                decoration: BoxDecoration(
-                                  borderRadius: PabloRadius.mdAll,
-                                  border: Border.all(
-                                    color: current
-                                        ? PabloColors.selectionPrimary
-                                        : PabloColors.borderSubtle,
-                                    width: 2,
+                            onTap: widget.onClose,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: PabloSpacing.xxl,
+                              ),
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: PabloColors.selectionPrimary,
+                                borderRadius: PabloRadius.pillAll,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const PabloIcon(
+                                    PabloIconName.arrowLeft,
+                                    size: 14,
+                                    color: PabloColors.textOnAccent,
                                   ),
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                child: PhotoSurface(
-                                    photo: p, targetW: 144, targetH: 104),
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    'Back',
+                                    style: PabloTypography.sans(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: PabloColors.textOnAccent,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ),
-                        );
-                      },
+                        ),
+                        const SizedBox(width: PabloSpacing.xl),
+                        Text(
+                          photo.label,
+                          style: PabloTypography.mono(
+                            fontSize: 12.5,
+                            color: Colors.white.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        const SizedBox(width: PabloSpacing.xl),
+                        Expanded(
+                          child: Text(
+                            exifLine,
+                            overflow: TextOverflow.ellipsis,
+                            style: PabloTypography.sans(
+                              fontSize: 11,
+                              color: Colors.white.withValues(alpha: 0.28),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${idx + 1} / ${widget.photos.length}',
+                          style: PabloTypography.mono(
+                            fontSize: 11,
+                            color: Colors.white.withValues(alpha: 0.28),
+                          ),
+                        ),
+                        if (widget.onToggleFullscreen != null) ...[
+                          const SizedBox(width: PabloSpacing.xl),
+                          _FullscreenButton(
+                            fullscreen: widget.fullscreen,
+                            onTap: widget.onToggleFullscreen!,
+                          ),
+                        ],
+                      ],
                     ),
-                    // Edge fades so thumbnails dissolve into the chrome.
-                    const Positioned(
-                      left: 0,
-                      top: 0,
-                      bottom: 0,
-                      child: IgnorePointer(child: _FilmEdgeFade(left: true)),
-                    ),
-                    const Positioned(
-                      right: 0,
-                      top: 0,
-                      bottom: 0,
-                      child: IgnorePointer(child: _FilmEdgeFade(left: false)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+                  ),
 
-            // Main image
-            Expanded(
-              child: Listener(
-                onPointerSignal: (e) {
-                  if (e is PointerScrollEvent) {
-                    _goTo(_idx + (e.scrollDelta.dy > 0 ? 1 : -1));
-                  }
-                },
-                child: Stack(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 40,
-                        vertical: PabloSpacing.xxxxl,
-                      ),
-                      child: _LightboxImage(
-                        photo: photo,
-                        faces: faces,
-                        imgW: exif.width,
-                        imgH: exif.height,
+                // Filmstrip
+                if (showChrome)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: PabloSpacing.xxl,
+                      vertical: PabloSpacing.base,
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.07),
+                        ),
                       ),
                     ),
-                    if (hasPrev)
-                      _navArrow(
-                          alignment: Alignment.centerLeft,
-                          icon: PabloIconName.arrowLeft,
-                          onTap: () => _goTo(_idx - 1)),
-                    if (hasNext)
-                      _navArrow(
-                          alignment: Alignment.centerRight,
-                          icon: PabloIconName.arrowRight,
-                          onTap: () => _goTo(_idx + 1)),
-                  ],
+                    child: SizedBox(
+                      height: 52,
+                      child: Stack(
+                        children: [
+                          ListView.separated(
+                            controller: _filmCtl,
+                            scrollDirection: Axis.horizontal,
+                            itemCount: widget.photos.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 5),
+                            itemBuilder: (_, i) {
+                              final p = widget.photos[i];
+                              final current = p.id == _currentId;
+                              return MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: GestureDetector(
+                                  onTap: () => _goTo(i),
+                                  child: AnimatedScale(
+                                    scale: current ? 1.08 : 1.0,
+                                    duration: PabloDurations.hover,
+                                    child: Container(
+                                      width: 72,
+                                      height: 52,
+                                      decoration: BoxDecoration(
+                                        borderRadius: PabloRadius.mdAll,
+                                        border: Border.all(
+                                          color: current
+                                              ? PabloColors.selectionPrimary
+                                              : PabloColors.borderSubtle,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      clipBehavior: Clip.antiAlias,
+                                      child: PhotoSurface(
+                                          photo: p, targetW: 144, targetH: 104),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          // Edge fades so thumbnails dissolve into the chrome.
+                          const Positioned(
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            child:
+                                IgnorePointer(child: _FilmEdgeFade(left: true)),
+                          ),
+                          const Positioned(
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            child: IgnorePointer(
+                                child: _FilmEdgeFade(left: false)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Main image
+                Expanded(
+                  child: Listener(
+                    onPointerSignal: (e) {
+                      if (e is PointerScrollEvent) {
+                        _goTo(_idx + (e.scrollDelta.dy > 0 ? 1 : -1));
+                      }
+                    },
+                    child: Stack(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 40,
+                            vertical: PabloSpacing.xxxxl,
+                          ),
+                          child: _LightboxImage(
+                            photo: photo,
+                            faces: faces,
+                            imgW: exif.width,
+                            imgH: exif.height,
+                          ),
+                        ),
+                        if (hasPrev)
+                          _navArrow(
+                              alignment: Alignment.centerLeft,
+                              icon: PabloIconName.arrowLeft,
+                              onTap: () => _goTo(_idx - 1)),
+                        if (hasNext)
+                          _navArrow(
+                              alignment: Alignment.centerRight,
+                              icon: PabloIconName.arrowRight,
+                              onTap: () => _goTo(_idx + 1)),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+
+                // Editable caption bar (Picasa-style "Make a caption!"). Fresh state
+                // per photo so navigating away cancels any in-progress edit. Part of
+                // the chrome that auto-hides in immersive mode.
+                if (showChrome)
+                  _CaptionBar(
+                    key: ValueKey('cap-${photo.id}'),
+                    assetId: assetIdFor(photo.id),
+                    parentFocus: _focus,
+                  ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -484,6 +572,197 @@ class _NavArrowButtonState extends State<_NavArrowButton> {
                 ? PabloColors.lightboxNavHoverIcon
                 : PabloColors.lightboxNavIcon,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Lightbox top-bar fullscreen toggle — borderless glyph that brightens into a
+/// dark well on hover, mirroring [_NavArrowButton].
+class _FullscreenButton extends StatefulWidget {
+  const _FullscreenButton({required this.fullscreen, required this.onTap});
+  final bool fullscreen;
+  final VoidCallback onTap;
+  @override
+  State<_FullscreenButton> createState() => _FullscreenButtonState();
+}
+
+class _FullscreenButtonState extends State<_FullscreenButton> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.fullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: PabloDurations.hover,
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color:
+                  _hover ? PabloColors.lightboxNavHoverBg : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: PabloIcon(
+              widget.fullscreen ? PabloIconName.zoomOut : PabloIconName.zoomIn,
+              size: 16,
+              color: _hover
+                  ? PabloColors.lightboxNavHoverIcon
+                  : PabloColors.lightboxNavIcon,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Editable caption bar at the bottom of the lightbox (Picasa "Make a
+/// caption!"). Click to type; Enter or click-away saves to the catalog via
+/// [CaptionStore]; Esc cancels. Shows a muted "Add a caption…" affordance when
+/// the photo has none.
+class _CaptionBar extends StatefulWidget {
+  const _CaptionBar({required this.assetId, this.parentFocus, super.key});
+  final int assetId;
+
+  /// The lightbox's keyboard-focus node. Reclaimed when an edit ends so the
+  /// lightbox's Esc / F / arrow shortcuts work again after captioning.
+  final FocusNode? parentFocus;
+
+  @override
+  State<_CaptionBar> createState() => _CaptionBarState();
+}
+
+class _CaptionBarState extends State<_CaptionBar> {
+  bool _editing = false;
+  final TextEditingController _ctl = TextEditingController();
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // Ensure the caption is read even when the lightbox is opened directly on a
+    // photo that never scrolled through the grid.
+    CaptionStore.instance.prioritize([widget.assetId]);
+  }
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _beginEdit(String current) {
+    _ctl.text = current;
+    _ctl.selection = TextSelection(baseOffset: 0, extentOffset: current.length);
+    setState(() => _editing = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+  }
+
+  void _commit() {
+    if (!_editing) return;
+    CaptionStore.instance.setCaption(widget.assetId, _ctl.text.trim());
+    setState(() => _editing = false);
+    widget.parentFocus?.requestFocus();
+  }
+
+  void _cancel() {
+    setState(() => _editing = false);
+    widget.parentFocus?.requestFocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: CaptionStore.instance.captionRevision,
+      builder: (context, _, __) {
+        final cap = CaptionStore.instance.captionOf(widget.assetId) ?? '';
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: PabloSpacing.xxl,
+            vertical: PabloSpacing.lg,
+          ),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
+            ),
+          ),
+          alignment: Alignment.center,
+          child: _editing ? _field() : _display(cap),
+        );
+      },
+    );
+  }
+
+  Widget _field() {
+    // Escape cancels the edit. This CallbackShortcuts is nearer the focused
+    // TextField than the lightbox's Escape binding, so it wins while editing.
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.escape): _cancel,
+      },
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: TextField(
+          controller: _ctl,
+          focusNode: _focus,
+          textAlign: TextAlign.center,
+          onSubmitted: (_) => _commit(),
+          onTapOutside: (_) => _commit(),
+          cursorColor: PabloColors.selectionPrimary,
+          style: PabloTypography.sans(
+            fontSize: 13,
+            color: Colors.white.withValues(alpha: 0.92),
+          ),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Add a caption…',
+            hintStyle: PabloTypography.sans(
+              fontSize: 13,
+              color: Colors.white.withValues(alpha: 0.3),
+            ),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.06),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: PabloSpacing.xl,
+              vertical: PabloSpacing.base,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: PabloRadius.mdAll,
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _display(String cap) {
+    final hasCap = cap.isNotEmpty;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _beginEdit(cap),
+        behavior: HitTestBehavior.opaque,
+        child: Text(
+          hasCap ? cap : 'Add a caption…',
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: PabloTypography.sans(
+            fontSize: 13,
+            fontWeight: hasCap ? FontWeight.w500 : FontWeight.w400,
+            color: Colors.white.withValues(alpha: hasCap ? 0.85 : 0.35),
+          ).copyWith(fontStyle: hasCap ? FontStyle.normal : FontStyle.italic),
         ),
       ),
     );

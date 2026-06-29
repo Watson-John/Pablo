@@ -1,21 +1,27 @@
 PODS:
+  - file_selector_macos (0.0.1):
+    - FlutterMacOS
   - FlutterMacOS (1.0.0)
   - photo_native (0.1.0):
     - FlutterMacOS
 
 DEPENDENCIES:
+  - file_selector_macos (from `Flutter/ephemeral/.symlinks/plugins/file_selector_macos/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - photo_native (from `Flutter/ephemeral/.symlinks/plugins/photo_native/macos`)
 
 EXTERNAL SOURCES:
+  file_selector_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/file_selector_macos/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
   photo_native:
     :path: Flutter/ephemeral/.symlinks/plugins/photo_native/macos
 
 SPEC CHECKSUMS:
+  file_selector_macos: 3e56eaea051180007b900eacb006686fd54da150
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  photo_native: 9fc1381bb12539f11a729570331421ce99d2b939
+  photo_native: ada497f4eed6769803f6d985dfa1bfdd79f2a20d
 
 PODFILE CHECKSUM: 89c84cf5c2351c1e554c6dea18d31a879fc3a19e
 

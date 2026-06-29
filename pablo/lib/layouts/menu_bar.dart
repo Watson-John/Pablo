@@ -8,6 +8,7 @@ import '../app/app_scope.dart';
 import '../app/app_state.dart';
 import '../backend/native_backend.dart';
 import '../data/catalog_maintenance.dart';
+import '../data/library.dart' show PhotoSort;
 import '../data/library_location.dart';
 import '../features/organize/storage_scheme_modal.dart';
 import '../features/people/face_ingestion.dart';
@@ -73,6 +74,32 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
             label: 'Folder Sort: Alphabetical',
             checked: st.folderSort == FolderSort.alpha,
             onTap: () => st.setFolderSort(FolderSort.alpha),
+          ),
+          _MenuEntry.sep(),
+          _MenuEntry(
+            label: 'Sort Photos: Name',
+            checked: st.photoSort == PhotoSort.name,
+            onTap: () => st.setPhotoSort(PhotoSort.name),
+          ),
+          _MenuEntry(
+            label: 'Sort Photos: Date',
+            checked: st.photoSort == PhotoSort.date,
+            onTap: () => st.setPhotoSort(PhotoSort.date),
+          ),
+          _MenuEntry(
+            label: 'Sort Photos: Size',
+            checked: st.photoSort == PhotoSort.size,
+            onTap: () => st.setPhotoSort(PhotoSort.size),
+          ),
+          _MenuEntry(
+            label: 'Sort Photos: Rating',
+            checked: st.photoSort == PhotoSort.rating,
+            onTap: () => st.setPhotoSort(PhotoSort.rating),
+          ),
+          _MenuEntry(
+            label: 'Reverse Order',
+            checked: st.sortReversed,
+            onTap: () => st.setSortReversed(!st.sortReversed),
           ),
           _MenuEntry.sep(),
           const _MenuEntry(label: 'Thumbnail Size: Small'),

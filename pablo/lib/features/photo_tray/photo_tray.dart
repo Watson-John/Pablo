@@ -129,6 +129,15 @@ class _Header extends StatelessWidget {
           const Spacer(),
           _LockToggle(locked: st.trayLocked, onToggle: st.toggleTrayLock),
           const SizedBox(width: PabloSpacing.lg),
+          if (ids.length >= 2) ...[
+            PabloButton(
+              label: 'Compare',
+              variant: PabloButtonVariant.secondary,
+              size: PabloButtonSize.xs,
+              onPressed: () => st.openCompare(ids.take(2).toList()),
+            ),
+            const SizedBox(width: PabloSpacing.lg),
+          ],
           PabloButton(
             label: 'Clear',
             variant: PabloButtonVariant.danger,

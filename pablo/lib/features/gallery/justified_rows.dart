@@ -66,3 +66,21 @@ List<JRow> packRows({
   }
   return rows;
 }
+
+/// Photo indices in the [rows] rows immediately AFTER [fromRow] in [plan] — the
+/// look-ahead window the gallery hands to the speculative thumbnail prefetcher.
+/// Pure (no Flutter), so it is unit-tested directly. Out-of-range rows are
+/// skipped; an empty plan or non-positive [rows] yields no indices.
+List<int> lookAheadIndices(List<JRow> plan, int fromRow, int rows) {
+  final out = <int>[];
+  if (plan.isEmpty || rows <= 0) return out;
+  final last = plan.length - 1;
+  for (var r = fromRow + 1; r <= fromRow + rows && r <= last; r++) {
+    if (r < 0) continue;
+    final row = plan[r];
+    for (var k = 0; k < row.count; k++) {
+      out.add(row.start + k);
+    }
+  }
+  return out;
+}

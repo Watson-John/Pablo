@@ -17,12 +17,17 @@ import 'package:photo_native/photo_native.dart';
 import '../data/app_config.dart';
 import '../data/boot.dart';
 import '../data/sources/face_repository.dart';
+import 'prefetch_controller.dart';
 
 class NativeBackend {
-  NativeBackend._(this.engine, this._pump, this.faces);
+  NativeBackend._(this.engine, this._pump, this.faces, this.prefetch);
 
   final Engine engine;
   final EventPump _pump;
+
+  /// Speculative thumbnail warmer (idle lane). Read by the gallery to warm
+  /// rows just beyond the build window so they are cache-hot on arrival.
+  final PrefetchController prefetch;
 
   /// The People UI's data source over the live engine (face read-back +
   /// confirm/reject/scan/name). Subscribes to native events for `changes`.
@@ -63,12 +68,13 @@ class NativeBackend {
       // (and the ring never backs up). Pull-based on a short timer.
       final pump = EventPump(engine)..start();
       final faces = createFaceRepository(engine: engine, events: pump.stream);
+      final prefetch = PrefetchController(engine);
       debugPrint(
         '[pablo] native backend engine=${Engine.engineVersion} '
         'abi=${Engine.abiVersion} platform=${Platform.operatingSystem} '
         'models=${modelsDir.isEmpty ? "(none)" : modelsDir}',
       );
-      return NativeBackend._(engine, pump, faces);
+      return NativeBackend._(engine, pump, faces, prefetch);
     } catch (e, st) {
       debugPrint('[pablo] native backend init failed: $e\n$st');
       return null;
@@ -79,6 +85,7 @@ class NativeBackend {
     if (faces is NativeFaceRepository) {
       (faces as NativeFaceRepository).dispose();
     }
+    unawaited(prefetch.dispose());
     _pump.dispose();
     engine.dispose();
   }
