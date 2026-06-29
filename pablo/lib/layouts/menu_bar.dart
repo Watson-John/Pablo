@@ -1,11 +1,14 @@
 // MenuBar — File / Edit / View / People / Albums / Tools / Help.
 // Each menu opens a dropdown of MenuItems. Hover-tracks the active menu.
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
 import '../app/app_state.dart';
 import '../backend/native_backend.dart';
+import '../data/catalog_maintenance.dart';
+import '../data/library_location.dart';
 import '../features/organize/storage_scheme_modal.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_scope.dart';
@@ -78,6 +81,12 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           _MenuEntry.sep(),
           const _MenuEntry(label: 'Show Sidebar', checked: true),
           const _MenuEntry(label: 'Show Photo Tray', checked: true),
+          _MenuEntry.sep(),
+          _MenuEntry(
+            label: 'Show Hidden Photos',
+            checked: st.showHidden,
+            onTap: () => st.setShowHidden(!st.showHidden),
+          ),
         ],
         'People': [
           const _MenuEntry(label: 'Show People Panel'),
@@ -98,6 +107,17 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
             label: 'Organization Scheme…',
             onTap: () => openStorageSchemeBuilder(context, st),
           ),
+          _MenuEntry(
+            label: 'Compact Database',
+            onTap: () => CatalogMaintenance.compact(
+              backend: NativeBackendScope.maybeOf(context),
+              appState: st,
+            ),
+          ),
+          _MenuEntry(
+            label: 'Relocate Library…',
+            onTap: () => _relocateLibrary(context),
+          ),
           const _MenuEntry(label: 'Options…'),
         ],
         'Help': const [
@@ -106,6 +126,47 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           _MenuEntry(label: 'About Pablo'),
         ],
       };
+
+  // Tools → Relocate Library…: pick a destination folder (native OS dialog),
+  // copy the catalog there, and persist it. Takes effect on the next launch.
+  Future<void> _relocateLibrary(BuildContext context) async {
+    final backend = NativeBackendScope.maybeOf(context);
+    if (backend == null) return;
+    final dest = await getDirectoryPath(confirmButtonText: 'Relocate Here');
+    if (dest == null || dest.isEmpty || !context.mounted) return;
+    try {
+      final moved =
+          await LibraryLocation.relocate(backend: backend, destDir: dest);
+      if (!context.mounted) return;
+      await _info(
+        context,
+        moved ? 'Library relocated' : 'No change',
+        moved
+            ? 'The catalog was copied to:\n$dest\n\n'
+                'Restart Pablo to use the new location.'
+            : 'That is already the current catalog location.',
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      await _info(context, 'Could not relocate', '$e');
+    }
+  }
+
+  Future<void> _info(BuildContext context, String title, String body) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

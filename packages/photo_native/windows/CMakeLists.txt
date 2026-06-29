@@ -65,6 +65,13 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/thumb/thumb_service.cpp"
   "${NATIVE_CORE_DIR}/src/thumb/thumb_cache.cpp"
   "${NATIVE_CORE_DIR}/src/util/log.cpp"
+  # M5 asset catalog (SQLite) + EXIF — unify the durable catalog across every
+  # desktop target. The SQLite probe below defines PHOTO_HAVE_SQLITE, lighting
+  # up engine.cpp's catalog member and the catalog/album/organize C-ABI in
+  # c_api.cpp. exif.cpp self-stubs when libexif is absent (Windows has none
+  # wired yet), so it is always safe to compile.
+  "${NATIVE_CORE_DIR}/src/catalog/catalog.cpp"
+  "${NATIVE_CORE_DIR}/src/exif/exif.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})
@@ -117,5 +124,25 @@ else()
   message(STATUS "photo_native(windows): libvips not found -> synthetic decode")
 endif()
 
-# No additional bundled libraries in M1.
-set(photo_native_bundled_libraries "" PARENT_SCOPE)
+# ---- Asset catalog (SQLite via vcpkg, REQUIRED) ----
+# `sqlite3` is declared in the repo's vcpkg.json. The Flutter Windows build does
+# not pass a CMake toolchain file, so we self-configure from VCPKG_ROOT (CI runs
+# `vcpkg install sqlite3:x64-windows`) by appending the installed prefix to
+# CMAKE_PREFIX_PATH — mirroring how the libvips block consumes a bundle by path.
+# unofficial-sqlite3's CMake config is relocatable. exif.cpp self-stubs (no
+# libexif on Windows yet -> PHOTO_HAVE_EXIF stays undefined).
+if(DEFINED ENV{VCPKG_ROOT})
+  list(APPEND CMAKE_PREFIX_PATH "$ENV{VCPKG_ROOT}/installed/x64-windows")
+endif()
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+target_compile_definitions(${PLUGIN_NAME} PRIVATE PHOTO_HAVE_SQLITE=1)
+target_link_libraries(${PLUGIN_NAME} PRIVATE unofficial::sqlite3::sqlite3)
+message(STATUS "photo_native(windows): asset catalog ENABLED (vcpkg sqlite3)")
+
+# Bundle the vcpkg sqlite3 DLL next to the app so the plugin resolves it at
+# runtime (x64-windows is a dynamic triplet; CRT-compatible with Flutter's /MD).
+set(_pn_bundled_libraries "")
+if(DEFINED ENV{VCPKG_ROOT} AND EXISTS "$ENV{VCPKG_ROOT}/installed/x64-windows/bin/sqlite3.dll")
+  list(APPEND _pn_bundled_libraries "$ENV{VCPKG_ROOT}/installed/x64-windows/bin/sqlite3.dll")
+endif()
+set(photo_native_bundled_libraries "${_pn_bundled_libraries}" PARENT_SCOPE)

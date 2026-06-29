@@ -42,6 +42,11 @@ dependencies:
   # masonry view. Pure-Dart, no platform code — doesn't touch the native build.
   flutter_staggered_grid_view: ^0.7.0
 
+  # Native OS folder picker (Tools → Relocate Library). Official Flutter plugin;
+  # the one approved exception to the "no new deps" rule for a real directory
+  # chooser on desktop (getDirectoryPath on macOS/Windows/Linux).
+  file_selector: ^1.0.3
+
   # Pablo native backend (FFI + texture registrar). Path dependency on the
   # in-repo plugin under packages/photo_native.
   photo_native:

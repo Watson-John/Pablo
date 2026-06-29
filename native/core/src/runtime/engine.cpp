@@ -9,6 +9,7 @@
 #ifdef PHOTO_HAVE_SQLITE
 #include <cctype>
 #include <chrono>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "exif/exif.h"
@@ -188,6 +189,9 @@ int64_t mtime_ns_of(const fs::path& p) {
 
 void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
                         bool prune) {
+    // Serialize import/rescan jobs (see import_mu_): the diff window between the
+    // file_stats() snapshot and the upsert/prune must not race another job.
+    std::lock_guard<std::mutex> import_lk(import_mu_);
     auto emit = [&](uint32_t kind, int32_t status, uint64_t done, uint64_t total) {
         photo_event_t ev{};
         ev.kind = kind;
@@ -203,14 +207,23 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
         return;
     }
 
-    // 1. Enumerate image files across every root (recursively).
-    std::vector<fs::path> files;
+    // 1. Enumerate image files across every root (recursively), capturing each
+    //    file's size + mtime during the walk. Done WITHOUT the catalog lock so a
+    //    large library's walk never blocks concurrent reads (list_assets,
+    //    path_for_asset) for the walk's whole duration.
+    struct Scanned { fs::path path; int64_t size; int64_t mtime_ns; };
+    std::vector<Scanned> files;
     std::error_code ec;
+    auto add_file = [&](const fs::path& p) {
+        std::error_code sec;
+        const auto sz = static_cast<int64_t>(fs::file_size(p, sec));
+        files.push_back({p, sec ? 0 : sz, mtime_ns_of(p)});
+    };
     for (const auto& root : roots) {
         fs::path rp(root);
         if (!fs::exists(rp, ec)) continue;
         if (fs::is_regular_file(rp, ec)) {
-            if (is_image(rp)) files.push_back(rp);
+            if (is_image(rp)) add_file(rp);
             continue;
         }
         for (fs::recursive_directory_iterator it(
@@ -218,56 +231,109 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
              end;
              it != end; it.increment(ec)) {
             if (ec) { ec.clear(); continue; }
-            if (it->is_regular_file(ec) && is_image(it->path()))
-                files.push_back(it->path());
+            if (it->is_regular_file(ec) && is_image(it->path())) add_file(it->path());
         }
     }
 
     const uint64_t total = files.size();
     const int64_t import_time = now_ns();
-    uint64_t done = 0;
 
-    std::lock_guard<std::mutex> lk(catalog_mu_);
+    // 2. Snapshot existing (path → size, mtime_ns) under the lock, briefly.
+    std::unordered_map<std::string, catalog::Catalog::FileStat> existing;
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        existing = catalog_->file_stats();
+    }
 
-    // 2. Upsert every file (with its EXIF metadata); report progress every 64
-    //    and at the end.
+    // 3. Diff (no lock): skip files whose size+mtime are unchanged — the win is
+    //    skipping the expensive exif::extract on the unchanged majority. Stage
+    //    the rest for upsert. Progress is reported over all files (skipped ones
+    //    are instant; extracted ones carry the cost).
+    struct Pending { catalog::AssetRecord rec; exif::AssetMetadata meta; };
+    std::vector<Pending> pending;
+    pending.reserve(files.size());
+    uint64_t added = 0, updated = 0, skipped = 0, removed = 0, processed = 0;
     for (const auto& f : files) {
-        catalog::AssetRecord r;
-        r.path = f.string();
-        r.folder = f.parent_path().string();
-        r.filename = f.filename().string();
-        std::error_code fec;
-        r.size = static_cast<int64_t>(fs::file_size(f, fec));
-        r.mtime_ns = mtime_ns_of(f);
-        r.format = format_of(f);
-        r.import_time = import_time;
-        // EXIF read (no-op without libexif): fills dimensions/orientation on the
-        // asset row and the searchable asset_metadata row.
-        exif::AssetMetadata meta = exif::extract(r.path);
-        r.width = meta.width;
-        r.height = meta.height;
-        r.orientation = meta.orientation;
-        try {
-            catalog_->upsert_asset(r);
-            catalog_->upsert_metadata(r.id, meta);
-        } catch (const std::exception& e) {
-            PHOTO_LOGF(PHOTO_LOG_WARN, "import: skip %s (%s)",
-                       r.path.c_str(), e.what());
+        const std::string path = f.path.string();
+        const auto it = existing.find(path);
+        const bool is_new = (it == existing.end());
+        if (!is_new && it->second.size == f.size &&
+            it->second.mtime_ns == f.mtime_ns) {
+            ++skipped;
+        } else {
+            catalog::AssetRecord r;
+            r.path = path;
+            r.folder = f.path.parent_path().string();
+            r.filename = f.path.filename().string();
+            r.size = f.size;
+            r.mtime_ns = f.mtime_ns;
+            r.format = format_of(f.path);
+            r.import_time = import_time;  // ignored by upsert on conflict
+            // EXIF read (no-op without libexif): fills dimensions/orientation on
+            // the asset row and the searchable asset_metadata row.
+            exif::AssetMetadata meta = exif::extract(path);
+            r.width = meta.width;
+            r.height = meta.height;
+            r.orientation = meta.orientation;
+            pending.push_back({std::move(r), std::move(meta)});
+            if (is_new) ++added; else ++updated;
         }
-        ++done;
-        if ((done % 64) == 0 || done == total)
-            emit(PHOTO_EVT_IMPORT_PROGRESS, PHOTO_STATUS_OK, done, total);
+        ++processed;
+        if ((processed % 64) == 0 || processed == total)
+            emit(PHOTO_EVT_IMPORT_PROGRESS, PHOTO_STATUS_OK, processed, total);
     }
 
-    // 3. rescan only: drop assets whose backing file is gone.
-    if (prune) {
-        for (const auto& a : catalog_->list_assets(/*include_hidden=*/true)) {
-            std::error_code pec;
-            if (!fs::exists(fs::path(a.path), pec)) catalog_->remove_asset(a.id);
+    // 4. Apply the staged upserts under the lock (fast — no exif here), then
+    //    (rescan only) prune assets whose backing file is gone. Assets imported
+    //    under a hidden folder are re-forced hidden (upsert preserves the user
+    //    `hidden` field on conflict, so new/changed rows need the rule applied).
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        const std::vector<std::string> hidden_dirs = catalog_->hidden_folders();
+        auto under_hidden = [&](const std::string& path) {
+            for (const auto& h : hidden_dirs) {
+                if (path.size() >= h.size() && !h.empty() &&
+                    path.compare(0, h.size(), h) == 0 &&
+                    (path.size() == h.size() || path[h.size()] == '/' ||
+                     path[h.size()] == '\\'))
+                    return true;
+            }
+            return false;
+        };
+        for (auto& p : pending) {
+            try {
+                catalog_->upsert_asset(p.rec);
+                catalog_->upsert_metadata(p.rec.id, p.meta);
+                if (!hidden_dirs.empty() && under_hidden(p.rec.path))
+                    catalog_->set_hidden(p.rec.id, true);
+            } catch (const std::exception& e) {
+                PHOTO_LOGF(PHOTO_LOG_WARN, "import: skip %s (%s)",
+                           p.rec.path.c_str(), e.what());
+            }
+        }
+        if (prune) {
+            for (const auto& a : catalog_->list_assets(/*include_hidden=*/true)) {
+                std::error_code pec;
+                if (!fs::exists(fs::path(a.path), pec)) {
+                    catalog_->remove_asset(a.id);
+                    ++removed;
+                }
+            }
         }
     }
 
-    emit(PHOTO_EVT_IMPORT_COMPLETE, PHOTO_STATUS_OK, done, total);
+    // 5. Completion event carries the rescan summary so the UI can report it:
+    //    aux64 = added, aux64_b = updated, _reserved[0] = skipped,
+    //    _reserved[1] = removed (see photo_core.h PHOTO_EVT_IMPORT_COMPLETE).
+    photo_event_t done_ev{};
+    done_ev.kind = PHOTO_EVT_IMPORT_COMPLETE;
+    done_ev.status = PHOTO_STATUS_OK;
+    done_ev.request_id = request_id;
+    done_ev.aux64 = added;
+    done_ev.aux64_b = updated;
+    done_ev._reserved[0] = static_cast<uint32_t>(skipped);
+    done_ev._reserved[1] = static_cast<uint32_t>(removed);
+    events_.push(done_ev);
 }
 
 uint64_t Engine::import_path(const std::string& path) {
@@ -383,6 +449,94 @@ void Engine::set_caption(int64_t asset_id, const std::string& v) {
     if (!catalog_) return;
     std::lock_guard<std::mutex> lk(catalog_mu_);
     catalog_->set_caption(asset_id, v);
+}
+
+void Engine::set_hidden(int64_t asset_id, bool v) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_hidden(asset_id, v);
+}
+
+void Engine::set_folder_hidden(const std::string& path, bool v) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    if (v) catalog_->add_hidden_folder(path);
+    else   catalog_->remove_hidden_folder(path);
+    catalog_->set_assets_hidden_under(path, v);
+}
+
+std::vector<std::string> Engine::hidden_folders() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->hidden_folders();
+}
+
+std::vector<std::string> Engine::hidden_asset_paths() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->hidden_asset_paths();
+}
+
+std::vector<int64_t> Engine::recent_assets(int limit) const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->recent_assets(limit);
+}
+
+std::vector<int64_t> Engine::starred_assets() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->starred_assets();
+}
+
+catalog::Catalog::Stats Engine::catalog_stats() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->stats();
+}
+
+uint64_t Engine::compact_catalog() {
+    if (!catalog_) return 0;
+    const uint64_t req = next_import_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req] {
+        int32_t status = PHOTO_STATUS_OK;
+        {
+            std::lock_guard<std::mutex> lk(catalog_mu_);
+            try {
+                catalog_->compact();
+            } catch (const std::exception& e) {
+                PHOTO_LOGF(PHOTO_LOG_WARN, "compact: %s", e.what());
+                status = PHOTO_STATUS_INTERNAL;
+            }
+        }
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_MAINTENANCE_COMPLETE;
+        ev.status = status;
+        ev.request_id = req;
+        events_.push(ev);
+    });
+    return req;
+}
+
+void Engine::compact_catalog_sync() {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->compact();
+}
+
+void Engine::catalog_checkpoint() {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->checkpoint();
+}
+
+int64_t Engine::rebase_paths(const std::string& old_prefix,
+                             const std::string& new_prefix) {
+    if (!catalog_) return 0;
+    std::error_code ec;
+    if (!fs::exists(fs::path(new_prefix), ec)) return -1;  // new root must exist
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->rebase_paths(old_prefix, new_prefix);
 }
 
 void Engine::add_tag(int64_t asset_id, const std::string& tag) {

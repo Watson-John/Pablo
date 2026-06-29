@@ -37,29 +37,26 @@ DynamicLibrary openPhotoCore() {
 }
 
 List<String> _candidatesForPlatform() {
+  // Explicit override (absolute path or loader-resolvable name). Lets a dev or
+  // the cross-FFI integration test point at a standalone libphoto_core build
+  // without relying on DYLD_/LD_LIBRARY_PATH (macOS SIP strips DYLD_* env vars).
+  final override = Platform.environment['PHOTO_CORE_LIB'];
+  final prefix = (override != null && override.isNotEmpty) ? [override] : const <String>[];
   if (Platform.isMacOS) {
-    return const [
+    return [
+      ...prefix,
       // Production: photo_core symbols are linked into the Flutter plugin's
       // framework binary. @rpath inside the app bundle resolves to
-      // <App>.app/Contents/Frameworks/photo_native.framework/photo_native.
       'photo_native.framework/photo_native',
       // Standalone native test fallback.
       'libphoto_core.dylib',
     ];
   }
   if (Platform.isWindows) {
-    return const [
-      // Production: plugin DLL ships in app's runner directory.
-      'photo_native_plugin.dll',
-      // Standalone test fallback.
-      'photo_core.dll',
-    ];
+    return [...prefix, 'photo_native_plugin.dll', 'photo_core.dll'];
   }
   if (Platform.isLinux) {
-    return const [
-      'libphoto_native_plugin.so',
-      'libphoto_core.so',
-    ];
+    return [...prefix, 'libphoto_native_plugin.so', 'libphoto_core.so'];
   }
   throw UnsupportedError(
     'photo_native is desktop-only (macOS/Windows/Linux); '

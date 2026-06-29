@@ -14,6 +14,7 @@ import 'dart:io' show Directory, Platform;
 import 'package:flutter/widgets.dart';
 import 'package:photo_native/photo_native.dart';
 
+import '../data/app_config.dart';
 import '../data/boot.dart';
 import '../data/sources/face_repository.dart';
 
@@ -37,7 +38,9 @@ class NativeBackend {
     final modelsDir = config.modelsDir;
 
     try {
-      final tmp = '${Directory.systemTemp.path}/pablo_native_backend';
+      // The catalog directory is user-relocatable (Tools → Relocate Library…),
+      // persisted in AppConfig; defaults to the legacy temp location.
+      final tmp = AppConfig.load().catalogDir;
       final dir = Directory(tmp);
       if (!await dir.exists()) await dir.create(recursive: true);
 

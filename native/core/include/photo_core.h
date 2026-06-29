@@ -107,12 +107,19 @@ typedef enum {
 typedef enum {
     PHOTO_EVT_STAGE_READY      = 1,
     PHOTO_EVT_STAGE_FAILED     = 2,
-    PHOTO_EVT_IMPORT_PROGRESS  = 3,
+    PHOTO_EVT_IMPORT_PROGRESS  = 3,  /* aux64 = processed, aux64_b = total      */
+    /* Terminal import/rescan event. Carries the incremental-rescan summary:
+     *   aux64        = added   (new assets inserted)
+     *   aux64_b      = updated (existing assets whose file changed)
+     *   _reserved[0] = skipped (unchanged files — size+mtime matched, not re-read)
+     *   _reserved[1] = removed (rescan-pruned assets whose file is gone)        */
     PHOTO_EVT_IMPORT_COMPLETE  = 4,
     PHOTO_EVT_SCAN_PROGRESS    = 5,
     PHOTO_EVT_CLUSTER_UPDATED  = 6,
     PHOTO_EVT_PROVIDER_PROBED  = 7,
-    PHOTO_EVT_LOG              = 8
+    PHOTO_EVT_LOG              = 8,
+    /* Async catalog maintenance (compaction) finished. status is the result. */
+    PHOTO_EVT_MAINTENANCE_COMPLETE = 9
 } photo_event_kind_t;
 
 typedef enum {
@@ -462,6 +469,21 @@ PHOTO_API size_t photo_album_members(photo_engine_t* engine, uint64_t album_id,
                                      uint64_t* out, size_t cap);
 
 /* ------------------------------------------------------------------------- */
+/* Smart collections — seeded virtual views (hidden assets excluded).         */
+/*                                                                           */
+/* Return asset-id arrays (the UI resolves ids → paths), mirroring            */
+/* photo_album_members: fill up to `cap` and return the TOTAL available.      */
+/* "All photos" reuses photo_list_assets, so it needs no call here.           */
+/* ------------------------------------------------------------------------- */
+
+/* The `limit` most-recently-imported asset ids, newest first. */
+PHOTO_API size_t photo_smart_recent(photo_engine_t* engine, int32_t limit,
+                                    uint64_t* out, size_t cap);
+/* Every starred asset id. */
+PHOTO_API size_t photo_smart_starred(photo_engine_t* engine,
+                                     uint64_t* out, size_t cap);
+
+/* ------------------------------------------------------------------------- */
 /* Organize state — star / rating / caption / tags.                          */
 /*                                                                           */
 /* All catalog-only: per DECISIONS D1, user-authored metadata is NOT written  */
@@ -475,6 +497,71 @@ PHOTO_API int32_t photo_asset_set_rating(photo_engine_t* engine,
 PHOTO_API int32_t photo_asset_set_caption(photo_engine_t* engine,
                                           uint64_t asset_id,
                                           const char* caption_utf8);
+/* Hide/unhide a single asset (excludes it from photo_list_assets). */
+PHOTO_API int32_t photo_asset_set_hidden(photo_engine_t* engine,
+                                         uint64_t asset_id, int32_t hidden);
+
+/* ------------------------------------------------------------------------- */
+/* Folder-level hide.                                                         */
+/*                                                                           */
+/* Hiding a folder records a persistent rule (assets re-imported beneath it   */
+/* stay hidden) AND sweeps existing assets at/under it hidden; un-hiding      */
+/* sweeps them visible. Matched on a separator boundary so /a/photos never    */
+/* matches /a/photoshop.                                                      */
+/* ------------------------------------------------------------------------- */
+
+PHOTO_API int32_t photo_folder_set_hidden(photo_engine_t* engine,
+                                          const char* path_utf8, int32_t hidden);
+/*
+ * Hidden folder paths as NUL-separated UTF-8 ("/a\0/b\0…"). Fills up to `cap`
+ * bytes into `out` and returns the TOTAL bytes needed — grow and re-call.
+ */
+PHOTO_API size_t photo_hidden_folders(photo_engine_t* engine,
+                                      char* out, size_t cap);
+/*
+ * Paths of individually-hidden assets as NUL-separated UTF-8. Same buffer
+ * protocol. photo_list_assets excludes hidden assets, so this is how the UI
+ * hydrates its hide filter on startup.
+ */
+PHOTO_API size_t photo_hidden_assets(photo_engine_t* engine,
+                                     char* out, size_t cap);
+
+/* ------------------------------------------------------------------------- */
+/* Maintenance — compaction, stats, checkpoint.                               */
+/* ------------------------------------------------------------------------- */
+
+typedef struct {
+    int64_t page_count;      /* pages currently in the DB file              */
+    int64_t freelist_count;  /* unused pages reclaimable by VACUUM          */
+    int64_t page_size;       /* bytes per page (DB size ≈ page_count*size)  */
+} photo_catalog_stats_t;
+
+/* Read catalog size stats into *out. Returns photo_status_t. Synchronous. */
+PHOTO_API int32_t photo_catalog_stats(photo_engine_t* engine,
+                                      photo_catalog_stats_t* out);
+/*
+ * Checkpoint the WAL then VACUUM, on the idle lane (VACUUM can be slow).
+ * Returns a request id; emits PHOTO_EVT_MAINTENANCE_COMPLETE on completion.
+ */
+PHOTO_API uint64_t photo_catalog_compact(photo_engine_t* engine);
+/* Synchronous checkpoint + VACUUM (blocks until done). For on-exit cleanup,
+ * where the async lane wouldn't finish before the process tears down. */
+PHOTO_API int32_t photo_catalog_compact_sync(photo_engine_t* engine);
+/* Flush the WAL into the main DB and truncate it (cheap; pre-copy helper). */
+PHOTO_API int32_t photo_catalog_checkpoint(photo_engine_t* engine);
+
+/* ------------------------------------------------------------------------- */
+/* Relocate — rebase asset paths after the photo library moved on disk.       */
+/* ------------------------------------------------------------------------- */
+/*
+ * Rewrite every stored path at/under old_prefix to sit under new_prefix
+ * instead, preserving asset ids so faces/albums/tags survive the move.
+ * new_prefix must exist on disk. Returns photo_status_t (NOT_FOUND when the new
+ * root is missing). Synchronous + transactional.
+ */
+PHOTO_API int32_t photo_library_rebase(photo_engine_t* engine,
+                                       const char* old_prefix_utf8,
+                                       const char* new_prefix_utf8);
 
 /* Star / rating / caption for one asset. */
 typedef struct {

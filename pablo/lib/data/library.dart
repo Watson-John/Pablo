@@ -479,6 +479,13 @@ Map<String, List<Photo>> _albumSectionPhotos = const {};
 void setAlbumSectionPhotos(Map<String, List<Photo>> m) =>
     _albumSectionPhotos = m;
 
+/// Smart-collection key (`smart:all` / `smart:recent` / `smart:starred`) → its
+/// photos, set by `PabloAppState.reloadSmartCollections`. Checked first in
+/// [photosFor] so seeded virtual collections render through the same path.
+Map<String, List<Photo>> _smartSectionPhotos = const {};
+void setSmartSectionPhotos(Map<String, List<Photo>> m) =>
+    _smartSectionPhotos = m;
+
 /// Catalog star state (asset_id → starred), hydrated at import and toggled by
 /// the context menu / controls bar. Kept here (not on the immutable Photo) so
 /// star reflects the catalog without rebuilding the library.
@@ -488,12 +495,38 @@ bool isStarredAsset(int assetId) => _starredByAsset[assetId] ?? false;
 void setStarredLocal(int assetId, bool v) =>
     _starredByAsset = {..._starredByAsset, assetId: v};
 
-/// Photos for a gallery section id — an album id, folder id, or timeline id.
-List<Photo> photosFor(String id) =>
-    _albumSectionPhotos[id] ??
-    Library.instance.photosByFolder[id] ??
-    Library.instance.photosByTimeline[id] ??
-    const [];
+/// Catalog hidden state as a set of hidden file paths (== Photo.id), hydrated at
+/// import and toggled by the context menu. Hidden photos are filtered out of
+/// gallery sections unless [libraryShowHidden] is on. Keyed by path (not asset
+/// id) so the gallery filter — which sees [Photo]s — needs no id lookup.
+Set<String> _hiddenPaths = const {};
+bool libraryShowHidden = false;
+void hydrateHidden(Set<String> paths) => _hiddenPaths = paths;
+bool isHiddenPhoto(String pathId) => _hiddenPaths.contains(pathId);
+void setHiddenLocal(String pathId, bool v) {
+  final next = {..._hiddenPaths};
+  if (v) {
+    next.add(pathId);
+  } else {
+    next.remove(pathId);
+  }
+  _hiddenPaths = next;
+}
+
+void setLibraryShowHidden(bool v) => libraryShowHidden = v;
+
+/// Photos for a gallery section id — a smart-collection key, album id, folder
+/// id, or timeline id — with hidden photos filtered out (unless
+/// [libraryShowHidden]).
+List<Photo> photosFor(String id) {
+  final raw = _smartSectionPhotos[id] ??
+      _albumSectionPhotos[id] ??
+      Library.instance.photosByFolder[id] ??
+      Library.instance.photosByTimeline[id] ??
+      const <Photo>[];
+  if (libraryShowHidden || _hiddenPaths.isEmpty) return raw;
+  return [for (final p in raw) if (!_hiddenPaths.contains(p.id)) p];
+}
 
 /// Look up a single photo by its id (== file path).
 Photo? photoById(String id) => Library.instance.byId[id];

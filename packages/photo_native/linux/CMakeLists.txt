@@ -55,6 +55,13 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/thumb/thumb_service.cpp"
   "${NATIVE_CORE_DIR}/src/thumb/thumb_cache.cpp"
   "${NATIVE_CORE_DIR}/src/util/log.cpp"
+  # M5 asset catalog (SQLite) + EXIF — unify the durable catalog across every
+  # desktop target (the macOS podspec already compiles these). The SQLite probe
+  # below defines PHOTO_HAVE_SQLITE, which lights up engine.cpp's catalog member
+  # and the catalog/album/organize C-ABI in c_api.cpp. exif.cpp self-stubs when
+  # libexif is absent, so it is always safe to compile.
+  "${NATIVE_CORE_DIR}/src/catalog/catalog.cpp"
+  "${NATIVE_CORE_DIR}/src/exif/exif.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})
@@ -97,6 +104,25 @@ if(VIPS_FOUND)
   message(STATUS "photo_native(linux): libvips ${VIPS_VERSION} -> real decode")
 else()
   message(STATUS "photo_native(linux): libvips not found -> synthetic decode")
+endif()
+
+# ---- Asset catalog (SQLite, REQUIRED) + EXIF (libexif, optional) ----
+# The durable catalog is a first-class cross-platform feature, so SQLite is
+# REQUIRED here (apt: libsqlite3-dev) — a missing dep fails the build loudly
+# rather than silently shipping a catalog-less app. exif.cpp self-stubs without
+# libexif, so PHOTO_HAVE_EXIF is best-effort.
+find_package(SQLite3 REQUIRED)
+target_compile_definitions(${PLUGIN_NAME} PRIVATE PHOTO_HAVE_SQLITE=1)
+target_link_libraries(${PLUGIN_NAME} PRIVATE SQLite::SQLite3)
+message(STATUS "photo_native(linux): asset catalog ENABLED (SQLite ${SQLite3_VERSION})")
+
+pkg_check_modules(LIBEXIF IMPORTED_TARGET libexif)
+if(LIBEXIF_FOUND)
+  target_compile_definitions(${PLUGIN_NAME} PRIVATE PHOTO_HAVE_EXIF=1)
+  target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::LIBEXIF)
+  message(STATUS "photo_native(linux): EXIF metadata ENABLED (libexif ${LIBEXIF_VERSION})")
+else()
+  message(STATUS "photo_native(linux): libexif absent -> EXIF metadata disabled")
 endif()
 
 set(photo_native_bundled_libraries "" PARENT_SCOPE)

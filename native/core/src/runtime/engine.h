@@ -84,11 +84,41 @@ public:
     void set_starred(int64_t asset_id, bool v);
     void set_rating(int64_t asset_id, int32_t v);
     void set_caption(int64_t asset_id, const std::string& v);
+    void set_hidden(int64_t asset_id, bool v);
     void add_tag(int64_t asset_id, const std::string& tag);
     void remove_tag(int64_t asset_id, const std::string& tag);
     std::vector<std::string> tags_for_asset(int64_t asset_id) const;
     // Full asset row (for reading star/rating/caption); nullopt if unknown.
     std::optional<catalog::AssetRecord> asset(int64_t asset_id) const;
+
+    // Folder-level hide (all locked). Hiding records the rule AND sweeps
+    // existing assets under the folder hidden; un-hiding sweeps them visible.
+    // run_import re-applies the rule to assets (re)imported under a hidden dir.
+    void set_folder_hidden(const std::string& path, bool v);
+    std::vector<std::string> hidden_folders() const;
+    // Paths of individually-hidden assets, for hydrating the UI hide filter.
+    std::vector<std::string> hidden_asset_paths() const;
+
+    // Smart collections (all locked). Recent = `limit` newest by import_time.
+    std::vector<int64_t> recent_assets(int limit) const;
+    std::vector<int64_t> starred_assets() const;
+
+    // Maintenance. catalog_stats() is synchronous/locked. compact_catalog()
+    // runs VACUUM on the idle lane (it can be slow) and emits
+    // PHOTO_EVT_MAINTENANCE_COMPLETE; returns a request id (0 if no catalog).
+    // catalog_checkpoint() flushes the WAL (cheap; pre-copy helper).
+    catalog::Catalog::Stats catalog_stats() const;
+    uint64_t compact_catalog();
+    // Synchronous checkpoint + VACUUM (locked) — for the on-exit cleanup, which
+    // must finish before the process tears down (the async lane wouldn't).
+    void     compact_catalog_sync();
+    void     catalog_checkpoint();
+
+    // Relocate: rebase every stored path from old_prefix to new_prefix (locked,
+    // transactional). Validates new_prefix exists on disk first. Returns rows
+    // rewritten, or -1 if new_prefix does not exist.
+    int64_t rebase_paths(const std::string& old_prefix,
+                         const std::string& new_prefix);
 #endif
 #ifdef PHOTO_HAVE_FACES
     faces::FaceService& faces()  { return faces_; }
@@ -128,6 +158,11 @@ private:
     // thread) read calls. SQLite's serialized mode protects single statements;
     // this guards our multi-statement sequences (e.g. upsert's insert+select).
     mutable std::mutex                catalog_mu_;
+    // Serializes import/rescan jobs. run_import deliberately releases
+    // catalog_mu_ during its filesystem walk (so reads aren't blocked), so
+    // without this two concurrent import/rescan jobs on the worker pool could
+    // interleave their snapshot→diff→apply→prune phases. Held for a whole job.
+    std::mutex                        import_mu_;
     std::atomic<uint64_t>             next_import_id_{1};
 #endif
 

@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "exif/exif.h"  // AssetMetadata (a pure, libexif-free struct)
@@ -77,6 +78,12 @@ public:
     std::vector<AssetRecord> list_assets(bool include_hidden = false) const;
     int64_t                  count() const;
 
+    // Lightweight (path → size, mtime_ns) projection of every asset, for
+    // incremental-rescan change detection — avoids loading full AssetRecords
+    // just to compare file stats. Includes hidden assets (rescan sees all).
+    struct FileStat { int64_t size; int64_t mtime_ns; };
+    std::unordered_map<std::string, FileStat> file_stats() const;
+
     // Organize state (wired to the UI in a later stage; cheap to land now).
     void set_starred(int64_t id, bool v);
     void set_rating(int64_t id, int32_t v);
@@ -91,6 +98,51 @@ public:
     // pick up files added/removed outside the app.
     void                     add_import_root(const std::string& path);
     std::vector<std::string> import_roots() const;
+
+    // ── Folder-level hide (hidden_folder table) ─────────────────────────────
+    // A hidden folder forces every asset at or under its path to hidden on
+    // (re)import; un-hiding sweeps those assets back to visible. Per-asset
+    // set_hidden is the finer-grained toggle. Paths are matched on a separator
+    // boundary so /a/photos never matches /a/photoshop.
+    void add_hidden_folder(const std::string& path);     // INSERT OR IGNORE
+    void remove_hidden_folder(const std::string& path);  // DELETE only
+    std::vector<std::string> hidden_folders() const;     // sorted
+    // True if `path` is at or under any hidden folder.
+    bool is_path_hidden(const std::string& path) const;
+    // Set hidden=v on every asset at or under `folder` (the un-/hide sweep).
+    void set_assets_hidden_under(const std::string& folder, bool v);
+    // Paths of every individually-hidden asset — for hydrating the UI's hide
+    // filter (list_assets excludes hidden, so it can't surface these).
+    std::vector<std::string> hidden_asset_paths() const;
+
+    // ── Smart collections (seeded virtual views; hidden excluded) ────────────
+    // The `limit` most-recently-imported asset ids, newest first.
+    std::vector<int64_t> recent_assets(int limit) const;
+    // Every starred asset id.
+    std::vector<int64_t> starred_assets() const;
+
+    // ── Maintenance ─────────────────────────────────────────────────────────
+    struct Stats {
+        int64_t page_count = 0;      // pages currently in the DB file
+        int64_t freelist_count = 0;  // unused pages reclaimable by VACUUM
+        int64_t page_size = 0;       // bytes per page
+    };
+    Stats stats() const;
+    // Flush the WAL into the main DB (truncating it) then VACUUM to reclaim
+    // freelist pages. Slow on a big DB — run off the UI thread (idle lane).
+    void compact();
+    // Flush the WAL into the main DB and truncate it (cheap; used before a file
+    // copy so the DB is self-contained without its -wal/-shm sidecars).
+    void checkpoint();
+
+    // ── Relocate (rebase asset paths) ───────────────────────────────────────
+    // Rewrite every stored path (asset.path/folder, import_root, hidden_folder)
+    // that is at or under `old_prefix` to sit under `new_prefix` instead — in
+    // one transaction, preserving asset ids so faces/albums/tags survive a moved
+    // library. Separator-aware (so /a/old never catches /a/older). Returns the
+    // number of asset rows rewritten.
+    int64_t rebase_paths(const std::string& old_prefix,
+                         const std::string& new_prefix);
 
     // Per-asset EXIF metadata (asset_metadata table), populated on import.
     void upsert_metadata(int64_t asset_id, const exif::AssetMetadata& m);

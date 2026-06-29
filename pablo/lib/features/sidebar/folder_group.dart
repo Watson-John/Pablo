@@ -12,6 +12,7 @@ class FolderGroup extends StatefulWidget {
     required this.onSelect,
     this.defaultOpen = false,
     this.onDropPaths,
+    this.onContextMenu,
     super.key,
   });
 
@@ -23,6 +24,9 @@ class FolderGroup extends StatefulWidget {
   /// When set, this group and its child leaves accept photos dragged from the
   /// gallery; the callback gets the target folder's directory id + the paths.
   final void Function(String destDir, List<String> paths)? onDropPaths;
+
+  /// Right-click handler (folder id + global position) — opens the hide menu.
+  final void Function(String folderId, Offset position)? onContextMenu;
 
   @override
   State<FolderGroup> createState() => _FolderGroupState();
@@ -67,6 +71,9 @@ class _FolderGroupState extends State<FolderGroup> {
               onDropPaths: widget.onDropPaths == null
                   ? null
                   : (paths) => widget.onDropPaths!(child.id, paths),
+              onContextMenu: widget.onContextMenu == null
+                  ? null
+                  : (pos) => widget.onContextMenu!(child.id, pos),
             ),
           ),
       ],
@@ -81,6 +88,9 @@ class _FolderGroupState extends State<FolderGroup> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => setState(() => _open = !_open),
+        onSecondaryTapDown: widget.onContextMenu == null
+            ? null
+            : (d) => widget.onContextMenu!(widget.folder.id, d.globalPosition),
         child: AnimatedContainer(
           duration: PabloDurations.hover,
           margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),

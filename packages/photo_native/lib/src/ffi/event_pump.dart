@@ -21,6 +21,7 @@ abstract final class PhotoEventKind {
   static const int clusterUpdated = 6;
   static const int providerProbed = 7;
   static const int log = 8;
+  static const int maintenanceComplete = 9;
 }
 
 /// Immutable Dart-side projection of a native [NativeEvent].
@@ -37,6 +38,8 @@ final class PhotoEvent {
     required this.generation,
     required this.aux64,
     required this.aux64B,
+    this.reserved0 = 0,
+    this.reserved1 = 0,
   });
 
   final int kind;
@@ -50,6 +53,15 @@ final class PhotoEvent {
   final int generation;
   final int aux64;
   final int aux64B;
+  final int reserved0;
+  final int reserved1;
+
+  // ── Incremental-rescan summary on an importComplete event ──
+  // (aux64 = added, aux64B = updated, reserved0 = skipped, reserved1 = removed)
+  int get importAdded => aux64;
+  int get importUpdated => aux64B;
+  int get importSkipped => reserved0;
+  int get importRemoved => reserved1;
 }
 
 final class EventPump {
@@ -115,6 +127,8 @@ final class EventPump {
             generation: e.generation,
             aux64: e.aux64,
             aux64B: e.aux64_b,
+            reserved0: e.reserved[0],
+            reserved1: e.reserved[1],
           ),
         );
       }
