@@ -95,6 +95,7 @@ class _MenuOverlay extends StatelessWidget {
         Positioned(
           left: x,
           top: y,
+          width: w,
           child: _MenuSurface(items: items, onDismiss: onDismiss),
         ),
       ],
