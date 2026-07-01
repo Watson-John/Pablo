@@ -14,9 +14,11 @@
 
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "photo_core.h"
 #include "runtime/engine.h"
@@ -24,6 +26,7 @@
 #include "runtime/slot_store.h"
 #include "thumb/slot.h"
 #include "util/log.h"
+#include "xmp/face_xmp.h"
 
 namespace {
 
@@ -307,6 +310,41 @@ PHOTO_API size_t photo_list_geotagged(photo_engine_t* engine,
 #else
     (void)engine; (void)out; (void)cap;
     return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_set_geo(photo_engine_t* engine, uint64_t asset_id,
+                                      double lat, double lon) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0)
+        return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->set_geo(static_cast<int64_t>(asset_id), lat, lon);
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_set_geo: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)asset_id; (void)lat; (void)lon;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_clear_geo(photo_engine_t* engine, uint64_t asset_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->clear_geo(static_cast<int64_t>(asset_id));
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_clear_geo: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)asset_id;
+    return PHOTO_STATUS_UNSUPPORTED;
 #endif
 }
 
@@ -1008,6 +1046,138 @@ PHOTO_API int32_t photo_face_name_person(photo_engine_t* engine,
     }
 #else
     (void)engine; (void)person_id; (void)name_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Face editing — ignore / manual rect / assign / remove / XMP write-back.
+// ---------------------------------------------------------------------------
+
+PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
+                                         uint64_t face_id, int32_t ignored) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        return cast(engine)->faces().set_ignored(face_id, ignored != 0)
+                   ? PHOTO_STATUS_OK : PHOTO_STATUS_NOT_FOUND;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_set_ignored: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)face_id; (void)ignored;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API uint64_t photo_face_add_manual(photo_engine_t* engine, uint64_t asset_id,
+                                         float box_x, float box_y,
+                                         float box_w, float box_h) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try {
+        return cast(engine)->faces().add_manual_face(asset_id, box_x, box_y,
+                                                     box_w, box_h);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_add_manual: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id; (void)box_x; (void)box_y; (void)box_w; (void)box_h;
+    return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_face_assign(photo_engine_t* engine, uint64_t face_id,
+                                    const char* name_utf8) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine || !name_utf8 || !*name_utf8) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        return cast(engine)->faces().assign_face(face_id, name_utf8)
+                   ? PHOTO_STATUS_OK : PHOTO_STATUS_NOT_FOUND;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_assign: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)face_id; (void)name_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_face_remove(photo_engine_t* engine, uint64_t face_id) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        return cast(engine)->faces().remove_face(face_id)
+                   ? PHOTO_STATUS_OK : PHOTO_STATUS_NOT_FOUND;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_remove: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)face_id;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_write_face_xmp(photo_engine_t* engine,
+                                             uint64_t asset_id,
+                                             char* out_path, size_t out_cap) {
+#if defined(PHOTO_HAVE_FACES) && defined(PHOTO_HAVE_SQLITE)
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        auto* eng = cast(engine);
+        const std::string path = eng->path_for_asset(static_cast<int64_t>(asset_id));
+        if (path.empty()) return PHOTO_STATUS_NOT_FOUND;
+
+        // Image dimensions: prefer the catalog asset row, fall back to EXIF.
+        int img_w = 0, img_h = 0;
+        if (auto a = eng->asset(static_cast<int64_t>(asset_id))) {
+            img_w = a->width; img_h = a->height;
+        }
+        if ((img_w <= 0 || img_h <= 0)) {
+            if (auto m = eng->asset_metadata(static_cast<int64_t>(asset_id))) {
+                img_w = m->width; img_h = m->height;
+            }
+        }
+        if (img_w <= 0 || img_h <= 0) return PHOTO_STATUS_BAD_STATE;
+
+        const auto regions = eng->faces().named_regions_for_asset(asset_id);
+        if (regions.empty()) return PHOTO_STATUS_NOT_FOUND;
+
+        std::vector<photo::xmp::FaceRegion> xr;
+        xr.reserve(regions.size());
+        for (const auto& r : regions) {
+            photo::xmp::FaceRegion fr;
+            fr.name = r.name;
+            // MWG stores the region CENTRE, normalized to image dimensions.
+            fr.cx = (r.x + r.w * 0.5) / img_w;
+            fr.cy = (r.y + r.h * 0.5) / img_h;
+            fr.w  = r.w / img_w;
+            fr.h  = r.h / img_h;
+            xr.push_back(std::move(fr));
+        }
+        const std::string doc = photo::xmp::build_face_regions_xmp(img_w, img_h, xr);
+        if (doc.empty()) return PHOTO_STATUS_INTERNAL;
+
+        const std::string sidecar = path + ".xmp";
+        std::ofstream f(sidecar, std::ios::binary | std::ios::trunc);
+        if (!f) return PHOTO_STATUS_IO_ERROR;
+        f.write(doc.data(), static_cast<std::streamsize>(doc.size()));
+        if (!f) return PHOTO_STATUS_IO_ERROR;
+        f.close();
+
+        if (out_path && out_cap > 0)
+            std::snprintf(out_path, out_cap, "%s", sidecar.c_str());
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_write_face_xmp: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)asset_id; (void)out_path; (void)out_cap;
     return PHOTO_STATUS_UNSUPPORTED;
 #endif
 }

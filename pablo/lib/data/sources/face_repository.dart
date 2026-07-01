@@ -63,6 +63,27 @@ abstract interface class FaceRepository {
   /// into an existing person of the same name). Returns a request id (0 in mock).
   int nameCluster(int clusterId, String name);
 
+  /// Hide (ignore) or restore a detected face. photo_status_t (0 == OK).
+  int setFaceIgnored(int faceId, bool ignored);
+
+  /// Add a user-drawn face rectangle (source-image pixels) to an asset.
+  /// Returns the new face id, or 0 on failure.
+  int addManualFace(int assetId,
+      {required double x,
+      required double y,
+      required double w,
+      required double h});
+
+  /// Assign a face to a named person (create/merge), confirming it. photo_status_t.
+  int assignFace(int faceId, String name);
+
+  /// Delete a face row (undo a manual rectangle). photo_status_t.
+  int removeFace(int faceId);
+
+  /// Write the asset's named face regions to an XMP sidecar. OPT-IN write-back.
+  /// Returns the sidecar path, or null (no named faces / unsupported / error).
+  String? writeFaceXmp(int assetId);
+
   /// Fires when the clustering changes (scan completed / approve / reject /
   /// rebuild), so the UI can re-query. Never fires in mock mode.
   Stream<void> get changes;
@@ -128,6 +149,26 @@ class MockFaceRepository implements FaceRepository {
 
   @override
   int nameCluster(int clusterId, String name) => 0;
+
+  @override
+  int setFaceIgnored(int faceId, bool ignored) => 0;
+
+  @override
+  int addManualFace(int assetId,
+          {required double x,
+          required double y,
+          required double w,
+          required double h}) =>
+      0;
+
+  @override
+  int assignFace(int faceId, String name) => 0;
+
+  @override
+  int removeFace(int faceId) => 0;
+
+  @override
+  String? writeFaceXmp(int assetId) => null;
 
   @override
   Stream<void> get changes => const Stream<void>.empty();
@@ -231,6 +272,41 @@ class NativeFaceRepository implements FaceRepository {
   @override
   int nameCluster(int clusterId, String name) =>
       _engine.nameCluster(clusterId, name);
+
+  @override
+  int setFaceIgnored(int faceId, bool ignored) {
+    final rc = _engine.setFaceIgnored(faceId, ignored);
+    if (rc == 0) _changes.add(null);
+    return rc;
+  }
+
+  @override
+  int addManualFace(int assetId,
+      {required double x,
+      required double y,
+      required double w,
+      required double h}) {
+    final id = _engine.addManualFace(assetId, x: x, y: y, w: w, h: h);
+    if (id != 0) _changes.add(null);
+    return id;
+  }
+
+  @override
+  int assignFace(int faceId, String name) {
+    final rc = _engine.assignFace(faceId, name);
+    if (rc == 0) _changes.add(null);
+    return rc;
+  }
+
+  @override
+  int removeFace(int faceId) {
+    final rc = _engine.removeFace(faceId);
+    if (rc == 0) _changes.add(null);
+    return rc;
+  }
+
+  @override
+  String? writeFaceXmp(int assetId) => _engine.writeFaceXmp(assetId);
 
   @override
   Stream<void> get changes => _changes.stream;

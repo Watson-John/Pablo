@@ -153,12 +153,19 @@ class MapLocation {
     required this.cx,
     required this.cy,
     required this.count,
+    this.lat = 0,
+    this.lon = 0,
   });
   final String id;
   final String name;
+  // Normalized coordinates on the legacy stylized USA map (kept for that widget).
   final double cx;
   final double cy;
   final int count;
+  // True cluster-centroid coordinates (decimal degrees) — drives the world map,
+  // reverse-geocoding, and KML export.
+  final double lat;
+  final double lon;
 }
 
 class TaskInfo {

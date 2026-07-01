@@ -30,6 +30,9 @@ set(PHOTO_CORE_SOURCES
 
     # M3 — on-disk thumbnail cache
     src/thumb/thumb_cache.cpp
+
+    # §7/§8 — XMP face-region writer (pure text; no external deps)
+    src/xmp/face_xmp.cpp
 )
 
 # Later milestones append to PHOTO_CORE_SOURCES via target_sources() calls
@@ -156,6 +159,10 @@ if(PHOTO_BUILD_FACES)
     # calib3d provides cv::estimateAffinePartial2D (align.cpp's 5-pt warp).
     find_package(OpenCV CONFIG QUIET COMPONENTS core imgproc imgcodecs dnn calib3d)
     if(OpenCV_FOUND)
+        # NB: src/faces/store.cpp is compiled by the CATALOG block below (it needs
+        # only SQLite, not OpenCV), so face persistence + read-back work even in a
+        # models-less build. It is intentionally NOT listed here to avoid a
+        # duplicate-source error when both blocks are enabled.
         target_sources(photo_core_objects PRIVATE
             src/codec/codec.cpp        # full-res decode for the face pipeline (needs OpenCV)
             src/faces/detector.cpp
@@ -163,7 +170,6 @@ if(PHOTO_BUILD_FACES)
             src/faces/embed.cpp
             src/faces/cluster.cpp
             src/faces/prototype.cpp
-            src/faces/store.cpp
             src/faces/face_service.cpp
         )
         target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_FACES=1)
@@ -227,10 +233,16 @@ if(PHOTO_BUILD_CATALOG)
         else()
             set(_photo_sqlite_tgt unofficial::sqlite3::sqlite3)
         endif()
+        # store.cpp (face/person persistence) needs only SQLite, so it rides the
+        # catalog gate — the faces read-back + ignore/manual/assign paths then
+        # work without OpenCV/ONNX, and the store is unit-testable in the lean
+        # (faces-OFF) build. FACES_HAVE_SQLITE gates store.cpp's real impl.
         target_sources(photo_core_objects PRIVATE
             src/catalog/catalog.cpp
-            src/exif/exif.cpp)
-        target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_SQLITE=1)
+            src/exif/exif.cpp
+            src/faces/store.cpp)
+        target_compile_definitions(photo_core_objects PUBLIC
+            PHOTO_HAVE_SQLITE=1 FACES_HAVE_SQLITE=1)
         target_link_libraries(photo_core_objects PUBLIC ${_photo_sqlite_tgt})
         message(STATUS "photo_core: asset catalog ENABLED (SQLite)")
 
