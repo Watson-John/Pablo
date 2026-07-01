@@ -64,7 +64,13 @@ bool builtin_decode(const std::string& path, int target,
 SemanticService::SemanticService(std::unique_ptr<Embedder> embedder,
                                  DecodeFn decode)
     : embedder_(std::move(embedder)),
-      decode_(decode ? std::move(decode) : DecodeFn(&builtin_decode)),
+      // Members initialize in declaration order (decode_ before has_decoder_),
+      // so `decode` must NOT be moved here — has_decoder_ still needs to read
+      // it. Copy instead. (Moving emptied the std::function, which on a build
+      // WITHOUT a built-in codec wrongly reported has_decoder_ == false and
+      // Skipped assets that had a perfectly good injected decoder — a bug that
+      // only showed on the no-OpenCV Linux CI, masked elsewhere by the codec.)
+      decode_(decode ? decode : DecodeFn(&builtin_decode)),
       // A caller-injected decoder always counts; the built-in only when a codec
       // is compiled in. When neither, assets are Skipped (not Failed).
       has_decoder_(static_cast<bool>(decode) || has_builtin_decoder()) {}
