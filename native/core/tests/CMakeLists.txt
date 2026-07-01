@@ -35,6 +35,9 @@ set(PHOTO_CORE_TEST_SOURCES
     smart_test.cpp
     compact_test.cpp
     rebase_test.cpp
+    xmp_test.cpp
+    geo_test.cpp
+    face_store_test.cpp
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})

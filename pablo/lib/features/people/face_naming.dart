@@ -107,7 +107,13 @@ class _FaceNameOverlayState extends State<FaceNameOverlay> {
     if (!isExistingPerson(pc, name) && !await confirmNewPerson(context, name)) {
       return;
     }
-    pc.assignCluster(widget.face.clusterId, name);
+    // A manual rectangle (or any single, unclustered face) assigns just itself;
+    // a detector face promotes its whole cluster into the person.
+    if (widget.face.manual || widget.face.clusterId < 0) {
+      pc.assignFace(widget.face.faceId, name);
+    } else {
+      pc.assignCluster(widget.face.clusterId, name);
+    }
     _ctl.clear();
     _focus.unfocus();
   }

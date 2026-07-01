@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:photo_native/photo_native.dart';
 
 import '../../components/pablo_icon.dart';
+import '../../data/library.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
 import 'decision_buttons.dart';
 import 'face_thumb.dart';
+import 'manual_face_dialog.dart';
 import 'people_controller.dart';
 import 'people_scope.dart';
 
@@ -28,12 +30,14 @@ class _PeopleTabState extends State<PeopleTab> {
   Widget _liveBody(PeopleController pc) {
     final assetId = assetIdFor(widget.photoId);
     final faces = pc.facesForAsset(assetId);
+    final visible = faces.where((f) => !f.ignored).toList();
+    final ignored = faces.where((f) => f.ignored).toList();
     if (faces.isEmpty) {
-      return _emptyState(
-          'No faces detected\nin this photo', PabloIconName.person);
+      return _emptyBody(pc, assetId);
     }
-    final confirmed = faces.where((f) => f.confirmed).toList();
-    final unconfirmed = faces.where((f) => !f.confirmed).toList();
+    final confirmed = visible.where((f) => f.confirmed).toList();
+    final unconfirmed = visible.where((f) => !f.confirmed).toList();
+    final anyNamed = confirmed.any((f) => pc.personNameFor(f.personId) != null);
     return Padding(
       padding: const EdgeInsets.only(top: PabloSpacing.xl),
       child: Column(
@@ -44,7 +48,10 @@ class _PeopleTabState extends State<PeopleTab> {
             for (final f in confirmed)
               _confirmedCard(
                 leading: _faceAvatar(f),
-                name: pc.personNameFor(f.personId) ?? 'Person ${f.personId}',
+                name: pc.personNameFor(f.personId) ??
+                    (f.manual ? 'Unnamed (manual)' : 'Person ${f.personId}'),
+                onIgnore: () => pc.setFaceIgnored(f.faceId, true),
+                onRemove: f.manual ? () => pc.removeFace(f.faceId) : null,
               ),
           ],
           if (unconfirmed.isNotEmpty) ...[
@@ -67,14 +74,66 @@ class _PeopleTabState extends State<PeopleTab> {
                     pc.approve(clusterId: f.clusterId, faceId: f.faceId),
                 onReject: () =>
                     pc.reject(clusterId: f.clusterId, faceId: f.faceId),
+                onIgnore: () => pc.setFaceIgnored(f.faceId, true),
+              ),
+          ],
+          if (ignored.isNotEmpty) ...[
+            const SizedBox(height: PabloSpacing.lg),
+            _groupLabel('Ignored', PabloColors.textMuted),
+            for (final f in ignored)
+              _ignoredCard(
+                leading: _faceAvatar(f),
+                onRestore: () => pc.setFaceIgnored(f.faceId, false),
               ),
           ],
           const SizedBox(height: PabloSpacing.lg),
           _groupLabel('Add Person', PabloColors.textMuted),
-          const _AddPersonAffordance(),
+          _AddPersonAffordance(onTap: () => _addManualFace(pc)),
+          if (anyNamed) ...[
+            const SizedBox(height: PabloSpacing.lg),
+            _XmpExportRow(onTap: () => _exportXmp(pc, assetId)),
+          ],
         ],
       ),
     );
+  }
+
+  Widget _emptyBody(PeopleController pc, int assetId) => Padding(
+        padding: const EdgeInsets.only(top: PabloSpacing.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _emptyState('No faces detected\nin this photo', PabloIconName.person),
+            const SizedBox(height: PabloSpacing.lg),
+            _groupLabel('Add Person', PabloColors.textMuted),
+            _AddPersonAffordance(onTap: () => _addManualFace(pc)),
+          ],
+        ),
+      );
+
+  Future<void> _addManualFace(PeopleController pc) async {
+    final photo = Library.instance.byId[widget.photoId];
+    if (photo == null) return;
+    final assetId = assetIdFor(widget.photoId);
+    final exif = getPhotoExif(widget.photoId);
+    await showManualFaceDialog(
+      context,
+      photo: photo,
+      assetId: assetId,
+      imgW: exif.width,
+      imgH: exif.height,
+      controller: pc,
+    );
+  }
+
+  void _exportXmp(PeopleController pc, int assetId) {
+    final path = pc.writeFaceXmp(assetId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(path == null
+          ? 'No named faces to export'
+          : 'Wrote face tags to ${path.split('/').last}'),
+    ));
   }
 
   Widget _faceAvatar(FaceRow f) =>
@@ -120,7 +179,12 @@ class _PeopleTabState extends State<PeopleTab> {
   // Shared row chrome for the confirmed + suggestion cards — the leading
   // widget, label, and handlers differ; the card does not.
 
-  Widget _confirmedCard({required Widget leading, required String name}) =>
+  Widget _confirmedCard({
+    required Widget leading,
+    required String name,
+    VoidCallback? onIgnore,
+    VoidCallback? onRemove,
+  }) =>
       Container(
         margin: const EdgeInsets.only(bottom: PabloSpacing.md),
         padding: const EdgeInsets.symmetric(
@@ -146,9 +210,56 @@ class _PeopleTabState extends State<PeopleTab> {
                 ),
               ),
             ),
+            if (onRemove != null)
+              _FaceIconAction(
+                icon: PabloIconName.trash,
+                tooltip: 'Remove face',
+                onTap: onRemove,
+              ),
+            if (onIgnore != null)
+              _FaceIconAction(
+                icon: PabloIconName.close,
+                tooltip: 'Ignore this face',
+                onTap: onIgnore,
+              ),
+            const SizedBox(width: PabloSpacing.xs),
             const Text(
               '✓',
               style: TextStyle(color: PabloColors.success, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+
+  Widget _ignoredCard({required Widget leading, required VoidCallback onRestore}) =>
+      Container(
+        margin: const EdgeInsets.only(bottom: PabloSpacing.md),
+        padding: const EdgeInsets.symmetric(
+          horizontal: PabloSpacing.lg,
+          vertical: PabloSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: PabloColors.backgroundSurfaceAlt,
+          border: Border.all(color: PabloColors.borderSubtle),
+          borderRadius: PabloRadius.mdAll,
+        ),
+        child: Row(
+          children: [
+            Opacity(opacity: 0.5, child: leading),
+            const SizedBox(width: PabloSpacing.lg),
+            Expanded(
+              child: Text(
+                'Ignored',
+                style: PabloTypography.sans(
+                  fontSize: 12.5,
+                  color: PabloColors.textMuted,
+                ).copyWith(fontStyle: FontStyle.italic),
+              ),
+            ),
+            _FaceIconAction(
+              icon: PabloIconName.check,
+              tooltip: 'Restore this face',
+              onTap: onRestore,
             ),
           ],
         ),
@@ -160,6 +271,7 @@ class _PeopleTabState extends State<PeopleTab> {
     required String confirmLabel,
     required VoidCallback onConfirm,
     required VoidCallback onReject,
+    VoidCallback? onIgnore,
   }) =>
       Container(
         margin: const EdgeInsets.only(bottom: PabloSpacing.base),
@@ -177,6 +289,12 @@ class _PeopleTabState extends State<PeopleTab> {
                 leading,
                 const SizedBox(width: PabloSpacing.base),
                 Expanded(child: label),
+                if (onIgnore != null)
+                  _FaceIconAction(
+                    icon: PabloIconName.close,
+                    tooltip: 'Ignore this face',
+                    onTap: onIgnore,
+                  ),
               ],
             ),
             const SizedBox(height: PabloSpacing.base),
@@ -207,10 +325,69 @@ class _PeopleTabState extends State<PeopleTab> {
       );
 }
 
+/// A small square icon button used for per-face actions (ignore / restore /
+/// remove) on the People-tab cards.
+class _FaceIconAction extends StatelessWidget {
+  const _FaceIconAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+  final PabloIconName icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 16,
+        child: Padding(
+          padding: const EdgeInsets.all(PabloSpacing.xs),
+          child: PabloIcon(icon, size: 14, color: PabloColors.textMuted),
+        ),
+      ),
+    );
+  }
+}
+
+/// Row that exports the photo's named face regions to an XMP sidecar.
+class _XmpExportRow extends StatelessWidget {
+  const _XmpExportRow({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Row(
+        children: [
+          const PabloIcon(PabloIconName.exportIcon,
+              size: 13, color: PabloColors.accentPrimary),
+          const SizedBox(width: PabloSpacing.base),
+          Text(
+            'Export face tags (XMP sidecar)',
+            style: PabloTypography.sans(
+              fontSize: 12,
+              color: PabloColors.accentPrimary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// "Tag someone in this photo" affordance — a dashed-border box with a person
-/// icon, matching the design's Add Person section.
+/// icon, matching the design's Add Person section. Tapping opens the manual
+/// face-rectangle dialog.
 class _AddPersonAffordance extends StatefulWidget {
-  const _AddPersonAffordance();
+  const _AddPersonAffordance({required this.onTap});
+  final VoidCallback onTap;
   @override
   State<_AddPersonAffordance> createState() => _AddPersonAffordanceState();
 }
@@ -225,7 +402,7 @@ class _AddPersonAffordanceState extends State<_AddPersonAffordance> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {},
+        onTap: widget.onTap,
         child: CustomPaint(
           painter: _DashedRectPainter(
             color:

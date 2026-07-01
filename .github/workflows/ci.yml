@@ -177,7 +177,11 @@ jobs:
           # the plugin CMake via VCPKG_ROOT (which appends installed/x64-windows
           # to CMAKE_PREFIX_PATH) and put its bin dir on PATH for the bundled DLL.
           $vcpkg = $env:VCPKG_INSTALLATION_ROOT
-          & "$vcpkg\vcpkg" install sqlite3:x64-windows
+          # --classic forces classic mode + installs to $vcpkg\installed\x64-windows
+          # (matching the PATH/CMAKE_PREFIX_PATH below). Without it, the repo-root
+          # vcpkg.json puts newer vcpkg in manifest mode, which rejects per-package
+          # arguments ("`vcpkg install` does not support individual package args").
+          & "$vcpkg\vcpkg" install sqlite3:x64-windows --classic
           "VCPKG_ROOT=$vcpkg"                          | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "$vcpkg\installed\x64-windows\bin"           | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Enable ${{ matrix.target }} desktop

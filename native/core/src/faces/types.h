@@ -47,6 +47,8 @@ struct FaceRecord {
     int64_t cluster_id = -1;   // -1 = unassigned / singleton
     int64_t person_id = -1;    // -1 = unconfirmed
     bool    confirmed = false; // false = online-assign suggestion, true = user-confirmed
+    bool    ignored = false;   // user hid this detection (Picasa ]ignoreface) — excluded from people
+    bool    manual = false;    // user drew this rectangle by hand (no detector/embedding)
 };
 
 // A person = a confirmed cluster, with a prototype template (mean of its best
