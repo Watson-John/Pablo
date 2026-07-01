@@ -3,8 +3,11 @@
 
 #include "catalog/catalog.h"
 
+#include <chrono>
+#include <cstring>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #ifdef PHOTO_HAVE_SQLITE
 #include <sqlite3.h>
@@ -33,6 +36,10 @@ public:
     Stmt& bind(int i, const std::string& v) {
         sqlite3_bind_text(s_, i, v.c_str(), -1, SQLITE_TRANSIENT); return *this;
     }
+    Stmt& bind_null(int i) { sqlite3_bind_null(s_, i); return *this; }
+    Stmt& bind_blob(int i, const void* data, int nbytes) {
+        sqlite3_bind_blob(s_, i, data, nbytes, SQLITE_TRANSIENT); return *this;
+    }
     bool step() {
         int rc = sqlite3_step(s_);
         if (rc == SQLITE_ROW) return true;
@@ -47,11 +54,19 @@ public:
         const unsigned char* t = sqlite3_column_text(s_, i);
         return t ? reinterpret_cast<const char*>(t) : std::string{};
     }
+    const void* col_blob(int i) const { return sqlite3_column_blob(s_, i); }
+    int col_bytes(int i) const { return sqlite3_column_bytes(s_, i); }
 
 private:
     sqlite3* db_;
     sqlite3_stmt* s_ = nullptr;
 };
+
+int64_t now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
 
 void exec(sqlite3* db, const char* sql) {
     char* err = nullptr;
@@ -197,6 +212,34 @@ void Catalog::migrate() {
              "CREATE INDEX IF NOT EXISTS asset_import_time ON asset(import_time);"
              "CREATE INDEX IF NOT EXISTS asset_starred ON asset(starred);"
              "PRAGMA user_version=6;");
+    }
+    if (user_version(db_) < 7) {
+        // Stage 9 — Search & Discovery: the semantic retrieval index and saved
+        // searches. `embedding` is one row per asset; `vec` is the model
+        // embedding (NULL until status==done). `dominant_rgb` is a model-free
+        // colour signature so colour search works regardless of the embedder.
+        // (model_id, model_version) make the index rebuildable across models.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS embedding("
+             " asset_id INTEGER PRIMARY KEY REFERENCES asset(id) ON DELETE CASCADE,"
+             " model_id TEXT NOT NULL DEFAULT '',"
+             " model_version TEXT NOT NULL DEFAULT '',"
+             " dim INTEGER NOT NULL DEFAULT 0,"
+             " vec BLOB,"
+             " dominant_rgb INTEGER NOT NULL DEFAULT -1,"
+             " status INTEGER NOT NULL DEFAULT 0,"
+             " tags TEXT NOT NULL DEFAULT '',"
+             " error TEXT NOT NULL DEFAULT '',"
+             " created_ns INTEGER NOT NULL DEFAULT 0,"
+             " updated_ns INTEGER NOT NULL DEFAULT 0);"
+             "CREATE INDEX IF NOT EXISTS embedding_status ON embedding(status);"
+             "CREATE INDEX IF NOT EXISTS embedding_model ON embedding(model_id,model_version);"
+             "CREATE TABLE IF NOT EXISTS saved_search("
+             " id INTEGER PRIMARY KEY,"
+             " name TEXT NOT NULL DEFAULT '',"
+             " query_json TEXT NOT NULL DEFAULT '',"
+             " created_ns INTEGER NOT NULL DEFAULT 0);"
+             "PRAGMA user_version=7;");
     }
 }
 
@@ -599,6 +642,207 @@ std::vector<int64_t> Catalog::assets_with_tag(const std::string& tag) const {
     return out;
 }
 
+// ── Embeddings ───────────────────────────────────────────────────────────────
+
+void Catalog::upsert_embedding(const EmbeddingRecord& r) {
+    Stmt q(db_,
+           "INSERT INTO embedding(asset_id,model_id,model_version,dim,vec,"
+           "dominant_rgb,status,tags,error,created_ns,updated_ns)"
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?)"
+           " ON CONFLICT(asset_id) DO UPDATE SET"
+           "  model_id=excluded.model_id, model_version=excluded.model_version,"
+           "  dim=excluded.dim, vec=excluded.vec, dominant_rgb=excluded.dominant_rgb,"
+           "  status=excluded.status, tags=excluded.tags, error=excluded.error,"
+           "  updated_ns=excluded.updated_ns");
+    const int64_t created = r.created_ns != 0 ? r.created_ns : now_ns();
+    q.bind(1, r.asset_id)
+        .bind(2, r.model_id)
+        .bind(3, r.model_version)
+        .bind(4, static_cast<int64_t>(r.dim));
+    if (r.vec.empty())
+        q.bind_null(5);
+    else
+        q.bind_blob(5, r.vec.data(),
+                    static_cast<int>(r.vec.size() * sizeof(float)));
+    q.bind(6, static_cast<int64_t>(r.dominant_rgb))
+        .bind(7, static_cast<int64_t>(r.status))
+        .bind(8, r.tags)
+        .bind(9, r.error)
+        .bind(10, created)
+        .bind(11, now_ns())
+        .run();
+}
+
+void Catalog::set_embedding_status(int64_t asset_id, int32_t status,
+                                   const std::string& error) {
+    const int64_t now = now_ns();
+    Stmt q(db_,
+           "INSERT INTO embedding(asset_id,status,error,created_ns,updated_ns)"
+           " VALUES(?,?,?,?,?)"
+           " ON CONFLICT(asset_id) DO UPDATE SET"
+           "  status=excluded.status, error=excluded.error, updated_ns=excluded.updated_ns");
+    q.bind(1, asset_id)
+        .bind(2, static_cast<int64_t>(status))
+        .bind(3, error)
+        .bind(4, now)
+        .bind(5, now)
+        .run();
+}
+
+std::optional<Catalog::EmbeddingRecord> Catalog::get_embedding(
+    int64_t asset_id) const {
+    Stmt q(db_,
+           "SELECT asset_id,model_id,model_version,dim,vec,dominant_rgb,status,"
+           "tags,error,created_ns,updated_ns FROM embedding WHERE asset_id=?");
+    q.bind(1, asset_id);
+    if (!q.step()) return std::nullopt;
+    EmbeddingRecord r;
+    r.asset_id      = q.col_int(0);
+    r.model_id      = q.col_text(1);
+    r.model_version = q.col_text(2);
+    r.dim           = static_cast<int32_t>(q.col_int(3));
+    const void* blob = q.col_blob(4);
+    const int   nb   = q.col_bytes(4);
+    if (blob && nb > 0) {
+        r.vec.resize(static_cast<size_t>(nb) / sizeof(float));
+        std::memcpy(r.vec.data(), blob, static_cast<size_t>(nb));
+    }
+    r.dominant_rgb = static_cast<int32_t>(q.col_int(5));
+    r.status       = static_cast<int32_t>(q.col_int(6));
+    r.tags         = q.col_text(7);
+    r.error        = q.col_text(8);
+    r.created_ns   = q.col_int(9);
+    r.updated_ns   = q.col_int(10);
+    return r;
+}
+
+Catalog::EmbeddingCounts Catalog::embedding_counts() const {
+    EmbeddingCounts c;
+    {
+        Stmt q(db_, "SELECT status, COUNT(*) FROM embedding GROUP BY status");
+        while (q.step()) {
+            const int64_t st = q.col_int(0), n = q.col_int(1);
+            switch (st) {
+                case kEmbedPending:    c.pending += n;    break;
+                case kEmbedProcessing: c.processing += n; break;
+                case kEmbedDone:       c.done += n;       break;
+                case kEmbedFailed:     c.failed += n;     break;
+                case kEmbedSkipped:    c.skipped += n;    break;
+                default: break;
+            }
+        }
+    }
+    // Assets with no embedding row yet are implicitly pending.
+    {
+        Stmt q(db_,
+               "SELECT COUNT(*) FROM asset a LEFT JOIN embedding e"
+               " ON e.asset_id=a.id WHERE a.hidden=0 AND e.asset_id IS NULL");
+        if (q.step()) c.pending += q.col_int(0);
+    }
+    {
+        Stmt q(db_, "SELECT COUNT(*) FROM asset WHERE hidden=0");
+        if (q.step()) c.total = q.col_int(0);
+    }
+    return c;
+}
+
+std::vector<int64_t> Catalog::pending_embedding_ids(
+    const std::string& model_id, const std::string& model_version,
+    int limit) const {
+    std::vector<int64_t> out;
+    std::string sql =
+        "SELECT a.id FROM asset a LEFT JOIN embedding e ON e.asset_id=a.id"
+        " WHERE a.hidden=0 AND ("
+        "   e.asset_id IS NULL OR e.status=0"
+        "   OR (e.status=2 AND (e.model_id!=? OR e.model_version!=?)))"
+        " ORDER BY a.id";
+    if (limit >= 0) sql += " LIMIT ?";
+    Stmt q(db_, sql.c_str());
+    q.bind(1, model_id).bind(2, model_version);
+    if (limit >= 0) q.bind(3, static_cast<int64_t>(limit));
+    while (q.step()) out.push_back(q.col_int(0));
+    return out;
+}
+
+void Catalog::retry_failed_embeddings() {
+    exec(db_, "UPDATE embedding SET status=0, error='' WHERE status=3");
+}
+
+std::vector<Catalog::EmbeddingVec> Catalog::done_embeddings() const {
+    std::vector<EmbeddingVec> out;
+    Stmt q(db_, "SELECT asset_id,vec FROM embedding WHERE status=2 AND vec IS NOT NULL");
+    while (q.step()) {
+        EmbeddingVec v;
+        v.asset_id       = q.col_int(0);
+        const void* blob = q.col_blob(1);
+        const int   nb   = q.col_bytes(1);
+        if (blob && nb > 0) {
+            v.vec.resize(static_cast<size_t>(nb) / sizeof(float));
+            std::memcpy(v.vec.data(), blob, static_cast<size_t>(nb));
+        }
+        out.push_back(std::move(v));
+    }
+    return out;
+}
+
+Catalog::EmbeddingStamp Catalog::embedding_stamp() const {
+    EmbeddingStamp st;
+    // Same predicate as done_embeddings so the sidecar staleness check is
+    // exactly aligned with what a rebuild would read.
+    Stmt q(db_,
+           "SELECT COUNT(*), IFNULL(MAX(updated_ns),0) FROM embedding"
+           " WHERE status=2 AND vec IS NOT NULL");
+    if (q.step()) {
+        st.count = q.col_int(0);
+        st.max_updated_ns = q.col_int(1);
+    }
+    return st;
+}
+
+std::vector<std::pair<int64_t, int32_t>> Catalog::dominant_colors() const {
+    std::vector<std::pair<int64_t, int32_t>> out;
+    Stmt q(db_, "SELECT asset_id,dominant_rgb FROM embedding WHERE dominant_rgb>=0");
+    while (q.step())
+        out.emplace_back(q.col_int(0), static_cast<int32_t>(q.col_int(1)));
+    return out;
+}
+
+// ── Saved searches ───────────────────────────────────────────────────────────
+
+int64_t Catalog::create_saved_search(const std::string& name,
+                                     const std::string& query_json,
+                                     int64_t created) {
+    Stmt q(db_,
+           "INSERT INTO saved_search(name,query_json,created_ns) VALUES(?,?,?)");
+    q.bind(1, name).bind(2, query_json).bind(3, created).run();
+    return sqlite3_last_insert_rowid(db_);
+}
+
+void Catalog::delete_saved_search(int64_t id) {
+    Stmt q(db_, "DELETE FROM saved_search WHERE id=?");
+    q.bind(1, id).run();
+}
+
+std::vector<Catalog::SavedSearchRecord> Catalog::list_saved_searches() const {
+    std::vector<SavedSearchRecord> out;
+    Stmt q(db_,
+           "SELECT id,name,query_json,created_ns FROM saved_search"
+           " ORDER BY created_ns DESC, id DESC");
+    while (q.step())
+        out.push_back({q.col_int(0), q.col_text(1), q.col_text(2), q.col_int(3)});
+    return out;
+}
+
+std::optional<Catalog::SavedSearchRecord> Catalog::get_saved_search(
+    int64_t id) const {
+    Stmt q(db_,
+           "SELECT id,name,query_json,created_ns FROM saved_search WHERE id=?");
+    q.bind(1, id);
+    if (!q.step()) return std::nullopt;
+    return SavedSearchRecord{q.col_int(0), q.col_text(1), q.col_text(2),
+                             q.col_int(3)};
+}
+
 #else  // !PHOTO_HAVE_SQLITE — the catalog requires SQLite.
 
 Catalog::Catalog(const std::string&) {
@@ -637,6 +881,19 @@ void Catalog::add_tag(int64_t, const std::string&) {}
 void Catalog::remove_tag(int64_t, const std::string&) {}
 std::vector<std::string> Catalog::tags_for_asset(int64_t) const { return {}; }
 std::vector<int64_t> Catalog::assets_with_tag(const std::string&) const { return {}; }
+void Catalog::upsert_embedding(const EmbeddingRecord&) {}
+void Catalog::set_embedding_status(int64_t, int32_t, const std::string&) {}
+std::optional<Catalog::EmbeddingRecord> Catalog::get_embedding(int64_t) const { return std::nullopt; }
+Catalog::EmbeddingCounts Catalog::embedding_counts() const { return {}; }
+std::vector<int64_t> Catalog::pending_embedding_ids(const std::string&, const std::string&, int) const { return {}; }
+void Catalog::retry_failed_embeddings() {}
+std::vector<Catalog::EmbeddingVec> Catalog::done_embeddings() const { return {}; }
+Catalog::EmbeddingStamp Catalog::embedding_stamp() const { return {}; }
+std::vector<std::pair<int64_t, int32_t>> Catalog::dominant_colors() const { return {}; }
+int64_t Catalog::create_saved_search(const std::string&, const std::string&, int64_t) { return 0; }
+void Catalog::delete_saved_search(int64_t) {}
+std::vector<Catalog::SavedSearchRecord> Catalog::list_saved_searches() const { return {}; }
+std::optional<Catalog::SavedSearchRecord> Catalog::get_saved_search(int64_t) const { return std::nullopt; }
 
 #endif  // PHOTO_HAVE_SQLITE
 

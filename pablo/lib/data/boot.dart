@@ -7,6 +7,8 @@
 
 import 'dart:io';
 
+import 'models_dir.dart';
+
 class BootConfig {
   BootConfig({
     required this.libraryRoot,
@@ -60,9 +62,11 @@ class BootConfig {
     final libraryRoot = envLibrary.isNotEmpty
         ? envLibrary
         : (_findUp('flickr30k_images') ?? '');
-    final modelsDir = envModels.isNotEmpty
+    final bundledModels = envModels.isNotEmpty
         ? envModels
         : (_findUp('native${Platform.pathSeparator}models') ?? '');
+    final modelsDir =
+        _mergedOrBundled(bundledModels, explicit: envModels.isNotEmpty);
 
     return BootConfig(
       libraryRoot: libraryRoot,
@@ -71,6 +75,23 @@ class BootConfig {
       autoScan: autoScan,
       faceScanCap: scanCap,
     );
+  }
+}
+
+/// The engine takes one models path. First-run-downloaded semantic models
+/// live in the user-writable merged dir (models_dir.dart) alongside symlinks
+/// to the bundled face models, so prefer the merged dir. An [explicit]
+/// --dart-define override (which may hold non-`.onnx` extras a merge would
+/// not carry over) or a merge failure keeps the old behavior byte-identical:
+/// the bundled/override dir passes through untouched.
+String _mergedOrBundled(String bundled, {required bool explicit}) {
+  if (explicit) return bundled;
+  try {
+    final merged = resolveMergedModelsDir();
+    if (bundled.isNotEmpty) mergeBundledModels(merged, Directory(bundled));
+    return merged.path;
+  } catch (_) {
+    return bundled;
   }
 }
 

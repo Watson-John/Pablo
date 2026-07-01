@@ -182,6 +182,76 @@ public:
     std::vector<std::string> tags_for_asset(int64_t asset_id) const;  // sorted
     std::vector<int64_t>     assets_with_tag(const std::string& tag) const;
 
+    // ── Embeddings — semantic retrieval index (embedding table, Stage 9) ─────
+    // One row per asset holds its model embedding vector, a model-free dominant
+    // colour (for colour search), a processing status, optional generated tags,
+    // and an error string. Designed to be REBUILDABLE: the (model_id,
+    // model_version) columns let a model switch re-queue stale rows without
+    // trusting old vectors.
+    enum EmbeddingStatus : int32_t {
+        kEmbedPending    = 0,
+        kEmbedProcessing = 1,
+        kEmbedDone       = 2,
+        kEmbedFailed     = 3,
+        kEmbedSkipped    = 4,
+    };
+    struct EmbeddingRecord {
+        int64_t            asset_id = 0;
+        std::string        model_id;
+        std::string        model_version;
+        int32_t            dim = 0;
+        std::vector<float> vec;              // L2-normalized; empty until done
+        int32_t            dominant_rgb = -1;  // 0xRRGGBB, -1 if unknown
+        int32_t            status = kEmbedPending;
+        std::string        tags;             // optional generated labels
+        std::string        error;            // failure reason if status==failed
+        int64_t            created_ns = 0;
+        int64_t            updated_ns = 0;
+    };
+    struct EmbeddingCounts {
+        int64_t done = 0, pending = 0, processing = 0, failed = 0, skipped = 0;
+        int64_t total = 0;  // all non-hidden assets (the progress denominator)
+    };
+    // (asset_id, vec) for one done embedding — the search working set.
+    struct EmbeddingVec { int64_t asset_id; std::vector<float> vec; };
+
+    // Insert or replace a full embedding row (created_ns preserved on conflict).
+    void upsert_embedding(const EmbeddingRecord& rec);
+    // Set only status/error (queue or fail transitions; preserves any vec).
+    void set_embedding_status(int64_t asset_id, int32_t status,
+                              const std::string& error = "");
+    std::optional<EmbeddingRecord> get_embedding(int64_t asset_id) const;
+    EmbeddingCounts embedding_counts() const;
+    // Asset ids still needing embedding for (model_id,model_version): no row,
+    // status pending, or a done row from a different model. Ordered by asset id;
+    // limit<0 means no cap. This is the resume queue.
+    std::vector<int64_t> pending_embedding_ids(const std::string& model_id,
+                                               const std::string& model_version,
+                                               int limit = -1) const;
+    // Flip every failed row back to pending (explicit user "retry failed").
+    void retry_failed_embeddings();
+    // Every done embedding (asset_id + vec) — the cosine-search working set.
+    std::vector<EmbeddingVec> done_embeddings() const;
+    // Count + newest updated_ns over the done rows — the cheap staleness check
+    // for the on-disk search sidecar (rebuilt when this changes across runs).
+    struct EmbeddingStamp { int64_t count = 0; int64_t max_updated_ns = 0; };
+    EmbeddingStamp embedding_stamp() const;
+    // (asset_id, 0xRRGGBB) for every asset with a known dominant colour.
+    std::vector<std::pair<int64_t, int32_t>> dominant_colors() const;
+
+    // ── Saved searches (saved_search table, Stage 9) ────────────────────────
+    struct SavedSearchRecord {
+        int64_t     id;
+        std::string name;
+        std::string query_json;  // serialized text + criteria + colour
+        int64_t     created;     // ns since epoch
+    };
+    int64_t create_saved_search(const std::string& name,
+                                const std::string& query_json, int64_t created);
+    void    delete_saved_search(int64_t id);
+    std::vector<SavedSearchRecord>   list_saved_searches() const;  // newest first
+    std::optional<SavedSearchRecord> get_saved_search(int64_t id) const;
+
 private:
     void migrate();
 

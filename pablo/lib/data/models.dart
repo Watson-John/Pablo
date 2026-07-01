@@ -168,4 +168,13 @@ class TaskInfo {
   double percent;
 }
 
-enum NavSection { folders, people, albums, timeline, map, unnamed, smart }
+enum NavSection {
+  folders,
+  people,
+  albums,
+  timeline,
+  map,
+  unnamed,
+  smart,
+  searchResults,
+}

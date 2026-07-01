@@ -1,14 +1,19 @@
 // Root MaterialApp providing the AppScope and the WindowShell.
 
 import 'dart:async';
+import 'dart:io' show Directory;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart'
+    show Engine, PhotoEvent, PhotoEventKind;
 
 import '../backend/native_backend.dart';
+import '../data/indexing/indexing_controller.dart';
 import '../components/context_menu.dart';
 import '../components/resize_handle.dart';
 import '../data/boot.dart';
+import '../data/model_fetcher.dart';
 import '../data/library.dart';
 import '../data/models.dart';
 import '../data/sources/dedup_repository.dart';
@@ -25,6 +30,8 @@ import '../features/people/face_ingestion.dart';
 import '../features/people/people_controller.dart';
 import '../features/people/people_scope.dart';
 import '../features/photo_tray/photo_tray.dart' show FloatingPhotoTray;
+import '../features/search/first_run_indexing_screen.dart';
+import '../features/search/search_controller.dart';
 import '../features/sidebar/sidebar.dart';
 import '../layouts/shell.dart';
 import '../theme/theme.dart';
@@ -64,6 +71,18 @@ class _PabloAppState extends State<PabloApp> with WidgetsBindingObserver {
   /// once on load and badge the count on the Tools menu. (A real "Import From…"
   /// action would call the same path for just the newly-added photos.)
   bool _dedupScanned = false;
+
+  // Semantic-embedding indexing (Stage 9), sequenced AFTER the face pass.
+  IndexingController? _indexing;
+  StreamSubscription<PhotoEvent>? _eventSub;
+  bool _indexingStarted = false;
+
+  // Model-download gating (Stage 9 v1): indexing waits for the semantic model
+  // stage to resolve — embeddings built with the fallback model would all be
+  // re-queued the moment the real model lands. null = probe still running.
+  bool? _modelsMissing;
+  bool _modelStageResolved = false;
+  bool _modelDownloadStarted = false;
 
   @override
   void initState() {
@@ -136,11 +155,146 @@ class _PabloAppState extends State<PabloApp> with WidgetsBindingObserver {
     }
   }
 
+  /// Install the real search runner + the semantic indexing runner once the
+  /// native backend is available. The embedding pass is SEQUENCED after faces
+  /// (started on the face pipeline's terminal cluster-updated event) so the two
+  /// heavy ML passes never run at full tilt together.
+  void _installBackendServices(NativeBackend backend) {
+    _state.searchRunner ??= PabloSearchController(backend).run;
+    if (_indexing != null) return;
+    final controller = IndexingController(
+      NativeEmbeddingBackend(
+        scanFn: backend.engine.embeddingScan,
+        pendingFn: () => backend.engine.pendingEmbeddingIds(),
+        retryFn: backend.engine.retryFailedEmbeddings,
+        countsFn: backend.engine.embeddingCounts,
+        eventStream: backend.events,
+      ),
+      // Reclaim the image encoder's RAM the moment the queue drains — it is
+      // only needed while indexing; the next run lazily reloads it (~1 s).
+      onDrained: () => backend.engine
+          .releaseSemanticSessions(Engine.releaseImageTower),
+    );
+    _indexing = controller;
+    _state.indexing = controller;
+    controller.addListener(_onIndexingProgress);
+    _eventSub = backend.events.listen((e) {
+      if (e.kind == PhotoEventKind.clusterUpdated) _maybeStartIndexing();
+    });
+    // No face pass will fire clusterUpdated → start embeddings after load.
+    if (!BootConfig.instance.autoScan) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _maybeStartIndexing());
+    }
+    _probeSemanticModels();
+  }
+
+  /// Check whether the SigLIP2 files are present in the merged models dir and
+  /// arm the download plumbing if not. Re-enters [_maybeStartIndexing] either
+  /// way (it is gated on this probe's outcome).
+  Future<void> _probeSemanticModels() async {
+    var missing = false;
+    try {
+      final dir = Directory(BootConfig.instance.modelsDir);
+      missing = (await ModelFetcher().missing(dir)).isNotEmpty;
+    } catch (_) {
+      missing = false; // unprobeable dir → proceed with whatever the engine has
+    }
+    if (!mounted) return;
+    _modelsMissing = missing;
+    if (missing) {
+      _state.needsModelDownload = true;
+      _state.modelDownloadRunner = (onProgress) => ModelFetcher().ensureModels(
+          Directory(BootConfig.instance.modelsDir),
+          onProgress: onProgress);
+      _state.onModelsReady = _onModelsArrived;
+      _state.onModelStageResolved = _onModelStageResolved;
+    } else {
+      _modelStageResolved = true;
+    }
+    _maybeStartIndexing();
+  }
+
+  /// Model files just landed: swap the real embedder in (no restart) — stale
+  /// fallback-model rows re-queue automatically via the pending query.
+  void _onModelsArrived() {
+    _backend?.engine.reloadSemantic();
+    _state.setNeedsModelDownload(false);
+  }
+
+  void _onModelStageResolved() {
+    _modelStageResolved = true;
+    _maybeStartIndexing();
+  }
+
+  /// Small-library path (no safe-mode screen): fetch the model quietly with an
+  /// activity-pill task, then swap it in and start indexing. Offline/failed →
+  /// proceed with the fallback embedder; the probe retries next launch.
+  void _startBackgroundModelDownload() {
+    if (_modelDownloadStarted) return;
+    _modelDownloadStarted = true;
+    _state.startTask(
+      TaskInfo(id: 'model-dl', name: 'Downloading search model', percent: 1),
+    );
+    final specs = ModelFetcher.defaultSpecs;
+    ModelFetcher()
+        .ensureModels(Directory(BootConfig.instance.modelsDir),
+            onProgress: (file, received, total) {
+      final i = specs.indexWhere((s) => s.destName == file);
+      final frac = total > 0 ? received / total : 0.0;
+      final pct = (i < 0 ? frac : (i + frac) / specs.length) * 99;
+      _state.updateTaskPercent('model-dl', pct.clamp(1, 99));
+    }).then((_) {
+      _state.updateTaskPercent('model-dl', 100);
+      _onModelsArrived();
+      _onModelStageResolved();
+    }).catchError((Object e) {
+      debugPrint('model download failed (continuing with fallback): $e');
+      _state.updateTaskPercent('model-dl', 100);
+      _onModelStageResolved();
+    });
+  }
+
+  void _maybeStartIndexing() {
+    final backend = _backend;
+    if (_indexingStarted || _indexing == null || backend == null) return;
+    final counts = backend.engine.embeddingCounts();
+    // Resolve the model download before indexing (see _probeSemanticModels).
+    if (!_modelStageResolved) {
+      if (_modelsMissing != true) return; // probe still running — it re-enters
+      if (IndexingController.recommendSafeMode(counts.pending)) {
+        // Large first run: the safe-mode screen shows the download stage and
+        // fires onModelStageResolved when it completes or is skipped.
+        _state.setShowIndexingScreen(true);
+      } else {
+        _startBackgroundModelDownload();
+      }
+      return; // indexing starts from _onModelStageResolved
+    }
+    _indexingStarted = true;
+    if (counts.pending == 0) return;
+    if (IndexingController.recommendSafeMode(counts.pending)) {
+      _state.setShowIndexingScreen(true);
+    }
+    _state.startTask(
+      TaskInfo(id: 'embed-index', name: 'Building search index', percent: 1),
+    );
+    _indexing!.start();
+  }
+
+  void _onIndexingProgress() {
+    final p = _indexing?.progress;
+    if (p == null) return;
+    _state.updateTaskPercent('embed-index', (p.fraction * 100).clamp(1, 100));
+    if (p.isDone) _state.setShowIndexingScreen(false);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final backend = NativeBackendScope.maybeOf(context);
     _backend = backend; // for the on-exit catalog cleanup
+    if (backend != null) _installBackendServices(backend);
     _people ??= PeopleController(backend?.faces ?? const MockFaceRepository());
     _maybeAutoScan();
     if (!_dedupScanned) {
@@ -159,6 +313,9 @@ class _PabloAppState extends State<PabloApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     libraryRevision.removeListener(_onLibraryReady);
     _ticker?.cancel();
+    _eventSub?.cancel();
+    _indexing?.removeListener(_onIndexingProgress);
+    _indexing?.dispose();
     _people?.dispose();
     _state.dispose();
     super.dispose();
@@ -203,6 +360,22 @@ class _Home extends StatelessWidget {
           onClose: st.closeLightbox,
           fullscreen: true,
           onToggleFullscreen: st.toggleLightboxFullscreen,
+        ),
+      );
+    }
+
+    // Safe first-launch mode: while a large library is being indexed, show the
+    // progress screen instead of rendering the full grid (which would fight the
+    // face + embedding passes for CPU/GPU/disk). Resumable, so the user can drop
+    // it to the background at any time.
+    if (st.showIndexingScreen) {
+      return Scaffold(
+        backgroundColor: PabloColors.backgroundShell,
+        body: FirstRunIndexingScreen(
+          needsModelDownload: st.needsModelDownload,
+          modelDownload: st.modelDownloadRunner,
+          onModelsReady: st.onModelsReady,
+          onModelStageResolved: st.onModelStageResolved,
         ),
       );
     }

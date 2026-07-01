@@ -62,6 +62,11 @@ list(APPEND PLUGIN_SOURCES
   # libexif is absent, so it is always safe to compile.
   "${NATIVE_CORE_DIR}/src/catalog/catalog.cpp"
   "${NATIVE_CORE_DIR}/src/exif/exif.cpp"
+  # Stage 9 — semantic search (dependency-free; ONNX backend self-stubs).
+  "${NATIVE_CORE_DIR}/src/semantic/embedder.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/onnx_embedder.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/semantic_search.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/semantic_service.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})

@@ -1013,6 +1013,269 @@ PHOTO_API int32_t photo_face_name_person(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
+// Semantic search & discovery — Stage 9. Embedding index + query ranking +
+// saved searches. All gated on the catalog (PHOTO_HAVE_SQLITE).
+// ---------------------------------------------------------------------------
+
+PHOTO_API uint64_t photo_embedding_scan(photo_engine_t* engine, uint64_t asset_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        return cast(engine)->embedding_scan(static_cast<int64_t>(asset_id));
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_embedding_scan: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id;
+    return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_embedding_counts(photo_engine_t* engine,
+                                         photo_embed_counts_t* out) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || !out) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        const auto c = cast(engine)->embedding_counts();
+        out->done = c.done;
+        out->pending = c.pending;
+        out->processing = c.processing;
+        out->failed = c.failed;
+        out->skipped = c.skipped;
+        out->total = c.total;
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_embedding_counts: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)out;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API size_t photo_embedding_pending(photo_engine_t* engine, int32_t limit,
+                                         uint64_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto ids = cast(engine)->pending_embedding_ids(limit);
+        const size_t n = ids.size();
+        if (out)
+            for (size_t i = 0; i < n && i < cap; ++i)
+                out[i] = static_cast<uint64_t>(ids[i]);
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_embedding_pending: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)limit; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_embedding_retry_failed(photo_engine_t* engine) {
+#ifdef PHOTO_HAVE_SQLITE
+    return organize_mutate(engine, "photo_embedding_retry_failed",
+                           [&](photo::Engine* e) { e->retry_failed_embeddings(); });
+#else
+    (void)engine;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API size_t photo_embedding_colors(photo_engine_t* engine,
+                                        photo_asset_color_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto rows = cast(engine)->dominant_colors();
+        const size_t n = rows.size();
+        if (out)
+            for (size_t i = 0; i < n && i < cap; ++i) {
+                out[i] = photo_asset_color_t{};
+                out[i].asset_id = static_cast<uint64_t>(rows[i].first);
+                out[i].rgb = rows[i].second;
+            }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_embedding_colors: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+PHOTO_API uint32_t photo_embed_text(photo_engine_t* engine,
+                                    const char* query_utf8, float* out_vec,
+                                    uint32_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || !query_utf8) return 0;
+    try {
+        const auto v = cast(engine)->embed_text(query_utf8);
+        if (out_vec)
+            for (uint32_t i = 0; i < v.size() && i < cap; ++i) out_vec[i] = v[i];
+        return static_cast<uint32_t>(v.size());
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_embed_text: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)query_utf8; (void)out_vec; (void)cap;
+    return 0;
+#endif
+}
+
+PHOTO_API size_t photo_semantic_search(photo_engine_t* engine,
+                                       const float* query_vec, uint32_t dim,
+                                       const uint64_t* candidates,
+                                       size_t n_candidates,
+                                       photo_search_hit_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || !query_vec || dim == 0) return 0;
+    try {
+        std::vector<float> q(query_vec, query_vec + dim);
+        std::vector<int64_t> cand;
+        if (candidates && n_candidates > 0) {
+            cand.reserve(n_candidates);
+            for (size_t i = 0; i < n_candidates; ++i)
+                cand.push_back(static_cast<int64_t>(candidates[i]));
+        }
+        const auto hits = cast(engine)->semantic_search(q, cand, cap);
+        const size_t n = hits.size();
+        if (out)
+            for (size_t i = 0; i < n && i < cap; ++i) {
+                out[i] = photo_search_hit_t{};
+                out[i].asset_id = static_cast<uint64_t>(hits[i].asset_id);
+                out[i].score = hits[i].score;
+            }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_semantic_search: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)query_vec; (void)dim; (void)candidates;
+    (void)n_candidates; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+PHOTO_API void photo_semantic_release_sessions(photo_engine_t* engine,
+                                               uint32_t mask) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || mask == 0) return;
+    try {
+        cast(engine)->release_semantic_sessions(mask);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_semantic_release_sessions: %s",
+                   e.what());
+    }
+#else
+    (void)engine; (void)mask;
+#endif
+}
+
+PHOTO_API int32_t photo_semantic_reload(photo_engine_t* engine) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        return cast(engine)->reload_semantic();
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_semantic_reload: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine;
+    return 0;
+#endif
+}
+
+PHOTO_API uint64_t photo_saved_search_create(photo_engine_t* engine,
+                                             const char* name_utf8,
+                                             const char* query_json_utf8) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        return static_cast<uint64_t>(cast(engine)->create_saved_search(
+            name_utf8 ? name_utf8 : "", query_json_utf8 ? query_json_utf8 : ""));
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_saved_search_create: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)name_utf8; (void)query_json_utf8;
+    return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_saved_search_delete(photo_engine_t* engine, uint64_t id) {
+#ifdef PHOTO_HAVE_SQLITE
+    return organize_mutate(engine, "photo_saved_search_delete",
+                           [&](photo::Engine* e) {
+                               e->delete_saved_search(static_cast<int64_t>(id));
+                           });
+#else
+    (void)engine; (void)id;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API size_t photo_saved_search_list(photo_engine_t* engine,
+                                         photo_saved_search_t* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto rows = cast(engine)->list_saved_searches();
+        const size_t n = rows.size();
+        if (out)
+            for (size_t i = 0; i < n && i < cap; ++i) {
+                out[i] = photo_saved_search_t{};
+                out[i].id = static_cast<uint64_t>(rows[i].id);
+                out[i].created = rows[i].created;
+                std::snprintf(out[i].name, sizeof(out[i].name), "%s",
+                              rows[i].name.c_str());
+            }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_saved_search_list: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+PHOTO_API size_t photo_saved_search_query(photo_engine_t* engine, uint64_t id,
+                                          char* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const auto rec = cast(engine)->get_saved_search(static_cast<int64_t>(id));
+        const std::string s = rec ? rec->query_json : std::string{};
+        const size_t total = s.size() + 1;  // + NUL
+        if (out && cap > 0) {
+            const size_t ncopy = s.size() < cap - 1 ? s.size() : cap - 1;
+            std::memcpy(out, s.data(), ncopy);
+            out[ncopy] = '\0';
+        }
+        return total;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_saved_search_query: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)id; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+// ---------------------------------------------------------------------------
 // TEST-ONLY hook (M1).
 //
 // Publishes a solid-color frame into a slot. The texture-harness uses this

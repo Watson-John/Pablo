@@ -119,7 +119,12 @@ typedef enum {
     PHOTO_EVT_PROVIDER_PROBED  = 7,
     PHOTO_EVT_LOG              = 8,
     /* Async catalog maintenance (compaction) finished. status is the result. */
-    PHOTO_EVT_MAINTENANCE_COMPLETE = 9
+    PHOTO_EVT_MAINTENANCE_COMPLETE = 9,
+    /* One semantic-embedding job finished (Stage 9). asset_id = the asset;
+     * aux64 = 1 (one asset processed); status = per-item result
+     * (OK / UNSUPPORTED=skipped / DECODE_ERROR=failed). The Dart indexing
+     * controller counts these to drive progress, like SCAN_PROGRESS for faces. */
+    PHOTO_EVT_EMBED_PROGRESS   = 10
 } photo_event_kind_t;
 
 typedef enum {
@@ -699,6 +704,130 @@ PHOTO_API size_t photo_face_list_for_asset(photo_engine_t* engine,
 PHOTO_API int32_t photo_face_name_person(photo_engine_t* engine,
                                          uint64_t person_id,
                                          const char* name_utf8);
+
+/* ------------------------------------------------------------------------- */
+/* Semantic search & discovery (Stage 9).                                    */
+/*                                                                           */
+/* A retrieval index of per-asset embeddings (the `embedding` catalog table)  */
+/* plus saved searches. Embeddings are produced by a SWAPPABLE model — the    */
+/* dependency-free deterministic colour backend by default, the real ONNX     */
+/* model (siglip2 / PE-Core) when its files are present. Every row records the */
+/* producing model so a switch re-queues stale rows. No image bytes cross the  */
+/* boundary; the query→image ranking is done natively over stored vectors.     */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Schedule embedding for one asset on the idle lane. Emits PHOTO_EVT_EMBED_PROGRESS
+ * on completion. Returns a request id (0 if no catalog / no embedder). Idempotent
+ * at the pipeline level: callers build the work list from photo_embedding_pending.
+ */
+PHOTO_API uint64_t photo_embedding_scan(photo_engine_t* engine, uint64_t asset_id);
+
+/* Embedding progress counts for the indexing UI. `total` is all non-hidden
+ * assets; `pending` includes assets with no row yet. */
+typedef struct {
+    int64_t done;
+    int64_t pending;
+    int64_t processing;
+    int64_t failed;
+    int64_t skipped;
+    int64_t total;
+} photo_embed_counts_t;
+PHOTO_API int32_t photo_embedding_counts(photo_engine_t* engine,
+                                         photo_embed_counts_t* out);
+
+/*
+ * Asset ids that still need embedding for the ACTIVE model — the resume queue.
+ * Fills up to `cap` and returns the TOTAL available (grow + re-call). limit<0
+ * means no server-side cap.
+ */
+PHOTO_API size_t photo_embedding_pending(photo_engine_t* engine, int32_t limit,
+                                         uint64_t* out, size_t cap);
+
+/* Flip every failed embedding back to pending (an explicit "retry failed"). */
+PHOTO_API int32_t photo_embedding_retry_failed(photo_engine_t* engine);
+
+/* (asset_id, dominant colour 0xRRGGBB) for every embedded asset — drives colour
+ * search. Fills up to `cap`, returns the TOTAL available (grow + re-call). */
+typedef struct {
+    uint64_t asset_id;
+    int32_t  rgb;    /* 0xRRGGBB */
+    int32_t  _pad;
+} photo_asset_color_t;
+PHOTO_API size_t photo_embedding_colors(photo_engine_t* engine,
+                                        photo_asset_color_t* out, size_t cap);
+
+/*
+ * Embed a text query into the active model's vector space. Writes up to `cap`
+ * floats into `out_vec` and returns the model dimensionality (which may exceed
+ * `cap` — grow + re-call). Returns 0 if there is no embedder.
+ */
+PHOTO_API uint32_t photo_embed_text(photo_engine_t* engine,
+                                    const char* query_utf8,
+                                    float* out_vec, uint32_t cap);
+
+/* One ranked search result. */
+typedef struct {
+    uint64_t asset_id;
+    float    score;   /* cosine similarity in [-1, 1] */
+    float    _pad;
+} photo_search_hit_t;
+
+/*
+ * Cosine-rank `query_vec` (dim floats) over the done embeddings, optionally
+ * restricted to `candidates` (n_candidates asset ids; NULL/0 = all). Fills up
+ * to `cap` hits (score-descending) into `out` and returns the number written.
+ */
+PHOTO_API size_t photo_semantic_search(photo_engine_t* engine,
+                                       const float* query_vec, uint32_t dim,
+                                       const uint64_t* candidates,
+                                       size_t n_candidates,
+                                       photo_search_hit_t* out, size_t cap);
+
+/* Bit mask for photo_semantic_release_sessions. */
+#define PHOTO_SEMANTIC_RELEASE_IMAGE (1u << 0)
+#define PHOTO_SEMANTIC_RELEASE_TEXT  (1u << 1)
+
+/*
+ * Reclaim the RAM of lazily-loaded semantic inference sessions. The UI calls
+ * this with ..._IMAGE when the embedding-indexing queue drains (the image
+ * tower holds ~hundreds of MB only needed while indexing) and with ..._TEXT
+ * after a search idle timeout. Safe concurrently with in-flight embeds (they
+ * complete on their own reference); the next embed/search transparently
+ * reloads from disk (~1 s). No-op for the deterministic backend.
+ */
+PHOTO_API void photo_semantic_release_sessions(photo_engine_t* engine,
+                                               uint32_t mask);
+
+/*
+ * Re-probe the models directory and swap the semantic embedder in — call after
+ * the first-run model download lands so real text→image search activates
+ * without an app restart. In-flight embeds finish on the old service. Returns
+ * the active model's dimensionality (0 if no engine). A model change re-queues
+ * stale embedding rows via photo_embedding_pending.
+ */
+PHOTO_API int32_t photo_semantic_reload(photo_engine_t* engine);
+
+/* Saved searches (saved_search table). query_json is opaque UTF-8. */
+typedef struct {
+    uint64_t id;
+    int64_t  created;   /* ns since epoch */
+    char     name[128];
+} photo_saved_search_t;
+
+PHOTO_API uint64_t photo_saved_search_create(photo_engine_t* engine,
+                                             const char* name_utf8,
+                                             const char* query_json_utf8);
+PHOTO_API int32_t  photo_saved_search_delete(photo_engine_t* engine, uint64_t id);
+/* List saved searches (newest first). Fills up to `cap`, returns TOTAL. */
+PHOTO_API size_t   photo_saved_search_list(photo_engine_t* engine,
+                                           photo_saved_search_t* out, size_t cap);
+/*
+ * The opaque query_json of one saved search into `out` (NUL-terminated UTF-8).
+ * Returns the TOTAL bytes needed (grow + re-call), mirroring photo_asset_tags.
+ */
+PHOTO_API size_t   photo_saved_search_query(photo_engine_t* engine, uint64_t id,
+                                            char* out, size_t cap);
 
 #ifdef __cplusplus
 }  /* extern "C" */

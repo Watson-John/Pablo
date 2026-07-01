@@ -35,6 +35,8 @@ set(PHOTO_CORE_TEST_SOURCES
     smart_test.cpp
     compact_test.cpp
     rebase_test.cpp
+    semantic_test.cpp
+    semantic_onnx_test.cpp
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})

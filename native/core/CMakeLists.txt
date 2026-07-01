@@ -30,6 +30,15 @@ set(PHOTO_CORE_SOURCES
 
     # M3 — on-disk thumbnail cache
     src/thumb/thumb_cache.cpp
+
+    # Stage 9 — semantic search & discovery. Dependency-free by design: the
+    # deterministic embedder, cosine search, and service state machine compile
+    # everywhere (the ONNX backend self-stubs unless SEMANTIC_HAVE_ORT + models
+    # are present; the built-in decode uses the codec only when compiled).
+    src/semantic/embedder.cpp
+    src/semantic/onnx_embedder.cpp
+    src/semantic/semantic_search.cpp
+    src/semantic/semantic_service.cpp
 )
 
 # Later milestones append to PHOTO_CORE_SOURCES via target_sources() calls
@@ -249,6 +258,52 @@ if(PHOTO_BUILD_CATALOG)
         endif()
     else()
         message(STATUS "photo_core: SQLite absent -> asset catalog disabled")
+    endif()
+endif()
+
+# ------------------------------------------------------------------
+# Stage 9: real semantic embedder (SigLIP2) via ONNX Runtime + SentencePiece.
+#
+# The semantic sources always compile (deterministic backend). When ONNX Runtime
+# AND SentencePiece are present, SEMANTIC_HAVE_ORT lights up onnx_embedder.cpp's
+# real SigLIP2 path; make_onnx_embedder then returns the real model when the
+# exported files are in the models dir, else the deterministic fallback. Both
+# ship pkg-config files (Homebrew keg or system). Independent of OpenCV/faces.
+# ------------------------------------------------------------------
+
+option(PHOTO_BUILD_SEMANTIC_ORT "Enable the real ONNX/SigLIP2 semantic embedder" ON)
+
+if(PHOTO_BUILD_SEMANTIC_ORT)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        # Seed the Homebrew keg pkgconfig dirs so a bare `cmake` finds them.
+        if(APPLE)
+            execute_process(COMMAND brew --prefix onnxruntime
+                            OUTPUT_VARIABLE _ort_pfx OUTPUT_STRIP_TRAILING_WHITESPACE
+                            ERROR_QUIET RESULT_VARIABLE _ort_rc)
+            execute_process(COMMAND brew --prefix sentencepiece
+                            OUTPUT_VARIABLE _sp_pfx OUTPUT_STRIP_TRAILING_WHITESPACE
+                            ERROR_QUIET RESULT_VARIABLE _sp_rc)
+            if(_ort_rc EQUAL 0)
+                set(ENV{PKG_CONFIG_PATH} "${_ort_pfx}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+            endif()
+            if(_sp_rc EQUAL 0)
+                set(ENV{PKG_CONFIG_PATH} "${_sp_pfx}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+            endif()
+        endif()
+        pkg_check_modules(ORT QUIET IMPORTED_TARGET libonnxruntime)
+        pkg_check_modules(SENTENCEPIECE QUIET IMPORTED_TARGET sentencepiece)
+    endif()
+    if(ORT_FOUND AND SENTENCEPIECE_FOUND)
+        target_compile_definitions(photo_core_objects PUBLIC SEMANTIC_HAVE_ORT=1)
+        target_link_libraries(photo_core_objects PUBLIC
+            PkgConfig::ORT PkgConfig::SENTENCEPIECE)
+        message(STATUS "photo_core: REAL semantic embedder ENABLED "
+                       "(SigLIP2: ONNX Runtime ${ORT_VERSION} + SentencePiece ${SENTENCEPIECE_VERSION})")
+    else()
+        message(STATUS "photo_core: real semantic embedder OFF "
+                       "(ORT=${ORT_FOUND} SentencePiece=${SENTENCEPIECE_FOUND}) "
+                       "-> deterministic colour embedder")
     endif()
 endif()
 

@@ -22,6 +22,7 @@ abstract final class PhotoEventKind {
   static const int providerProbed = 7;
   static const int log = 8;
   static const int maintenanceComplete = 9;
+  static const int embedProgress = 10;
 }
 
 /// Immutable Dart-side projection of a native [NativeEvent].

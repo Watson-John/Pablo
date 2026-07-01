@@ -4,6 +4,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:photo_native/photo_native.dart' show Album, Engine;
 
+import '../data/indexing/indexing_controller.dart';
 import '../data/library.dart';
 import '../data/models.dart';
 import '../data/scheme_store.dart';
@@ -46,6 +47,7 @@ class AdvSearchCriteria {
     this.tags = '',
     this.fileType = 'Any',
     this.album = 'Any',
+    this.color = 'Any',
   }) : people = people ?? <String>{};
 
   String dateMode;
@@ -72,6 +74,7 @@ class AdvSearchCriteria {
   String tags;
   String fileType;
   String album;
+  String color;
 
   int get activeCount {
     var n = 0;
@@ -85,8 +88,70 @@ class AdvSearchCriteria {
     if (tags.isNotEmpty) n++;
     if (fileType != 'Any') n++;
     if (album != 'Any') n++;
+    if (color != 'Any') n++;
     return n;
   }
+
+  /// Whether any criterion (beyond an empty default) is active. Used to decide
+  /// if a search should run.
+  bool get isEmpty => activeCount == 0;
+
+  /// JSON-serializable map for saved searches. Round-trips via [fromJson].
+  Map<String, dynamic> toJson() => {
+        'dateMode': dateMode,
+        'dateFrom': dateFrom,
+        'dateTo': dateTo,
+        'specificMonth': specificMonth,
+        'dayOfMonth': dayOfMonth,
+        'year': year,
+        'people': people.toList(),
+        'peopleMatch': peopleMatch,
+        'starred': starred,
+        'videosOnly': videosOnly,
+        'hasLocation': hasLocation,
+        'notInAlbum': notInAlbum,
+        'hasBeenEdited': hasBeenEdited,
+        'camera': camera,
+        'lens': lens,
+        'isoMin': isoMin,
+        'isoMax': isoMax,
+        'apertureMin': apertureMin,
+        'apertureMax': apertureMax,
+        'focalMin': focalMin,
+        'focalMax': focalMax,
+        'tags': tags,
+        'fileType': fileType,
+        'album': album,
+        'color': color,
+      };
+
+  static AdvSearchCriteria fromJson(Map<String, dynamic> j) => AdvSearchCriteria(
+        dateMode: (j['dateMode'] as String?) ?? 'any',
+        dateFrom: (j['dateFrom'] as String?) ?? '',
+        dateTo: (j['dateTo'] as String?) ?? '',
+        specificMonth: (j['specificMonth'] as String?) ?? 'Any',
+        dayOfMonth: (j['dayOfMonth'] as String?) ?? '',
+        year: (j['year'] as String?) ?? '',
+        people: {for (final p in (j['people'] as List? ?? const [])) '$p'},
+        peopleMatch: (j['peopleMatch'] as String?) ?? 'or',
+        starred: (j['starred'] as bool?) ?? false,
+        videosOnly: (j['videosOnly'] as bool?) ?? false,
+        hasLocation: (j['hasLocation'] as bool?) ?? false,
+        notInAlbum: (j['notInAlbum'] as bool?) ?? false,
+        hasBeenEdited: (j['hasBeenEdited'] as bool?) ?? false,
+        camera: (j['camera'] as String?) ?? 'Any',
+        lens: (j['lens'] as String?) ?? '',
+        isoMin: (j['isoMin'] as String?) ?? '',
+        isoMax: (j['isoMax'] as String?) ?? '',
+        apertureMin: (j['apertureMin'] as String?) ?? '',
+        apertureMax: (j['apertureMax'] as String?) ?? '',
+        focalMin: (j['focalMin'] as String?) ?? '',
+        focalMax: (j['focalMax'] as String?) ?? '',
+        tags: (j['tags'] as String?) ?? '',
+        fileType: (j['fileType'] as String?) ?? 'Any',
+        album: (j['album'] as String?) ?? 'Any',
+        color: (j['color'] as String?) ?? 'Any',
+      );
 }
 
 class PabloAppState extends ChangeNotifier {
@@ -114,6 +179,46 @@ class PabloAppState extends ChangeNotifier {
   // Search
   String searchText = '';
   AdvSearchCriteria? advCriteria;
+
+  /// Real catalog + retrieval-index backed results for the active query. Shown
+  /// by MainGrid when [activeSection] == NavSection.searchResults.
+  List<Photo> searchResults = const [];
+
+  /// Installed by the app once the native backend is up: runs a real search
+  /// (semantic text + metadata/colour/person filters) and returns matching
+  /// photos. Null in tests / before backend init → search is a no-op.
+  List<Photo> Function(String text, AdvSearchCriteria? criteria)? searchRunner;
+
+  // Section to restore when a search is cleared.
+  NavSection _preSearchSection = NavSection.folders;
+  String _preSearchItem = '';
+
+  /// The semantic-embedding indexing runner (Stage 9). Installed by the app once
+  /// the native backend is up; null in tests / without a backend.
+  IndexingController? indexing;
+
+  /// When true (a large first launch), the app shows the safe indexing screen
+  /// with progress instead of rendering the full grid while heavy indexing runs.
+  bool showIndexingScreen = false;
+  void setShowIndexingScreen(bool v) {
+    if (showIndexingScreen == v) return;
+    showIndexingScreen = v;
+    notifyListeners();
+  }
+
+  // Model download (Stage 9 v1). Populated by the app shell once the fetcher
+  // has probed the merged models dir; consumed by FirstRunIndexingScreen's
+  // download stage. The runner type mirrors ModelDownload/ModelProgress
+  // structurally (kept inline so app_state stays feature-import-free).
+  bool needsModelDownload = false;
+  Future<void> Function(void Function(String, int, int))? modelDownloadRunner;
+  VoidCallback? onModelsReady;
+  VoidCallback? onModelStageResolved;
+  void setNeedsModelDownload(bool v) {
+    if (needsModelDownload == v) return;
+    needsModelDownload = v;
+    notifyListeners();
+  }
 
   // View. Zoom range 60–512 px (512 matches the native thumbnail decode size);
   // 200 is the default.
@@ -251,6 +356,41 @@ class PabloAppState extends ChangeNotifier {
 
   void setAdvCriteria(AdvSearchCriteria? c) {
     advCriteria = c;
+    notifyListeners();
+  }
+
+  bool get _searchActive =>
+      searchText.trim().isNotEmpty ||
+      (advCriteria != null && !advCriteria!.isEmpty);
+
+  /// Run (or clear) the active search over the real catalog + retrieval index.
+  /// Called after the query text (debounced) or advanced criteria change.
+  void runSearch() {
+    if (!_searchActive) {
+      clearSearch();
+      return;
+    }
+    if (activeSection != NavSection.searchResults) {
+      _preSearchSection = activeSection;
+      _preSearchItem = selectedItem;
+    }
+    searchResults = searchRunner?.call(searchText, advCriteria) ?? const [];
+    setSearchResults(searchResults);
+    activeSection = NavSection.searchResults;
+    selectedPhotos.clear();
+    notifyListeners();
+  }
+
+  /// Exit search results, restoring the pre-search section.
+  void clearSearch() {
+    if (activeSection == NavSection.searchResults) {
+      activeSection = _preSearchSection;
+      selectedItem = _preSearchItem;
+    }
+    searchText = '';
+    advCriteria = null;
+    searchResults = const [];
+    setSearchResults(const []);
     notifyListeners();
   }
 

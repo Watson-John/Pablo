@@ -117,6 +117,27 @@ Pod::Spec.new do |s|
     faces_excludes = []  # OpenCV + ORT present — compile the face sources
   end
 
+  # ---- Stage 9: real semantic embedder (SigLIP2 via ONNX Runtime + SentencePiece) ----
+  # Independent of OpenCV/faces — the semantic sources always compile (the
+  # deterministic backend); SEMANTIC_HAVE_ORT flips on onnx_embedder.cpp's real
+  # SigLIP2 path when ONNX Runtime AND SentencePiece are installed. ORT is shared
+  # with the faces block — only add its include/lib here when faces didn't.
+  semantic_defs   = ''
+  semantic_cflags = ''
+  semantic_libs   = ''
+  sp_prefix = `brew --prefix sentencepiece 2>/dev/null`.strip
+  if !ort_prefix.empty? && !sp_prefix.empty? &&
+     File.exist?("#{ort_prefix}/include/onnxruntime/onnxruntime_cxx_api.h") &&
+     File.exist?("#{sp_prefix}/include/sentencepiece_processor.h")
+    semantic_defs   = ' SEMANTIC_HAVE_ORT=1'
+    semantic_cflags = " -I#{sp_prefix}/include"
+    semantic_libs   = " -L#{sp_prefix}/lib -lsentencepiece"
+    if faces_defs.empty?  # faces didn't already add ORT
+      semantic_cflags += " -I#{ort_prefix}/include/onnxruntime"
+      semantic_libs   += " -L#{ort_prefix}/lib -lonnxruntime"
+    end
+  end
+
   all_excludes = faces_excludes + catalog_excludes
   s.exclude_files = all_excludes unless all_excludes.empty?
 
@@ -130,8 +151,8 @@ Pod::Spec.new do |s|
       '"$(PODS_TARGET_SRCROOT)/_native_core/include"',
       '"$(PODS_TARGET_SRCROOT)/_native_core/src"',
     ].join(' '),
-    'OTHER_CPLUSPLUSFLAGS' => "$(inherited) #{vips_cflags}#{faces_cflags}#{catalog_cflags}",
-    'GCC_PREPROCESSOR_DEFINITIONS' => "PHOTO_BUILD_STATIC=1#{vips_defs}#{faces_defs}#{catalog_defs}",
+    'OTHER_CPLUSPLUSFLAGS' => "$(inherited) #{vips_cflags}#{faces_cflags}#{catalog_cflags}#{semantic_cflags}",
+    'GCC_PREPROCESSOR_DEFINITIONS' => "PHOTO_BUILD_STATIC=1#{vips_defs}#{faces_defs}#{catalog_defs}#{semantic_defs}",
     # Default visibility — hiding it breaks Obj-C class symbol export, which
     # GeneratedPluginRegistrant references. C++ internal symbols inside
     # photo_core stay hidden via the namespace anyway; PHOTO_API marks the
@@ -141,6 +162,6 @@ Pod::Spec.new do |s|
     # search path is inherited from the parent project but we add it
     # explicitly so the plugin framework links cleanly under use_frameworks!.
     'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/FlutterMacOS"',
-    'OTHER_LDFLAGS' => "$(inherited) -framework FlutterMacOS#{vips_libs}#{faces_libs}#{catalog_libs}",
+    'OTHER_LDFLAGS' => "$(inherited) -framework FlutterMacOS#{vips_libs}#{faces_libs}#{catalog_libs}#{semantic_libs}",
   }
 end

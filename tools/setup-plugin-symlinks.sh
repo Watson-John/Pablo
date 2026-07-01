@@ -41,6 +41,10 @@ for rel in api/c_api.cpp \
            util/log.cpp \
            catalog/catalog.cpp \
            exif/exif.cpp \
+           semantic/embedder.cpp \
+           semantic/onnx_embedder.cpp \
+           semantic/semantic_search.cpp \
+           semantic/semantic_service.cpp \
            codec/codec.cpp \
            faces/detector.cpp \
            faces/align.cpp \

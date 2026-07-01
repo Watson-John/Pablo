@@ -8,14 +8,28 @@ import '../../components/pablo_checkbox.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/pablo_radio.dart';
+import '../../components/pablo_text_field.dart';
 import '../../data/constants.dart';
+import '../../data/saved_search_store.dart';
 import '../../theme/tokens.dart';
+
+/// Colour-search options (must match SearchService's `_ColorMatcher`).
+const List<String> kAdvSearchColors = [
+  'Any', 'Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple',
+  'Pink', 'White', 'Black', 'Gray',
+];
 
 class AdvancedSearchModal extends StatefulWidget {
   const AdvancedSearchModal({
     required this.photoCount,
     required this.onClose,
     required this.onApply,
+    this.initial,
+    this.resultCounter,
+    this.savedSearches = const [],
+    this.onSaveSearch,
+    this.onLoadSaved,
+    this.onDeleteSaved,
     super.key,
   });
 
@@ -23,12 +37,26 @@ class AdvancedSearchModal extends StatefulWidget {
   final VoidCallback onClose;
   final ValueChanged<AdvSearchCriteria> onApply;
 
+  /// Pre-populate the form (e.g. re-open with the active criteria).
+  final AdvSearchCriteria? initial;
+
+  /// Returns the REAL number of matches for a criteria set (catalog + retrieval
+  /// backed). When null the modal shows the total library count as a fallback.
+  final int Function(AdvSearchCriteria)? resultCounter;
+
+  /// Persisted saved searches to offer as one-tap chips.
+  final List<StoredSearch> savedSearches;
+  final void Function(String name, AdvSearchCriteria criteria)? onSaveSearch;
+  final void Function(StoredSearch)? onLoadSaved;
+  final void Function(StoredSearch)? onDeleteSaved;
+
   @override
   State<AdvancedSearchModal> createState() => _AdvancedSearchModalState();
 }
 
 class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
-  late AdvSearchCriteria _c = AdvSearchCriteria();
+  late AdvSearchCriteria _c =
+      widget.initial ?? AdvSearchCriteria();
   final _dateFromCtl = TextEditingController();
   final _dateToCtl = TextEditingController();
   final _dayOfMonthCtl = TextEditingController();
@@ -57,25 +85,118 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
       _focalMinCtl,
       _focalMaxCtl,
       _tagsCtl,
+      _saveNameCtl,
     ]) {
       c.dispose();
     }
     super.dispose();
   }
 
-  int get _resultCount {
-    var n = widget.photoCount;
-    if (_c.starred) n = (n * 0.14).floor();
-    if (_c.videosOnly) n = (n * 0.08).floor();
-    if (_c.people.isNotEmpty) n = (n * (0.3 * _c.people.length)).floor();
-    if (_c.dateMode != 'any') n = (n * 0.4).floor();
-    if (_c.camera != 'Any') n = (n * 0.6).floor();
-    if (_c.tags.isNotEmpty) n = (n * 0.2).floor();
-    return n.clamp(0, widget.photoCount);
-  }
+  final _saveNameCtl = TextEditingController();
+
+  // Real match count from the catalog + retrieval index. Falls back to the full
+  // library count only when no counter is wired (e.g. widget tests without a
+  // backend). No more heuristic estimates.
+  int get _resultCount =>
+      widget.resultCounter?.call(_c) ?? widget.photoCount;
 
   void _set(VoidCallback mutate) {
     setState(mutate);
+  }
+
+  Future<void> _promptSave() async {
+    _saveNameCtl.clear();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _SaveSearchDialog(controller: _saveNameCtl),
+    );
+    if (!mounted) return;
+    if (name != null && name.trim().isNotEmpty) {
+      widget.onSaveSearch?.call(name.trim(), _c);
+    }
+  }
+
+  // One-tap chips to re-run (or delete) a persisted saved search.
+  Widget _savedSearchBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: PabloSpacing.xxxl,
+        vertical: PabloSpacing.base,
+      ),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: PabloColors.borderSubtle)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            'SAVED',
+            style: PabloTypography.sans(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: PabloColors.textMuted,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(width: PabloSpacing.lg),
+          Expanded(
+            child: Wrap(
+              spacing: PabloSpacing.base,
+              runSpacing: PabloSpacing.sm,
+              children: [
+                for (final s in widget.savedSearches) _savedChip(s),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _savedChip(StoredSearch s) {
+    return GestureDetector(
+      onTap: () {
+        setState(() => _c = AdvSearchCriteria.fromJson(s.criteria.toJson()));
+        widget.onLoadSaved?.call(s);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: PabloSpacing.lg,
+          vertical: PabloSpacing.sm,
+        ),
+        decoration: BoxDecoration(
+          color: PabloColors.accentBackground,
+          borderRadius: PabloRadius.pillAll,
+          border: Border.all(color: PabloColors.borderSubtle),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              s.name,
+              style: PabloTypography.sans(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: PabloColors.accentActive,
+              ),
+            ),
+            if (widget.onDeleteSaved != null) ...[
+              const SizedBox(width: PabloSpacing.sm),
+              GestureDetector(
+                onTap: () => widget.onDeleteSaved?.call(s),
+                child: Text(
+                  '✕',
+                  style: PabloTypography.sans(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: PabloColors.textMuted,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -142,6 +263,7 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
                     ],
                   ),
                 ),
+                if (widget.savedSearches.isNotEmpty) _savedSearchBar(),
                 Flexible(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(PabloSpacing.xxxl),
@@ -217,6 +339,13 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
                                 ),
                               ),
                       ),
+                      if (widget.onSaveSearch != null) ...[
+                        PabloButton(
+                          label: 'Save Search',
+                          onPressed: _resultCount > 0 ? _promptSave : null,
+                        ),
+                        const SizedBox(width: PabloSpacing.lg),
+                      ],
                       PabloButton(
                         label: 'Clear All',
                         onPressed: () {
@@ -428,6 +557,19 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
         const SizedBox(height: PabloSpacing.base),
         _label('In album'),
         _select(const ['Any'], _c.album, (v) => _set(() => _c.album = v)),
+        const SizedBox(height: PabloSpacing.xl),
+        _sHead('Colour'),
+        Padding(
+          padding: const EdgeInsets.only(bottom: PabloSpacing.sm),
+          child: Text(
+            'Find photos dominated by a colour.',
+            style: PabloTypography.sans(
+              fontSize: 11,
+              color: PabloColors.textMuted,
+            ).copyWith(fontStyle: FontStyle.italic),
+          ),
+        ),
+        _select(kAdvSearchColors, _c.color, (v) => _set(() => _c.color = v)),
       ],
     );
   }
@@ -537,7 +679,7 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
-          value: value,
+          value: options.contains(value) ? value : options.first,
           isDense: true,
           isExpanded: true,
           style: PabloTypography.sans(fontSize: 12),
@@ -545,6 +687,67 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
           items: options
               .map((o) => DropdownMenuItem(value: o, child: Text(o)))
               .toList(),
+        ),
+      ),
+    );
+  }
+}
+
+/// A small themed dialog to name a saved search.
+class _SaveSearchDialog extends StatelessWidget {
+  const _SaveSearchDialog({required this.controller});
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    void submit() => Navigator.of(context).pop(controller.text);
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 360,
+          padding: const EdgeInsets.all(PabloSpacing.xxxl),
+          decoration: BoxDecoration(
+            color: PabloColors.backgroundSurface,
+            borderRadius: PabloRadius.panelAll,
+            boxShadow: PabloShadows.lg,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Save Search',
+                style: PabloTypography.serif(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: PabloSpacing.lg),
+              PabloTextField(
+                controller: controller,
+                placeholder: 'Name this search…',
+                autoFocus: true,
+                onSubmitted: (_) => submit(),
+              ),
+              const SizedBox(height: PabloSpacing.xl),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  PabloButton(
+                    label: 'Cancel',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const SizedBox(width: PabloSpacing.lg),
+                  PabloButton(
+                    label: 'Save',
+                    variant: PabloButtonVariant.primary,
+                    onPressed: submit,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

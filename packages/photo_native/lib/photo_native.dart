@@ -25,7 +25,10 @@ export 'src/ffi/core_api.dart'
         GeoPoint,
         Album,
         Organize,
-        CatalogStats;
+        CatalogStats,
+        EmbeddingCounts,
+        SearchHit,
+        SavedSearch;
 export 'src/ffi/event_pump.dart' show EventPump, PhotoEvent, PhotoEventKind;
 export 'src/render/texture_slot.dart' show TextureSlot;
 export 'src/render/texture_registry.dart'
