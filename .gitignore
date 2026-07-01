@@ -1,5 +1,7 @@
 # Root build artifacts (CMake/native output) — keep source, drop build output
 /build/
+# Lean standalone test build (docs/specs/05-organize-and-metadata-tests.md §3)
+/build-tests/
 
 # Rust / native build dirs
 target/
