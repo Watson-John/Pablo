@@ -115,6 +115,42 @@ class PeopleController extends ChangeNotifier {
   /// No-op (0) in mock mode.
   int rebuildClusters() => _repo.rebuildClusters();
 
+  // ── Face editing (§7 parity: ignore / manual rect / assign / XMP) ───────────
+
+  /// Hide or restore a detected face. Detaches it from people when hidden.
+  void setFaceIgnored(int faceId, bool ignored) {
+    _repo.setFaceIgnored(faceId, ignored);
+    notifyListeners();
+  }
+
+  /// Add a hand-drawn face rectangle (source-image pixels). Returns the new
+  /// face id, or 0 on failure.
+  int addManualFace(int assetId,
+      {required double x,
+      required double y,
+      required double w,
+      required double h}) {
+    final id = _repo.addManualFace(assetId, x: x, y: y, w: w, h: h);
+    notifyListeners();
+    return id;
+  }
+
+  /// Assign a face to a named person (create/merge), confirming it.
+  void assignFace(int faceId, String name) {
+    _repo.assignFace(faceId, name);
+    notifyListeners();
+  }
+
+  /// Delete a face row (undo a manual rectangle).
+  void removeFace(int faceId) {
+    _repo.removeFace(faceId);
+    notifyListeners();
+  }
+
+  /// Export this asset's named face regions to an XMP sidecar. Returns the
+  /// written path, or null (no named faces / unsupported).
+  String? writeFaceXmp(int assetId) => _repo.writeFaceXmp(assetId);
+
   // ── Asset registry (populated by ingestion, read by FaceThumb) ─────────────
 
   void registerAsset(int assetId, String path) =>

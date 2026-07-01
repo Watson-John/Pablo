@@ -44,6 +44,8 @@ photo_face_t to_face_pod(const FaceRecord& r) {
     f.det_score = r.det_score;
     f.quality = r.quality;
     f.confirmed = r.confirmed ? 1 : 0;
+    f.ignored = r.ignored ? 1 : 0;
+    f.manual = r.manual ? 1 : 0;
     return f;
 }
 
@@ -69,7 +71,29 @@ bool FaceService::available() {
 #endif
 }
 
+bool FaceService::ensure_store() {
+    std::call_once(store_once_, [this] {
+#ifdef FACES_HAVE_SQLITE
+        try {
+            store_ = std::make_unique<FaceStore>(catalog_path_.string(), kEmbedDim);
+            prototypes_ = std::make_unique<PrototypeIndex>();
+            prototypes_->rebuild(store_->confirmed_by_person());
+            store_ok_ = true;
+        } catch (const std::exception& e) {
+            PHOTO_LOGF(PHOTO_LOG_ERROR, "faces: store open failed: %s", e.what());
+            store_ok_ = false;
+        }
+#else
+        PHOTO_LOGF(PHOTO_LOG_WARN, "faces: built without SQLite persistence");
+        store_ok_ = false;
+#endif
+    });
+    return store_ok_;
+}
+
 bool FaceService::ensure_models() {
+    // The store is a prerequisite for the models (online-assign folds into it).
+    if (!ensure_store()) return false;
     std::call_once(models_once_, [this] {
 #if defined(PHOTO_HAVE_FACES) && defined(FACES_HAVE_ORT)
         try {
@@ -77,9 +101,6 @@ bool FaceService::ensure_models() {
             const auto emb = models_dir_ / "auraface.onnx";
             detector_ = std::make_unique<Detector>(det.string());
             embedder_ = std::make_unique<Embedder>(emb.string(), 127.5f, 127.5f);
-            store_ = std::make_unique<FaceStore>(catalog_path_.string(), kEmbedDim);
-            prototypes_ = std::make_unique<PrototypeIndex>();
-            prototypes_->rebuild(store_->confirmed_by_person());
             models_ok_ = true;
             PHOTO_LOGF(PHOTO_LOG_INFO, "faces: models loaded (scrfd_10g + auraface)");
         } catch (const std::exception& e) {
@@ -267,7 +288,7 @@ void FaceService::run_rebuild(uint64_t request_id) {
 
 std::vector<photo_person_t> FaceService::list_people() {
     std::vector<photo_person_t> out;
-    if (!ensure_models() || !store_) return out;
+    if (!ensure_store() || !store_) return out;
     std::lock_guard lk(store_mu_);
     for (const auto& person : store_->all_people()) {
         const auto faces = store_->faces_for_person(person.id, /*only_suggestions=*/false);
@@ -289,7 +310,7 @@ std::vector<photo_person_t> FaceService::list_people() {
 
 std::vector<photo_person_t> FaceService::list_clusters() {
     std::vector<photo_person_t> out;
-    if (!ensure_models() || !store_) return out;
+    if (!ensure_store() || !store_) return out;
     std::lock_guard lk(store_mu_);
     for (const auto& c : store_->unconfirmed_clusters()) {
         photo_person_t p{};
@@ -304,7 +325,7 @@ std::vector<photo_person_t> FaceService::list_clusters() {
 
 std::vector<photo_face_t> FaceService::list_cluster_faces(int64_t cluster_id) {
     std::vector<photo_face_t> out;
-    if (!ensure_models() || !store_) return out;
+    if (!ensure_store() || !store_) return out;
     std::lock_guard lk(store_mu_);
     for (const auto& r : store_->faces_for_cluster(cluster_id)) out.push_back(to_face_pod(r));
     return out;
@@ -312,7 +333,7 @@ std::vector<photo_face_t> FaceService::list_cluster_faces(int64_t cluster_id) {
 
 std::vector<photo_face_t> FaceService::list_suggestions(uint64_t person_id) {
     std::vector<photo_face_t> out;
-    if (!ensure_models() || !store_) return out;
+    if (!ensure_store() || !store_) return out;
     std::lock_guard lk(store_mu_);
     for (const auto& r :
          store_->faces_for_person(static_cast<int64_t>(person_id), /*only_suggestions=*/true))
@@ -322,7 +343,7 @@ std::vector<photo_face_t> FaceService::list_suggestions(uint64_t person_id) {
 
 std::vector<photo_face_t> FaceService::list_for_asset(uint64_t asset_id) {
     std::vector<photo_face_t> out;
-    if (!ensure_models() || !store_) return out;
+    if (!ensure_store() || !store_) return out;
     std::lock_guard lk(store_mu_);
     for (const auto& r : store_->faces_for_asset(static_cast<int64_t>(asset_id)))
         out.push_back(to_face_pod(r));
@@ -330,10 +351,82 @@ std::vector<photo_face_t> FaceService::list_for_asset(uint64_t asset_id) {
 }
 
 bool FaceService::name_person(uint64_t person_id, const std::string& name) {
-    if (!ensure_models() || !store_) return false;
+    if (!ensure_store() || !store_) return false;
     std::lock_guard lk(store_mu_);
     store_->rename_person(static_cast<int64_t>(person_id), name);
     return true;
+}
+
+// ------------------------------------------------------ face editing (no ML)
+
+bool FaceService::set_ignored(uint64_t face_id, bool ignored) {
+    if (!ensure_store() || !store_) return false;
+    std::lock_guard lk(store_mu_);
+    const auto f = store_->face_by_id(static_cast<int64_t>(face_id));
+    if (!f) return false;
+    // If we're hiding a confirmed face, pull its embedding out of the person
+    // prototype so recognition stops matching it (mirrors reject()).
+    if (ignored && f->confirmed && f->person_id >= 0 && f->vec_row >= 0 && prototypes_) {
+        prototypes_->remove(f->person_id, store_->vectors().row(f->vec_row));
+    }
+    store_->set_ignored(f->id, ignored);
+    return true;
+}
+
+uint64_t FaceService::add_manual_face(uint64_t asset_id, float x, float y,
+                                      float w, float h) {
+    if (!ensure_store() || !store_) return 0;
+    if (w <= 0 || h <= 0) return 0;
+    std::lock_guard lk(store_mu_);
+    FaceRecord rec;
+    rec.asset_id = static_cast<int64_t>(asset_id);
+    rec.box = {x, y, w, h};
+    rec.det_score = 1.0f;   // user-asserted
+    rec.quality = 1.0f;     // sort manual rects to the front of a person's faces
+    const int64_t id = store_->insert_manual_face(rec);
+    return id > 0 ? static_cast<uint64_t>(id) : 0;
+}
+
+bool FaceService::assign_face(uint64_t face_id, const std::string& name) {
+    if (!ensure_store() || !store_ || !prototypes_ || name.empty()) return false;
+    std::lock_guard lk(store_mu_);
+    const auto f = store_->face_by_id(static_cast<int64_t>(face_id));
+    if (!f) return false;
+    const int64_t person = store_->find_or_create_person(name);
+    store_->set_person(f->id, person);
+    store_->set_cluster(f->id, person);
+    store_->set_confirmed(f->id, true);
+    // Fold a real embedding into the prototype; manual rects (vec_row<0) can't.
+    if (f->vec_row >= 0) prototypes_->add_confirmed(person, store_->vectors().row(f->vec_row));
+    return true;
+}
+
+bool FaceService::remove_face(uint64_t face_id) {
+    if (!ensure_store() || !store_) return false;
+    std::lock_guard lk(store_mu_);
+    const auto f = store_->face_by_id(static_cast<int64_t>(face_id));
+    if (!f) return false;
+    if (f->confirmed && f->person_id >= 0 && f->vec_row >= 0 && prototypes_)
+        prototypes_->remove(f->person_id, store_->vectors().row(f->vec_row));
+    store_->remove_face(f->id);
+    return true;
+}
+
+std::vector<FaceService::NamedRegion>
+FaceService::named_regions_for_asset(uint64_t asset_id) {
+    std::vector<NamedRegion> out;
+    if (!ensure_store() || !store_) return out;
+    std::lock_guard lk(store_mu_);
+    // Resolve person_id -> name once.
+    std::unordered_map<int64_t, std::string> names;
+    for (const auto& p : store_->all_people()) names[p.id] = p.name;
+    for (const auto& f : store_->faces_for_asset(static_cast<int64_t>(asset_id))) {
+        if (f.ignored || f.person_id < 0) continue;
+        auto it = names.find(f.person_id);
+        if (it == names.end() || it->second.empty()) continue;  // only NAMED faces
+        out.push_back({it->second, f.box.x, f.box.y, f.box.w, f.box.h});
+    }
+    return out;
 }
 
 void FaceService::emit_scan_progress(uint64_t request_id, uint64_t asset_id,

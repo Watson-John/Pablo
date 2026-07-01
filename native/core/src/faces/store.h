@@ -58,12 +58,20 @@ public:
     // --- faces ---
     // Insert a detected+embedded face; stores its vector, sets rec.id + vec_row.
     void insert_face(FaceRecord& rec, const float* vec);
+    // Insert a user-drawn face rectangle (no detector landmarks / embedding).
+    // rec.manual is forced true and vec_row stays -1; sets rec.id. Returns the id.
+    int64_t insert_manual_face(FaceRecord& rec);
     // Faces already recorded for an asset (so a re-scan is idempotent/skips).
+    // Includes ignored + manual faces so the per-asset editor can manage them.
     std::vector<FaceRecord> faces_for_asset(int64_t asset_id) const;
     bool asset_scanned(int64_t asset_id) const;
     void set_cluster(int64_t face_id, int64_t cluster_id);
     void set_person(int64_t face_id, int64_t person_id);
     void set_confirmed(int64_t face_id, bool confirmed);
+    // Hide/unhide a detection from clustering + people. Ignoring also detaches it
+    // from any person/cluster so it stops surfacing as a suggestion.
+    void set_ignored(int64_t face_id, bool ignored);
+    void remove_face(int64_t face_id);   // hard-delete (manual-rect undo)
     std::optional<FaceRecord> face_by_id(int64_t face_id) const;
 
     // All faces with embeddings, vec_row populated (for a full re-cluster).

@@ -41,6 +41,7 @@ for rel in api/c_api.cpp \
            util/log.cpp \
            catalog/catalog.cpp \
            exif/exif.cpp \
+           xmp/face_xmp.cpp \
            codec/codec.cpp \
            faces/detector.cpp \
            faces/align.cpp \
