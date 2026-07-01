@@ -343,6 +343,17 @@ uint64_t ThumbCache::key(uint64_t asset_id, uint32_t stage,
     return fnv1a(buf);
 }
 
+uint64_t ThumbCache::key(uint64_t asset_id, uint32_t stage,
+                         const std::string& path, uint32_t content_rev) {
+    const uint64_t base = key(asset_id, stage, path);
+    if (content_rev == 0) return base;  // byte-identical to the unedited key
+    std::string buf;
+    buf.reserve(sizeof(base) + sizeof(content_rev));
+    buf.append(reinterpret_cast<const char*>(&base), sizeof(base));
+    buf.append(reinterpret_cast<const char*>(&content_rev), sizeof(content_rev));
+    return fnv1a(buf);
+}
+
 FramePtr ThumbCache::get(uint64_t k) {
     std::lock_guard<std::mutex> lk(mu_);
     if (!ok_) return nullptr;

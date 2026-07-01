@@ -62,6 +62,10 @@ list(APPEND PLUGIN_SOURCES
   # libexif is absent, so it is always safe to compile.
   "${NATIVE_CORE_DIR}/src/catalog/catalog.cpp"
   "${NATIVE_CORE_DIR}/src/exif/exif.cpp"
+  # Stage 7 non-destructive edit stack — libvips/plain-C++ only (no OpenCV), so
+  # safe to compile on every desktop plugin.
+  "${NATIVE_CORE_DIR}/src/edit/edit_spec.cpp"
+  "${NATIVE_CORE_DIR}/src/edit/render.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})

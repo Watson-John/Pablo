@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -69,6 +70,10 @@ public:
     std::vector<photo_face_t>   list_cluster_faces(int64_t cluster_id);
     std::vector<photo_face_t>   list_suggestions(uint64_t person_id);
     std::vector<photo_face_t>   list_for_asset(uint64_t asset_id);
+    // Eye landmark pairs {leftX, leftY, rightX, rightY} in source-image pixels for
+    // each detected face in the asset — feeds the red-eye auto-detect. Empty
+    // without a store / models.
+    std::vector<std::array<float, 4>> eye_landmarks_for_asset(uint64_t asset_id);
     bool name_person(uint64_t person_id, const std::string& name);
 
     static bool available();  // FACES_HAVE_ORT

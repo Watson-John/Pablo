@@ -10,6 +10,7 @@ import '../backend/native_backend.dart';
 import '../data/catalog_maintenance.dart';
 import '../data/library.dart' show PhotoSort;
 import '../data/library_location.dart';
+import '../features/editor/edit_settings_dialog.dart';
 import '../features/organize/storage_scheme_modal.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_scope.dart';
@@ -152,7 +153,10 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
             label: 'Relocate Library…',
             onTap: () => _relocateLibrary(context),
           ),
-          const _MenuEntry(label: 'Options…'),
+          _MenuEntry(
+            label: 'Options…',
+            onTap: () => showEditSettingsDialog(context),
+          ),
         ],
         'Help': const [
           _MenuEntry(label: 'Pablo Help'),

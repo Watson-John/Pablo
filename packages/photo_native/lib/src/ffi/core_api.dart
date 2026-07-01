@@ -382,6 +382,36 @@ typedef _AssetTagsC =
 typedef _AssetTagsDart =
     int Function(Pointer<Void>, int, Pointer<Uint8>, int);
 
+// Non-destructive edits.
+typedef _AssetGetEditsC =
+    IntPtr Function(Pointer<Void>, Uint64, Pointer<Uint8>, IntPtr);
+typedef _AssetGetEditsDart =
+    int Function(Pointer<Void>, int, Pointer<Uint8>, int);
+typedef _AssetSetEditsC = Uint64 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _AssetSetEditsDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+// photo_asset_detect_redeye(engine, asset_id, path, spec, photo_region_t* out,
+// cap) -> total. out is a packed [x,y,r] float triples buffer.
+typedef _DetectRedeyeC = IntPtr Function(
+    Pointer<Void>, Uint64, Pointer<Utf8>, Pointer<Utf8>, Pointer<Float>, IntPtr);
+typedef _DetectRedeyeDart =
+    int Function(Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Float>, int);
+typedef _RedeyeSupportedC = Int32 Function();
+typedef _RedeyeSupportedDart = int Function();
+typedef _AssetU64C = Uint64 Function(Pointer<Void>, Uint64);
+typedef _AssetU64Dart = int Function(Pointer<Void>, int);
+typedef _PreviewEditsC = Int32 Function(Pointer<Void>, Uint64, Uint64,
+    Pointer<Utf8>, Uint32, Uint32, Pointer<Utf8>);
+typedef _PreviewEditsDart = int Function(
+    Pointer<Void>, int, int, Pointer<Utf8>, int, int, Pointer<Utf8>);
+typedef _ExportC = Uint64 Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32);
+typedef _ExportDart = int Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, int);
+typedef _SaveLayeredC = Uint64 Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _SaveLayeredDart = int Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+
 // Hide (folder set-hidden + hidden-folders NUL-buffer). Per-asset set-hidden
 // reuses _AssetSetIntC/Dart (photo_asset_set_hidden).
 typedef _FolderSetHiddenC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Int32);
@@ -813,6 +843,163 @@ final class Engine {
       return tags;
     } finally {
       calloc.free(buf);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Non-destructive edits. The spec is a compact `key=value;` string (mirrored
+  // by EditSpec on the Dart side and edit/edit_spec on the native side). No
+  // pixels cross the FFI boundary — edited frames render through the normal
+  // thumbnail pipeline, keyed natively by content_rev.
+  // -------------------------------------------------------------------------
+
+  /// The saved edit spec for an asset ("" if unedited).
+  String assetEdits(int assetId) {
+    var cap = 256;
+    var buf = calloc<Uint8>(cap);
+    try {
+      var n = _Bindings.assetGetEdits(_handle, assetId, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Uint8>(cap);
+        n = _Bindings.assetGetEdits(_handle, assetId, buf, cap);
+      }
+      // n is total bytes incl the NUL; read up to the first NUL.
+      final len = n < cap ? n : cap;
+      final bytes = buf.asTypedList(len);
+      var end = 0;
+      while (end < len && bytes[end] != 0) {
+        end++;
+      }
+      return utf8.decode(bytes.sublist(0, end), allowMalformed: true);
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Persist the edit spec; returns the new content_rev (0 when the spec is
+  /// identity, which clears the edit). The caller should rebind the visible
+  /// slot's generation off this value so the gallery/lightbox repaint.
+  int setAssetEdits(int assetId, String spec) {
+    final p = spec.toNativeUtf8();
+    try {
+      return _Bindings.assetSetEdits(_handle, assetId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Clear the saved edit (revert to original). Returns a photo_status_t.
+  int revertAsset(int assetId) => _Bindings.assetRevert(_handle, assetId);
+
+  /// Asset ids that currently have a saved edit (drives the gallery badge).
+  List<int> editedAssetIds() =>
+      _collectIds((b, c) => _Bindings.listEditedAssets(_handle, b, c));
+
+  /// Whether this build can auto-detect red-eye at all (face models compiled
+  /// in). False on Linux/Windows plugins — the UI should say "not available"
+  /// rather than "no red-eye detected".
+  static bool get redeyeAutoSupported => _Bindings.redeyeAutoSupported() != 0;
+
+  /// Auto-detect red-eye: a brush region (normalized x, y, r) for every eye that
+  /// has a red pupil, using the asset's stored face landmarks (from the face
+  /// scan). Pass the CURRENT working edit [spec]: when it carries geometry the
+  /// regions come back mapped into that post-geometry space (eyes cropped out of
+  /// frame are dropped). Empty without the face models (Linux/Windows) or when no
+  /// eye is red — the caller then falls back to the manual brush. Does a full-res
+  /// decode, so call it off the UI isolate for large images.
+  List<({double x, double y, double r})> detectRedeye(int assetId, String path,
+      {String spec = ''}) {
+    final p = path.toNativeUtf8();
+    final sp = spec.toNativeUtf8();
+    var cap = 16;
+    var buf = calloc<Float>(cap * 3);
+    try {
+      var n = _Bindings.detectRedeye(_handle, assetId, p, sp, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Float>(cap * 3);
+        n = _Bindings.detectRedeye(_handle, assetId, p, sp, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [
+        for (var i = 0; i < count; i++)
+          (x: buf[i * 3], y: buf[i * 3 + 1], r: buf[i * 3 + 2]),
+      ];
+    } finally {
+      calloc.free(buf);
+      calloc.free(sp);
+      calloc.free(p);
+    }
+  }
+
+  /// Render [spec] over a full-res decode of [srcPath] and write a flattened
+  /// copy to [dstPath] (jpg/png/tif by extension; jpg honours [quality]). Async:
+  /// returns a request id; a [PhotoEventKind.exportComplete] event fires on done.
+  /// 0 on immediate rejection / no libvips.
+  int exportAsset({
+    required String srcPath,
+    required String dstPath,
+    required String spec,
+    int quality = 92,
+  }) {
+    final s = srcPath.toNativeUtf8();
+    final d = dstPath.toNativeUtf8();
+    final sp = spec.toNativeUtf8();
+    try {
+      return _Bindings.exportAsset(_handle, s, d, sp, quality);
+    } finally {
+      calloc.free(s);
+      calloc.free(d);
+      calloc.free(sp);
+    }
+  }
+
+  /// Write a self-contained layered TIFF (page 0 edited, page 1 original, spec
+  /// in metadata) to [dstPath]. Same async contract as [exportAsset].
+  int saveLayered({
+    required String srcPath,
+    required String dstPath,
+    required String spec,
+  }) {
+    final s = srcPath.toNativeUtf8();
+    final d = dstPath.toNativeUtf8();
+    final sp = spec.toNativeUtf8();
+    try {
+      return _Bindings.saveLayered(_handle, s, d, sp);
+    } finally {
+      calloc.free(s);
+      calloc.free(d);
+      calloc.free(sp);
+    }
+  }
+
+  /// Current content_rev for an asset (0 = unedited / no saved edit).
+  int assetContentRev(int assetId) =>
+      _Bindings.assetContentRev(_handle, assetId);
+
+  /// Render a TRANSIENT spec to [slotId] for live preview (no cache/catalog
+  /// write). The result publishes as a full-stage frame announced via a
+  /// STAGE_READY event with the echoed [generation]. Returns a photo_status_t
+  /// (UNSUPPORTED without libvips).
+  int previewEdits({
+    required int slotId,
+    required int generation,
+    required String path,
+    required int targetW,
+    required int targetH,
+    required String spec,
+  }) {
+    final p = path.toNativeUtf8();
+    final s = spec.toNativeUtf8();
+    try {
+      return _Bindings.previewEdits(
+          _handle, slotId, generation, p, targetW, targetH, s);
+    } finally {
+      calloc.free(p);
+      calloc.free(s);
     }
   }
 
@@ -1330,6 +1517,34 @@ final class _Bindings {
       .lookupFunction<_AssetSetStrC, _AssetSetStrDart>('photo_asset_remove_tag');
   static final _AssetTagsDart assetTags = _dylib
       .lookupFunction<_AssetTagsC, _AssetTagsDart>('photo_asset_tags');
+  static final _AssetGetEditsDart assetGetEdits =
+      _dylib.lookupFunction<_AssetGetEditsC, _AssetGetEditsDart>(
+          'photo_asset_get_edits');
+  static final _AssetSetEditsDart assetSetEdits =
+      _dylib.lookupFunction<_AssetSetEditsC, _AssetSetEditsDart>(
+          'photo_asset_set_edits');
+  static final _AlbumIdDart assetRevert =
+      _dylib.lookupFunction<_AlbumIdC, _AlbumIdDart>('photo_asset_revert');
+  static final _AssetU64Dart assetContentRev =
+      _dylib.lookupFunction<_AssetU64C, _AssetU64Dart>(
+          'photo_asset_content_rev');
+  static final _PreviewEditsDart previewEdits =
+      _dylib.lookupFunction<_PreviewEditsC, _PreviewEditsDart>(
+          'photo_asset_preview_edits');
+  static final _SmartStarredDart listEditedAssets =
+      _dylib.lookupFunction<_SmartStarredC, _SmartStarredDart>(
+          'photo_list_edited_assets');
+  static final _DetectRedeyeDart detectRedeye =
+      _dylib.lookupFunction<_DetectRedeyeC, _DetectRedeyeDart>(
+          'photo_asset_detect_redeye');
+  static final _RedeyeSupportedDart redeyeAutoSupported =
+      _dylib.lookupFunction<_RedeyeSupportedC, _RedeyeSupportedDart>(
+          'photo_redeye_auto_supported');
+  static final _ExportDart exportAsset =
+      _dylib.lookupFunction<_ExportC, _ExportDart>('photo_asset_export');
+  static final _SaveLayeredDart saveLayered =
+      _dylib.lookupFunction<_SaveLayeredC, _SaveLayeredDart>(
+          'photo_asset_save_layered');
   static final _AssetSetIntDart assetSetHidden = _dylib
       .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_hidden');
   static final _FolderSetHiddenDart folderSetHidden =

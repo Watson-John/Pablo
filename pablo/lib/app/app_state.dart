@@ -391,6 +391,15 @@ class PabloAppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The lightbox navigated to a different photo (filmstrip / arrows / wheel).
+  /// Keeps [lightboxPhotoId] — and therefore the edit panel + EditSession — in
+  /// sync with the image on screen, without re-opening or resetting fullscreen.
+  void setLightboxCurrent(String id) {
+    if (lightboxPhotoId == id || id.isEmpty) return;
+    lightboxPhotoId = id;
+    notifyListeners();
+  }
+
   void closeLightbox() {
     lightboxPhotoId = null;
     lightboxFullscreen = false;

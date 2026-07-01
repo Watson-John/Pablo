@@ -4,11 +4,16 @@
 #include "thumb/thumb_service.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <utility>
 
+#include "edit/edit_spec.h"
+#include "edit/render.h"
 #include "thumb/slot.h"
 #include "thumb/thumb_cache.h"
 
@@ -163,12 +168,100 @@ int stage_target_dim(uint32_t stage, uint32_t target_w, uint32_t target_h) {
         default: return 256;
     }
 }
+
+// Decode at full source resolution (downscale-only huge target → never upscales,
+// returns the source-resolution image). Caller owns the ref.
+VipsImage* decode_full(const std::string& path) {
+    if (!ensure_vips()) return nullptr;
+    VipsImage* img = nullptr;
+    if (vips_thumbnail(path.c_str(), &img, 1 << 20, "size", VIPS_SIZE_DOWN,
+                       nullptr) != 0) {
+        vips_error_clear();
+        return nullptr;
+    }
+    return img;
+}
+
+// Build a straight 3-band sRGB VipsImage from a premultiplied-BGRA FrameBuffer.
+// Frames are opaque (A=255) so premultiplied == straight; just swap B/R, drop A.
+VipsImage* frame_to_rgb_vips(const FrameBuffer& fb) {
+    const int w = static_cast<int>(fb.width), h = static_cast<int>(fb.height);
+    const int stride = static_cast<int>(fb.stride);
+    if (w <= 0 || h <= 0) return nullptr;
+    std::vector<uint8_t> rgb(static_cast<size_t>(w) * h * 3);
+    for (int y = 0; y < h; ++y) {
+        const uint8_t* row = fb.bgra.data() + static_cast<size_t>(y) * stride;
+        uint8_t* o = rgb.data() + static_cast<size_t>(y) * w * 3;
+        for (int x = 0; x < w; ++x) {
+            const uint8_t* p = row + static_cast<size_t>(x) * 4;
+            o[x * 3 + 0] = p[2];  // R
+            o[x * 3 + 1] = p[1];  // G
+            o[x * 3 + 2] = p[0];  // B
+        }
+    }
+    return vips_image_new_from_memory_copy(rgb.data(), rgb.size(), w, h, 3,
+                                           VIPS_FORMAT_UCHAR);
+}
+
+// Full-resolution edited render: decode → geometry → native-size frame → pixels
+// → straight RGB VipsImage. Caller owns the ref. nullptr on failure.
+VipsImage* render_full_image(const std::string& src, const edit::EditSpec& spec) {
+    VipsImage* base = decode_full(src);
+    if (base == nullptr) return nullptr;
+    VipsImage* geo = nullptr;
+    VipsImage* g = base;
+    if (spec.has_geometry()) {
+        geo = edit::apply_geometry(base, spec);
+        if (geo != nullptr) g = geo;
+    }
+    const int W = vips_image_get_width(g), H = vips_image_get_height(g);
+    FramePtr frame = frame_from_base(g, std::max(W, H));  // native size, no scale
+    if (geo != nullptr) g_object_unref(geo);
+    g_object_unref(base);
+    if (frame == nullptr) return nullptr;
+    if (spec.has_tone_ops())
+        edit::apply_pixels(const_cast<FrameBuffer&>(*frame), spec);
+    if (!spec.redeye.empty())
+        edit::apply_redeye(const_cast<FrameBuffer&>(*frame), spec);
+    if (!spec.heal.empty())
+        edit::apply_heal(const_cast<FrameBuffer&>(*frame), spec);
+    if (!spec.texts.empty())
+        edit::apply_text(const_cast<FrameBuffer&>(*frame), spec);
+    return frame_to_rgb_vips(*frame);
+}
+
+// Write a VipsImage to `dst`; jpg/jpeg honour `quality` via the filename option.
+bool write_vips(VipsImage* img, const std::string& dst, int quality) {
+    std::string lower = dst;
+    for (char& c : lower) c = static_cast<char>(std::tolower((unsigned char)c));
+    std::string target = dst;
+    const bool is_jpg = lower.size() >= 4 &&
+                        (lower.rfind(".jpg") == lower.size() - 4 ||
+                         lower.rfind(".jpeg") == lower.size() - 5);
+    if (quality > 0 && is_jpg)
+        target = dst + "[Q=" + std::to_string(quality) + "]";
+    if (vips_image_write_to_file(img, target.c_str(), nullptr) != 0) {
+        vips_error_clear();
+        return false;
+    }
+    return true;
+}
 #endif  // PHOTO_HAVE_VIPS
 
 }  // namespace
 
 ThumbService::ThumbService(SlotStore* slots, EventRing* events, JobSystem* jobs)
     : slots_(slots), events_(events), jobs_(jobs) {}
+
+ThumbService::~ThumbService() {
+#ifdef PHOTO_HAVE_VIPS
+    std::lock_guard<std::mutex> lk(preview_base_.mu);
+    if (preview_base_.base) {
+        g_object_unref(static_cast<VipsImage*>(preview_base_.base));
+        preview_base_.base = nullptr;
+    }
+#endif
+}
 
 uint64_t ThumbService::submit(uint64_t asset_id,
                               uint64_t slot_id,
@@ -262,6 +355,174 @@ void ThumbService::emit_stage_failed(uint64_t request_id,
     events_->push(e);
 }
 
+void ThumbService::preview(uint64_t slot_id, uint64_t generation,
+                           const std::string& path, uint32_t target_w,
+                           uint32_t target_h, const edit::EditSpec& spec) {
+#ifdef PHOTO_HAVE_VIPS
+    auto* slot = slots_->get(slot_id);
+    if (slot == nullptr) return;
+    if (slot->current_generation() != generation) return;  // stale: editor moved on
+
+    const int dim = stage_target_dim(PHOTO_STAGE_FULL, target_w, target_h);
+    // Inflate the decode box for a geometry crop/straighten so the cropped region
+    // is still ~1:1 at the display box. Geometry itself is applied per-tick (it
+    // changes as the user drags the crop), not cached — only the decoded base is.
+    const int dim_needed = spec.has_geometry()
+        ? std::min(4096, static_cast<int>(std::ceil(dim * edit::geometry_zoom(spec))))
+        : dim;
+
+    FramePtr frame;
+    {
+        // Serialize decode + derive on the single shared base (libvips ops on one
+        // image aren't guaranteed concurrent-safe). Pure tone/colour ticks reuse
+        // the cached base (no re-decode); a larger needed dim re-decodes.
+        std::lock_guard<std::mutex> lk(preview_base_.mu);
+        auto* base = static_cast<VipsImage*>(preview_base_.base);
+        if (base == nullptr || preview_base_.path != path ||
+            preview_base_.decode_dim < dim_needed) {
+            if (base) g_object_unref(base);
+            preview_base_.base = nullptr;
+            VipsImage* decoded = decode_base(path, dim);
+            if (decoded == nullptr) {
+                emit_stage_failed(0, 0, slot_id, generation, PHOTO_STAGE_FULL,
+                                  PHOTO_STATUS_DECODE_ERROR);
+                return;
+            }
+            // Materialize into a RANDOM-ACCESS memory image. decode_base returns
+            // a lazy vips_thumbnail pipeline (sequential source access); deriving
+            // from it more than once — i.e. a second preview() reusing the cached
+            // base, as happens when a photo is reopened in the editor — fails on
+            // the second read and yields no frame (the "blank on reopen" bug).
+            // A memory copy is re-derivable any number of times.
+            VipsImage* memimg = vips_image_copy_memory(decoded);
+            g_object_unref(decoded);
+            if (memimg == nullptr) {
+                vips_error_clear();
+                emit_stage_failed(0, 0, slot_id, generation, PHOTO_STAGE_FULL,
+                                  PHOTO_STATUS_DECODE_ERROR);
+                return;
+            }
+            base = memimg;
+            preview_base_.base = base;
+            preview_base_.path = path;
+            preview_base_.decode_dim = dim_needed;
+        }
+        // Apply geometry per-tick on the cached (pre-geometry) base, then derive.
+        VipsImage* render_base = base;
+        VipsImage* geo = nullptr;
+        if (spec.has_geometry()) {
+            geo = edit::apply_geometry(base, spec);  // new owned ref
+            if (geo != nullptr) render_base = geo;
+        }
+        frame = frame_from_base(render_base, dim);
+        if (geo != nullptr) g_object_unref(geo);
+    }
+    if (frame == nullptr) {
+        emit_stage_failed(0, 0, slot_id, generation, PHOTO_STAGE_FULL,
+                          PHOTO_STATUS_DECODE_ERROR);
+        return;
+    }
+    if (spec.has_tone_ops())
+        edit::apply_pixels(const_cast<FrameBuffer&>(*frame), spec);
+    if (!spec.redeye.empty())
+        edit::apply_redeye(const_cast<FrameBuffer&>(*frame), spec);
+    if (!spec.heal.empty())
+        edit::apply_heal(const_cast<FrameBuffer&>(*frame), spec);
+    if (!spec.texts.empty())
+        edit::apply_text(const_cast<FrameBuffer&>(*frame), spec);
+    if (slot->current_generation() != generation) return;  // re-check before publish
+    const uint32_t fw = frame->width;
+    const uint32_t fh = frame->height;
+    slot->publish_frame(std::move(frame));
+    emit_stage_ready(0, 0, slot_id, generation, PHOTO_STAGE_FULL, fw, fh);
+#else
+    (void)slot_id; (void)generation; (void)path;
+    (void)target_w; (void)target_h; (void)spec;
+#endif
+}
+
+bool ThumbService::export_to_file(const std::string& src, const std::string& dst,
+                                  const edit::EditSpec& spec, int quality) {
+#ifdef PHOTO_HAVE_VIPS
+    VipsImage* out = render_full_image(src, spec);
+    if (out == nullptr) return false;
+    const bool ok = write_vips(out, dst, quality);
+    g_object_unref(out);
+    return ok;
+#else
+    (void)src; (void)dst; (void)spec; (void)quality;
+    return false;
+#endif
+}
+
+bool ThumbService::save_layered_tiff(const std::string& src,
+                                     const std::string& dst,
+                                     const edit::EditSpec& spec) {
+#ifdef PHOTO_HAVE_VIPS
+    VipsImage* edited = render_full_image(src, spec);
+    if (edited == nullptr) return false;
+    VipsImage* orig = decode_full(src);
+    if (orig == nullptr) { g_object_unref(edited); return false; }
+    // Normalize the original to 3-band sRGB so it matches the edited render for
+    // the multi-page stack.
+    {
+        VipsImage* srgb = nullptr;
+        if (vips_colourspace(orig, &srgb, VIPS_INTERPRETATION_sRGB, nullptr) == 0) {
+            g_object_unref(orig);
+            orig = srgb;
+        } else {
+            vips_error_clear();
+        }
+        if (vips_image_get_bands(orig) > 3) {
+            VipsImage* ex = nullptr;
+            if (vips_extract_band(orig, &ex, 0, "n", 3, nullptr) == 0) {
+                g_object_unref(orig);
+                orig = ex;
+            } else {
+                vips_error_clear();
+            }
+        }
+    }
+    const int we = vips_image_get_width(edited), he = vips_image_get_height(edited);
+    const int wo = vips_image_get_width(orig), ho = vips_image_get_height(orig);
+    const int CW = std::max(we, wo), CH = std::max(he, ho);
+    // Center both in a common canvas (TIFF pages must share dimensions).
+    VipsImage* p0 = nullptr;
+    VipsImage* p1 = nullptr;
+    bool ok = vips_embed(edited, &p0, (CW - we) / 2, (CH - he) / 2, CW, CH,
+                         "extend", VIPS_EXTEND_BLACK, nullptr) == 0 &&
+              vips_embed(orig, &p1, (CW - wo) / 2, (CH - ho) / 2, CW, CH,
+                         "extend", VIPS_EXTEND_BLACK, nullptr) == 0;
+    g_object_unref(edited);
+    g_object_unref(orig);
+    if (!ok) {
+        if (p0) g_object_unref(p0);
+        if (p1) g_object_unref(p1);
+        vips_error_clear();
+        return false;
+    }
+    VipsImage* pages[2] = {p0, p1};
+    VipsImage* joined = nullptr;
+    ok = vips_arrayjoin(pages, &joined, 2, "across", 1, nullptr) == 0;
+    g_object_unref(p0);
+    g_object_unref(p1);
+    if (!ok || joined == nullptr) { vips_error_clear(); return false; }
+    // Record the spec + original size so a Pablo reader can re-open it
+    // parametrically and recover the original layer (page 1).
+    const std::string desc = "pablo-edit;orig=" + std::to_string(wo) + "x" +
+                             std::to_string(ho) + ";" +
+                             edit::serialize_edit_spec(spec);
+    vips_image_set_string(joined, "image-description", desc.c_str());
+    ok = vips_tiffsave(joined, dst.c_str(), "page_height", CH, nullptr) == 0;
+    if (!ok) vips_error_clear();
+    g_object_unref(joined);
+    return ok;
+#else
+    (void)src; (void)dst; (void)spec;
+    return false;
+#endif
+}
+
 void ThumbService::run_synthetic(uint64_t request_id,
                                  uint64_t asset_id,
                                  uint64_t slot_id,
@@ -307,6 +568,16 @@ void ThumbService::run_synthetic(uint64_t request_id,
         bool served;
     };
     const bool use_cache = (cache_ != nullptr && cache_->ok());
+
+    // Capture the asset's edit ONCE (lock-free COW read) and use this same rev
+    // for both the cache key and the apply, so a concurrent save can't split
+    // them. Identity / no edit → rev 0 → byte-identical keys to an unedited
+    // asset (no cache churn) and no pixel pass.
+    const edit::EditEntry edit =
+        edit_lookup_ ? edit_lookup_(asset_id) : edit::EditEntry{};
+    const bool has_edit = edit.spec && !edit.spec->is_identity();
+    const uint32_t key_rev = has_edit ? edit.content_rev : 0u;
+
     StageReq reqs[3];
     for (size_t i = 0; i < 3; ++i) {
         reqs[i].stage = kStages[i];
@@ -316,7 +587,7 @@ void ThumbService::run_synthetic(uint64_t request_id,
                           ? stage_target_dim(kStages[i], target_w, target_h)
                           : 0;
         reqs[i].key = (use_cache && reqs[i].wanted)
-                          ? ThumbCache::key(asset_id, kStages[i], path)
+                          ? ThumbCache::key(asset_id, kStages[i], path, key_rev)
                           : 0;
     }
 
@@ -339,22 +610,56 @@ void ThumbService::run_synthetic(uint64_t request_id,
     }
     if (max_miss_dim == 0) return;  // fully served from cache — no file decode
 
-    // 2) Decode the source once, then derive + cache the remaining stages.
-    VipsImage* base = decode_base(path, max_miss_dim);
+    // 2) Decode the source once — inflating the box for any geometry crop /
+    //    straighten so the visible region stays sharp — apply geometry, then
+    //    derive + cache the remaining stages from the geometry-applied base.
+    const bool has_geom = has_edit && edit.spec->has_geometry();
+    const bool tone_ops = has_edit && edit.spec->has_tone_ops();
+    const bool redeye_ops = has_edit && !edit.spec->redeye.empty();
+    const bool heal_ops = has_edit && !edit.spec->heal.empty();
+    // MUST include has_edit: edit.spec is null for an unedited asset (the lookup
+    // returns a default EditEntry), so an unguarded edit.spec->texts.empty()
+    // would null-deref on every unedited thumbnail render.
+    const bool text_ops = has_edit && !edit.spec->texts.empty();
+    int decode_dim = max_miss_dim;
+    if (has_geom) {
+        const double z = edit::geometry_zoom(*edit.spec);
+        decode_dim = std::min(4096,
+                              static_cast<int>(std::ceil(max_miss_dim * z)));
+    }
+    VipsImage* base = decode_base(path, decode_dim);
     if (base == nullptr) {
         emit_stage_failed(request_id, asset_id, slot_id, generation,
                           0, PHOTO_STATUS_DECODE_ERROR);
         return;
     }
+    VipsImage* geo = nullptr;
+    VipsImage* render_base = base;
+    if (has_geom) {
+        geo = edit::apply_geometry(base, *edit.spec);  // new owned ref
+        if (geo != nullptr) render_base = geo;
+    }
     for (size_t i = 0; i < 3; ++i) {
         if (!reqs[i].wanted || reqs[i].served) continue;
         if (slot->current_generation() != generation) break;  // stale: stop
-        FramePtr frame = frame_from_base(base, reqs[i].dim);
+        FramePtr frame = frame_from_base(render_base, reqs[i].dim);
         if (frame == nullptr) {
             emit_stage_failed(request_id, asset_id, slot_id, generation,
                               reqs[i].stage, PHOTO_STATUS_DECODE_ERROR);
             continue;
         }
+        // Apply the saved tone/colour edit before caching/publishing. The frame
+        // was just created and is solely owned here, so the const_cast is safe
+        // (the object is not actually const). The cache stores the EDITED frame
+        // under the rev-keyed slot, so a later hit serves it without re-applying.
+        if (tone_ops)
+            edit::apply_pixels(const_cast<FrameBuffer&>(*frame), *edit.spec);
+        if (redeye_ops)
+            edit::apply_redeye(const_cast<FrameBuffer&>(*frame), *edit.spec);
+        if (heal_ops)
+            edit::apply_heal(const_cast<FrameBuffer&>(*frame), *edit.spec);
+        if (text_ops)
+            edit::apply_text(const_cast<FrameBuffer&>(*frame), *edit.spec);
         if (use_cache) cache_->put(reqs[i].key, *frame);
         const uint32_t fw = frame->width;
         const uint32_t fh = frame->height;
@@ -362,6 +667,7 @@ void ThumbService::run_synthetic(uint64_t request_id,
         emit_stage_ready(request_id, asset_id, slot_id, generation,
                          reqs[i].stage, fw, fh);
     }
+    if (geo != nullptr) g_object_unref(geo);
     g_object_unref(base);
 #else
     for (size_t i = 0; i < 3; ++i) {

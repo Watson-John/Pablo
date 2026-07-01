@@ -9,11 +9,28 @@
 import 'dart:convert';
 import 'dart:io';
 
+/// How "Save Edits" persists a non-destructive edit (Settings → Edit save).
+/// `catalog` (default) keeps the parametric spec in the app catalog and never
+/// touches the file. `layeredTiff` additionally writes a self-contained layered
+/// TIFF (edited render + embedded original + spec) beside the photo.
+abstract final class EditSaveMode {
+  static const String catalog = 'catalog';
+  static const String layeredTiff = 'layeredTiff';
+}
+
 class AppConfig {
-  AppConfig({required this.catalogDir});
+  AppConfig({required this.catalogDir, this.editSaveMode = EditSaveMode.catalog});
 
   /// Directory holding `catalog.db` (and the thumbnail cache).
   final String catalogDir;
+
+  /// How "Save Edits" persists edits (see [EditSaveMode]).
+  final String editSaveMode;
+
+  AppConfig copyWith({String? catalogDir, String? editSaveMode}) => AppConfig(
+        catalogDir: catalogDir ?? this.catalogDir,
+        editSaveMode: editSaveMode ?? this.editSaveMode,
+      );
 
   static const _fileName = 'config.json';
 
@@ -28,7 +45,13 @@ class AppConfig {
       if (f.existsSync()) {
         final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
         final dir = j['catalogDir'] as String?;
-        if (dir != null && dir.isNotEmpty) return AppConfig(catalogDir: dir);
+        final mode = j['editSaveMode'] as String?;
+        return AppConfig(
+          catalogDir: (dir != null && dir.isNotEmpty) ? dir : defaultCatalogDir,
+          editSaveMode: mode == EditSaveMode.layeredTiff
+              ? EditSaveMode.layeredTiff
+              : EditSaveMode.catalog,
+        );
       }
     } catch (_) {
       // Unreadable / malformed → fall through to the default.
@@ -39,8 +62,10 @@ class AppConfig {
   void save() {
     final f = _file();
     f.parent.createSync(recursive: true);
-    f.writeAsStringSync(
-        const JsonEncoder.withIndent('  ').convert({'catalogDir': catalogDir}));
+    f.writeAsStringSync(const JsonEncoder.withIndent('  ').convert({
+      'catalogDir': catalogDir,
+      'editSaveMode': editSaveMode,
+    }));
   }
 
   static File _file() =>

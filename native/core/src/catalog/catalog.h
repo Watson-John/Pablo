@@ -19,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "exif/exif.h"  // AssetMetadata (a pure, libexif-free struct)
@@ -181,6 +182,25 @@ public:
     void remove_tag(int64_t asset_id, const std::string& tag);
     std::vector<std::string> tags_for_asset(int64_t asset_id) const;  // sorted
     std::vector<int64_t>     assets_with_tag(const std::string& tag) const;
+
+    // ── Non-destructive edit stack (asset_edit table) ───────────────────────
+    // One parametric edit spec per asset (the `key=value;` grammar lives in
+    // edit/edit_spec). content_rev is a per-asset monotonic counter bumped on
+    // every set_edit; the thumbnail cache key folds it in so an edit invalidates
+    // the cached frame. Clearing an edit (revert) deletes the row → content_rev
+    // is back to 0, which serves the original from cache with no re-decode.
+    struct EditRow {
+        std::string spec;
+        int64_t     content_rev = 0;
+        int64_t     updated_ns  = 0;
+    };
+    std::optional<EditRow> edit_for(int64_t asset_id) const;
+    // Upsert the spec and bump content_rev atomically; returns the new rev.
+    int64_t set_edit(int64_t asset_id, const std::string& spec, int64_t now_ns);
+    void    clear_edit(int64_t asset_id);
+    // Every (asset_id → EditRow), for hydrating the Engine's in-memory map at
+    // boot so the render workers never touch SQLite on the hot path.
+    std::vector<std::pair<int64_t, EditRow>> all_edits() const;
 
 private:
     void migrate();

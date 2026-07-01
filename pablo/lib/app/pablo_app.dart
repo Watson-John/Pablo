@@ -14,6 +14,7 @@ import '../data/models.dart';
 import '../data/sources/dedup_repository.dart';
 import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
+import '../features/editor/edit_session.dart';
 import '../features/editor/photo_edit_panel.dart';
 import '../features/find_duplicates/dedup_scope.dart';
 import '../features/find_duplicates/find_duplicates_flow.dart';
@@ -203,6 +204,7 @@ class _Home extends StatelessWidget {
           onClose: st.closeLightbox,
           fullscreen: true,
           onToggleFullscreen: st.toggleLightboxFullscreen,
+          onCurrentChanged: st.setLightboxCurrent,
         ),
       );
     }
@@ -364,7 +366,7 @@ class _BodyState extends State<_Body> {
         ? _contextPhotosFor(st, lightboxPhoto)
         : <Photo>[];
 
-    return Row(
+    final Widget shell = Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (lightboxPhoto != null)
@@ -398,6 +400,7 @@ class _BodyState extends State<_Body> {
                             initialId: lightboxPhoto.id,
                             onClose: st.closeLightbox,
                             onToggleFullscreen: st.toggleLightboxFullscreen,
+                            onCurrentChanged: st.setLightboxCurrent,
                           )
                         : Stack(
                             children: [
@@ -530,6 +533,17 @@ class _BodyState extends State<_Body> {
           ),
         ),
       ],
+    );
+
+    // When a photo is open, provide a shared EditSession above both the edit
+    // panel (left) and the lightbox image (right) so they edit/preview the same
+    // spec for the asset currently on screen.
+    if (lightboxPhoto == null) return shell;
+    return EditSessionProvider(
+      engine: NativeBackendScope.maybeOf(context)?.engine,
+      assetId: assetIdFor(lightboxPhoto.id),
+      path: lightboxPhoto.filePath,
+      child: shell,
     );
   }
 }

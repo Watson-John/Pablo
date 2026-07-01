@@ -329,6 +329,18 @@ std::vector<photo_face_t> FaceService::list_for_asset(uint64_t asset_id) {
     return out;
 }
 
+std::vector<std::array<float, 4>> FaceService::eye_landmarks_for_asset(
+    uint64_t asset_id) {
+    std::vector<std::array<float, 4>> out;
+    if (!ensure_models() || !store_) return out;
+    std::lock_guard lk(store_mu_);
+    for (const auto& r : store_->faces_for_asset(static_cast<int64_t>(asset_id))) {
+        // landmarks are [leftEyeX, leftEyeY, rightEyeX, rightEyeY, nose, mouth…].
+        out.push_back({r.landmarks[0], r.landmarks[1], r.landmarks[2], r.landmarks[3]});
+    }
+    return out;
+}
+
 bool FaceService::name_person(uint64_t person_id, const std::string& name) {
     if (!ensure_models() || !store_) return false;
     std::lock_guard lk(store_mu_);

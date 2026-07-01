@@ -24,6 +24,8 @@ class NativeAssetTexture extends StatefulWidget {
     required this.fallback,
     this.targetW = 256,
     this.targetH = 256,
+    this.contentRev = 0,
+    this.previewSpec,
     super.key,
   });
 
@@ -31,6 +33,16 @@ class NativeAssetTexture extends StatefulWidget {
   final Stream<PhotoEvent> events;
   final int assetId;
   final String path;
+
+  /// The asset's saved-edit content_rev. When it changes the slot rebinds and
+  /// re-requests, so a saved edit repaints an already-displayed tile (the
+  /// freshly-served frame carries the native-applied edit). 0 = unedited.
+  final int contentRev;
+
+  /// When non-null and non-empty, render this TRANSIENT edit spec via
+  /// `previewEdits` instead of the cached thumbnail request — live editor
+  /// preview. Empty/null falls back to the normal request (original / saved).
+  final String? previewSpec;
 
   /// Normalized [0,1) sub-rect of the source image to show. Null = whole image
   /// (cover-fit). Set = crop to this rect, scaled to cover the tile.
@@ -103,15 +115,32 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
   @override
   void didUpdateWidget(covariant NativeAssetTexture old) {
     super.didUpdateWidget(old);
-    if (_slot != null &&
-        (old.assetId != widget.assetId || old.path != widget.path)) {
+    final slot = _slot;
+    if (slot == null) return;
+    final assetChanged =
+        old.assetId != widget.assetId || old.path != widget.path;
+    final revChanged = old.contentRev != widget.contentRev;
+    final previewChanged = old.previewSpec != widget.previewSpec;
+    if (assetChanged || revChanged) {
       if (_inFlightRequestId != 0) {
         widget.engine.cancelRequest(_inFlightRequestId);
         _inFlightRequestId = 0;
       }
-      _slot!.rebind();
-      _frameW = null;
-      _frameH = null;
+      slot.rebind(); // fresh generation drops any stale in-flight frame
+      if (assetChanged) {
+        // Only a different asset can change the frame dimensions; a same-asset
+        // rev/preview change keeps them, so don't flash the fallback.
+        _frameW = null;
+        _frameH = null;
+      }
+      _submitRequest();
+    } else if (previewChanged) {
+      // Bump the generation so a late frame from the PRIOR (now-superseded)
+      // preview spec is dropped by the STAGE_READY generation guard — preview
+      // jobs don't carry a cancellable request id, and rapid slider drags issue
+      // them ~45ms apart, so without this an out-of-order frame could clobber
+      // the latest edit. rebind() keeps the current frame (no flash).
+      slot.rebind();
       _submitRequest();
     }
   }
@@ -119,6 +148,23 @@ class _NativeAssetTextureState extends State<NativeAssetTexture> {
   void _submitRequest() {
     final slot = _slot;
     if (slot == null) return;
+    final ps = widget.previewSpec;
+    if (ps != null) {
+      // Live editor preview: render the WORKING spec straight to the slot. A
+      // non-null-but-empty spec is the editor showing the *original* (working
+      // spec reset to identity) — distinct from a null previewSpec (gallery /
+      // filmstrip), which uses the cached request that applies the SAVED edit.
+      widget.engine.previewEdits(
+        slotId: slot.slotId,
+        generation: slot.currentGeneration,
+        path: widget.path,
+        targetW: widget.targetW,
+        targetH: widget.targetH,
+        spec: ps,
+      );
+      _inFlightRequestId = 0;
+      return;
+    }
     _inFlightRequestId = widget.engine.requestThumbnail(
       assetId: widget.assetId,
       slotId: slot.slotId,

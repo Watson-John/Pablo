@@ -1,6 +1,11 @@
 # Root build artifacts (CMake/native output) — keep source, drop build output
 /build/
 
+# Local native test builds (see native-test-build-recipe; faces variant for the
+# env-gated SCRFD end-to-end tests)
+/build-tests/
+/build-tests-faces/
+
 # Rust / native build dirs
 target/
 

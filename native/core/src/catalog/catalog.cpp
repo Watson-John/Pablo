@@ -198,6 +198,21 @@ void Catalog::migrate() {
              "CREATE INDEX IF NOT EXISTS asset_starred ON asset(starred);"
              "PRAGMA user_version=6;");
     }
+    if (user_version(db_) < 7) {
+        // Non-destructive parametric edit stack — one spec per asset (the
+        // `key=value;` grammar lives in edit/edit_spec). content_rev is bumped
+        // on every save and folded into the thumbnail cache key. The FK +
+        // ON DELETE CASCADE is REQUIRED: remove_asset is a bare DELETE used by
+        // rescan-prune, so the edit row must drop with its asset.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS asset_edit("
+             " asset_id INTEGER PRIMARY KEY"
+             "   REFERENCES asset(id) ON DELETE CASCADE,"
+             " spec TEXT NOT NULL DEFAULT '',"
+             " content_rev INTEGER NOT NULL DEFAULT 0,"
+             " updated_ns INTEGER NOT NULL DEFAULT 0);"
+             "PRAGMA user_version=7;");
+    }
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {
@@ -599,6 +614,66 @@ std::vector<int64_t> Catalog::assets_with_tag(const std::string& tag) const {
     return out;
 }
 
+std::optional<Catalog::EditRow> Catalog::edit_for(int64_t asset_id) const {
+    Stmt q(db_,
+           "SELECT spec, content_rev, updated_ns FROM asset_edit WHERE asset_id=?");
+    q.bind(1, asset_id);
+    if (!q.step()) return std::nullopt;
+    EditRow r;
+    r.spec        = q.col_text(0);
+    r.content_rev = q.col_int(1);
+    r.updated_ns  = q.col_int(2);
+    // An empty spec is a reverted placeholder kept only to preserve the
+    // monotonic content_rev (see clear_edit) — surface it as "no active edit".
+    if (r.spec.empty()) return std::nullopt;
+    return r;
+}
+
+int64_t Catalog::set_edit(int64_t asset_id, const std::string& spec,
+                          int64_t now_ns) {
+    // Atomic upsert + monotonic rev bump in one statement (no read-modify-write
+    // race). A fresh row starts at rev 1 (rev 0 means "no/identity edit").
+    Stmt q(db_,
+           "INSERT INTO asset_edit(asset_id,spec,content_rev,updated_ns)"
+           " VALUES(?,?,1,?)"
+           " ON CONFLICT(asset_id) DO UPDATE SET"
+           "  spec=excluded.spec,"
+           "  content_rev=content_rev+1,"
+           "  updated_ns=excluded.updated_ns");
+    q.bind(1, asset_id).bind(2, spec).bind(3, now_ns).run();
+    Stmt r(db_, "SELECT content_rev FROM asset_edit WHERE asset_id=?");
+    r.bind(1, asset_id);
+    return r.step() ? r.col_int(0) : 0;
+}
+
+void Catalog::clear_edit(int64_t asset_id) {
+    // Revert KEEPS the row (empty spec) and BUMPS content_rev, rather than
+    // deleting it — so a later re-edit gets a fresh, never-reused rev and can't
+    // collide in the thumbnail cache with a frame from the prior edit at the
+    // same rev. A no-op when the asset was never edited (0 rows updated). The
+    // empty row is invisible to edit_for/all_edits and is FK-cascade-dropped
+    // with its asset.
+    Stmt q(db_,
+           "UPDATE asset_edit SET spec='', content_rev=content_rev+1"
+           " WHERE asset_id=?");
+    q.bind(1, asset_id).run();
+}
+
+std::vector<std::pair<int64_t, Catalog::EditRow>> Catalog::all_edits() const {
+    std::vector<std::pair<int64_t, EditRow>> out;
+    Stmt q(db_,
+           "SELECT asset_id, spec, content_rev, updated_ns FROM asset_edit"
+           " WHERE spec != ''");
+    while (q.step()) {
+        EditRow r;
+        r.spec        = q.col_text(1);
+        r.content_rev = q.col_int(2);
+        r.updated_ns  = q.col_int(3);
+        out.emplace_back(q.col_int(0), std::move(r));
+    }
+    return out;
+}
+
 #else  // !PHOTO_HAVE_SQLITE — the catalog requires SQLite.
 
 Catalog::Catalog(const std::string&) {
@@ -637,6 +712,10 @@ void Catalog::add_tag(int64_t, const std::string&) {}
 void Catalog::remove_tag(int64_t, const std::string&) {}
 std::vector<std::string> Catalog::tags_for_asset(int64_t) const { return {}; }
 std::vector<int64_t> Catalog::assets_with_tag(const std::string&) const { return {}; }
+std::optional<Catalog::EditRow> Catalog::edit_for(int64_t) const { return std::nullopt; }
+int64_t Catalog::set_edit(int64_t, const std::string&, int64_t) { return 0; }
+void Catalog::clear_edit(int64_t) {}
+std::vector<std::pair<int64_t, Catalog::EditRow>> Catalog::all_edits() const { return {}; }
 
 #endif  // PHOTO_HAVE_SQLITE
 

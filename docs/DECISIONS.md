@@ -26,6 +26,18 @@ The full architectural plan lives at [`/Users/johnwatson/.claude/plans/what-are-
 
 **Revisit trigger:** if a v1.5 needs interop, evaluate Exiv2 commercial license against accumulated user demand.
 
+**Amendment (2026-06-30, editor §6 / Stage 7):** the catalog-only rule still holds
+as the **default** for the non-destructive editor — "Save Edits" persists a
+parametric edit spec in the `asset_edit` table and never touches the original.
+A user-configurable opt-in (`Settings → Edit save → Layered TIFF`,
+`AppConfig.editSaveMode = layeredTiff`) additionally writes a self-contained
+`<name>.pablo.tif` beside the photo: page 0 = the edited render, page 1 = the
+**untouched original**, and the parametric spec in the TIFF ImageDescription.
+This is non-destructive at the file level (the original is embedded, not
+overwritten) and portable, but it IS a real new-file write, so it is opt-in and
+off by default. "Save as Copy" (`photo_asset_export`) likewise writes a separate
+flattened file. No original file is ever modified or deleted by the editor.
+
 ---
 
 ## D2. Face model source — BlazeFace + permissively-licensed embedder
@@ -188,6 +200,88 @@ Picasa-labeled faces). Results updated [native/models/MANIFEST.md](native/models
 - Differs from D9's LMDB + batched-eviction model: that store is not yet implemented; this file-based cache is what ships in M3.
 
 **Revisit trigger:** if per-drop index-erase latency at the 16 GiB default proves too high (benchmark before shipping a huge default), lower the segment cap or move `remove()`+erase to a brief-lock background reclaimer. If D8/D9's LMDB store is adopted, supersede this.
+
+---
+
+## D11. Editor retouch (heal + red-eye) — classical CPU passes, ONNX inpaint deferred
+
+**Date:** 2026-06-30
+**Status:** Locked for §6 / Stage D (ships classical; model hook structured for later)
+
+**Decision:** Both retouch tools run as **pure-C++ passes over the BGRA
+`FrameBuffer`** (`native/core/src/edit/render.cpp`), so they build and are unit-
+tested on every desktop target with **no new dependency**:
+- **Red-eye** (`apply_redeye`): a **seed-connected red-blob segmentation** per
+  brush dab (not a per-pixel threshold). It measures redness with a
+  luminance-normalized rg-chromaticity metric `p` (skin of every tone pools near
+  ~0.1; a flash pupil sits near ~0.65 — so a single cutoff works where the old
+  brightness-sensitive `R/((G+B)/2)>1.35` ratio put warm skin at 1.37 and dark
+  skin at 1.82 on both sides of its constant), derives an **adaptive threshold**
+  from the surrounding skin ring, seeds at the reddest central pixel, and grows
+  **only the connected pupil blob** — so the skin background (large, low-redness,
+  disconnected) is structurally excluded. Shape-validated (area/fill/circularity),
+  with a per-pixel adaptive-threshold fallback. Recolor is luminance-preserving
+  (0.7·luma), **keeps the specular catch-light**, and feathers the edge. Pure
+  C++/CPU, no model. (The original v1 was a fixed `R/((G+B)/2)>1.35` ratio that
+  greyed warm/dark skin inside the brush; replaced 2026-07-01 after a GUI smoke +
+  a 5-way algorithm study — see the redeye-algorithm-research workflow.)
+- **Heal** (`apply_heal`): classical spot-heal — clone a donor patch offset from
+  the blemish (~2.4× radius, first axis offset that fits the frame), mean-match
+  its boundary ring to the target's (a cheap seamless-clone approximation), and
+  feather it in with a smoothstep alpha. Overlapping dabs clone from a pre-pass
+  snapshot so they don't smear each other.
+
+The parametric spec carries `redeye=x,y,r|…` and `heal=x,y,r|…` (normalized
+centre; radius as a fraction of the short edge, post-geometry coords). These are
+retouch-domain ops, **not** part of `apply_pixels` — `has_pixel_ops()` now =
+`has_tone_ops() || !redeye.empty() || !heal.empty() || !texts.empty()`, and the
+three render sites gate each pass on its own non-empty list.
+
+**Rationale:**
+- The plan named **MI-GAN** (Picsart, ICCV 2023; MIT-licensed, CPU-efficient
+  ONNX) for content-aware heal — chosen over `big-lama` because big-lama's
+  Places-Challenge weights ship **without an explicit weights license**
+  (commercial-use ambiguity). MI-GAN remains the intended upgrade.
+- But onnxruntime is only linked into the **macOS + standalone** builds today
+  (like OpenCV), not the Linux/Windows plugins; and integrating a model blind
+  (WebFetch for the checkpoint was unavailable at implementation time) is high-
+  risk. Shipping a working, tested, dependency-free heal now — and structuring
+  the swap point — delivers the P1 feature without blocking on model diligence.
+
+**Implications:**
+- Heal quality is "spot-clone", not full inpainting: great for small blemishes on
+  a fairly uniform surround, weaker across strong edges. Documented in the tool.
+- `render.cpp` marks the extension point (`heal_region_onnx` hook in the file-
+  level note): a bundled MI-GAN ONNX session would replace `heal_region_classical`
+  on targets that link onnxruntime, degrading to the classical path elsewhere.
+- No ABI or dependency change: the C ABI is unchanged (retouch rides the existing
+  `photo_asset_set_edits`/`preview_edits` spec string).
+
+**Revisit trigger:** when the MI-GAN checkpoint is vetted + bundled, wire it behind
+the `heal_region_onnx` hook (macOS/standalone first) and keep the classical path as
+the cross-platform fallback.
+
+**SOTA verification (2026-07-01):** a multi-agent literature + commercial-practice
+review confirmed the red-eye pipeline is best-practice for this context: academic
+work on photographic red-eye ended ~2012 at exactly this architecture (redness
+channel → morphology → geometric validation → feathered luminance-preserving
+recolor with catch-light preservation); no learned corrector exists in the
+literature; the face-detector-first Auto mode mirrors the strongest known lineage
+(Gaubatz-Ulichney/HP) with SCRFD landmarks at zero added model weight. Two
+externally suggested references were **evaluated and rejected as design drivers**:
+ACM DOI 10.1145/3718491.3718554 is a *medical* conjunctival-hyperemia grading
+paper (YOLOv8+ConvNeXt, corrects nothing); the Kaggle `brianlangay/red-eye-removal`
+dataset is a 2.9 MB OpenCV tutorial dump (the LearnOpenCV baseline + 3 unlabeled
+images, no ground truth) — strictly weaker than this pipeline on every axis and
+unusable as an eval corpus. Shipped from the review's do-now list: auto-detect
+regions mapped through the geometry chain (`map_region_through_geometry`, pinned
+against `apply_geometry`), per-dab tap-to-remove veto (Picasa's signature
+interaction), honest platform messaging (`photo_redeye_auto_supported`).
+**Backlog (do-later, ranked):** golden/amber-eye channel; "no red found under this
+dab" feedback; auto-run on tool open; synthetic-pupil eval harness sweep; darken
+strength (4th spec field); pet-eye mode; drag-to-size; landmark-free Auto for
+Linux/Windows. Skipped: per-dab confidence scores, Auto-origin fallback flags
+(validation already guards these).
 
 ---
 
