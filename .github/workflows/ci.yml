@@ -192,7 +192,4 @@ jobs:
         working-directory: .
         run: bash tools/setup-plugin-symlinks.sh
       - name: Build ${{ matrix.target }} (debug)
-        # Windows gets --verbose so a failing cmake_install/INSTALL step surfaces
-        # its real CMake error (Flutter otherwise swallows plugin build output,
-        # leaving only a generic MSB3073).
-        run: flutter build ${{ matrix.target }} --debug ${{ matrix.target == 'windows' && '--verbose' || '' }}
+        run: flutter build ${{ matrix.target }} --debug
