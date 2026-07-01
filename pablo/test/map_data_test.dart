@@ -33,4 +33,24 @@ void main() {
     expect(l.cx, inInclusiveRange(0.0, 1.0));
     expect(l.cy, inInclusiveRange(0.0, 1.0));
   });
+
+  test('markers carry true cluster-centroid lat/lon for the world map', () {
+    final l = buildMapData(const [
+      GeoPoint(1, 37.77, -122.42),
+      GeoPoint(2, 37.79, -122.40),
+    ]).locations.single;
+    expect(l.lat, closeTo(37.78, 0.05));
+    expect(l.lon, closeTo(-122.41, 0.05));
+  });
+
+  test('reverse-geocodes marker labels to a city when one is near', () {
+    // A cluster right on London gets a place-name label, not raw degrees.
+    final l = buildMapData(const [GeoPoint(1, 51.5074, -0.1278)]).locations.single;
+    expect(l.name, contains('London'));
+  });
+
+  test('falls back to degree label far from any known city', () {
+    final l = buildMapData(const [GeoPoint(1, -30.0, -140.0)]).locations.single;
+    expect(l.name, contains('°'));
+  });
 }

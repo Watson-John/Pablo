@@ -170,6 +170,10 @@ final class _NativeFace extends Struct {
   @Int32()
   external int confirmed;
   @Int32()
+  external int ignored;
+  @Int32()
+  external int manual;
+  @Int32()
   external int pad;
 }
 
@@ -498,6 +502,26 @@ typedef _SavedListDart =
 typedef _SavedQueryC =
     IntPtr Function(Pointer<Void>, Uint64, Pointer<Uint8>, IntPtr);
 typedef _SavedQueryDart = int Function(Pointer<Void>, int, Pointer<Uint8>, int);
+// Face editing (§7): ignore / manual rect / assign / remove / XMP write-back.
+typedef _FaceSetIgnoredC = Int32 Function(Pointer<Void>, Uint64, Int32);
+typedef _FaceSetIgnoredDart = int Function(Pointer<Void>, int, int);
+typedef _FaceAddManualC =
+    Uint64 Function(Pointer<Void>, Uint64, Float, Float, Float, Float);
+typedef _FaceAddManualDart =
+    int Function(Pointer<Void>, int, double, double, double, double);
+typedef _FaceAssignC = Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _FaceAssignDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _FaceRemoveC = Int32 Function(Pointer<Void>, Uint64);
+typedef _FaceRemoveDart = int Function(Pointer<Void>, int);
+typedef _WriteFaceXmpC =
+    Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>, IntPtr);
+typedef _WriteFaceXmpDart = int Function(Pointer<Void>, int, Pointer<Utf8>, int);
+
+// Manual geotag (§8).
+typedef _AssetSetGeoC = Int32 Function(Pointer<Void>, Uint64, Double, Double);
+typedef _AssetSetGeoDart = int Function(Pointer<Void>, int, double, double);
+typedef _AssetClearGeoC = Int32 Function(Pointer<Void>, Uint64);
+typedef _AssetClearGeoDart = int Function(Pointer<Void>, int);
 
 // ---------------------------------------------------------------------------
 // EngineConfig (Dart-side, immutable)
@@ -1228,6 +1252,58 @@ final class Engine {
     }
   }
 
+  /// Hide (ignore) or restore a detected face. Ignoring detaches it from its
+  /// person/cluster and excludes it from People + re-clustering. photo_status_t.
+  int setFaceIgnored(int faceId, bool ignored) =>
+      _Bindings.faceSetIgnored(_handle, faceId, ignored ? 1 : 0);
+
+  /// Add a user-drawn face rectangle (source-image pixels) to an asset. Returns
+  /// the new face id, or 0 on failure.
+  int addManualFace(int assetId,
+          {required double x,
+          required double y,
+          required double w,
+          required double h}) =>
+      _Bindings.faceAddManual(_handle, assetId, x, y, w, h);
+
+  /// Assign a face to a named person (create/merge by name), confirming it.
+  /// Works for detector and manual faces alike. Returns photo_status_t.
+  int assignFace(int faceId, String name) {
+    final p = name.toNativeUtf8();
+    try {
+      return _Bindings.faceAssign(_handle, faceId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Hard-delete a face row (undo a manual rectangle). photo_status_t.
+  int removeFace(int faceId) => _Bindings.faceRemove(_handle, faceId);
+
+  /// Write the asset's named face regions to an XMP sidecar ("<path>.xmp") in
+  /// the MWG Regions schema. OPT-IN write-back — call only on explicit user
+  /// action. Returns the sidecar path on success, or null (no named faces /
+  /// unsupported / error).
+  String? writeFaceXmp(int assetId) {
+    const cap = 4096;
+    final out = calloc<Uint8>(cap);
+    try {
+      final rc = _Bindings.writeFaceXmp(_handle, assetId, out.cast(), cap);
+      if (rc != 0) return null;
+      return out.cast<Utf8>().toDartString();
+    } finally {
+      calloc.free(out);
+    }
+  }
+
+  /// Manually set an asset's map coordinates (decimal degrees). Overrides EXIF
+  /// GPS and survives rescan. Returns photo_status_t.
+  int setGeo(int assetId, double lat, double lon) =>
+      _Bindings.assetSetGeo(_handle, assetId, lat, lon);
+
+  /// Clear a manual geotag, falling back to EXIF GPS. Returns photo_status_t.
+  int clearGeo(int assetId) => _Bindings.assetClearGeo(_handle, assetId);
+
   // Grow-and-retry read into a native buffer; the C side returns the total
   // count, so a single re-call covers the case where the first buffer was
   // too small.
@@ -1362,7 +1438,9 @@ final class FaceRow {
       boxH = f.box_h,
       score = f.det_score,
       quality = f.quality,
-      confirmed = f.confirmed != 0;
+      confirmed = f.confirmed != 0,
+      ignored = f.ignored != 0,
+      manual = f.manual != 0;
 
   final int faceId;
   final int assetId;
@@ -1375,6 +1453,8 @@ final class FaceRow {
   final double score;
   final double quality;
   final bool confirmed;
+  final bool ignored;
+  final bool manual;
 }
 
 /// One catalog asset, for library hydration. Immutable projection of
@@ -1739,4 +1819,29 @@ final class _Bindings {
       .lookupFunction<_SavedListC, _SavedListDart>('photo_saved_search_list');
   static final _SavedQueryDart savedSearchQuery = _dylib
       .lookupFunction<_SavedQueryC, _SavedQueryDart>('photo_saved_search_query');
+  // Face editing (§7).
+  static final _FaceSetIgnoredDart faceSetIgnored = _dylib
+      .lookupFunction<_FaceSetIgnoredC, _FaceSetIgnoredDart>(
+        'photo_face_set_ignored',
+      );
+  static final _FaceAddManualDart faceAddManual = _dylib
+      .lookupFunction<_FaceAddManualC, _FaceAddManualDart>(
+        'photo_face_add_manual',
+      );
+  static final _FaceAssignDart faceAssign = _dylib
+      .lookupFunction<_FaceAssignC, _FaceAssignDart>('photo_face_assign');
+  static final _FaceRemoveDart faceRemove = _dylib
+      .lookupFunction<_FaceRemoveC, _FaceRemoveDart>('photo_face_remove');
+  static final _WriteFaceXmpDart writeFaceXmp = _dylib
+      .lookupFunction<_WriteFaceXmpC, _WriteFaceXmpDart>(
+        'photo_asset_write_face_xmp',
+      );
+
+  // Manual geotag (§8).
+  static final _AssetSetGeoDart assetSetGeo = _dylib
+      .lookupFunction<_AssetSetGeoC, _AssetSetGeoDart>('photo_asset_set_geo');
+  static final _AssetClearGeoDart assetClearGeo = _dylib
+      .lookupFunction<_AssetClearGeoC, _AssetClearGeoDart>(
+        'photo_asset_clear_geo',
+      );
 }

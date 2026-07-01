@@ -148,13 +148,25 @@ public:
     void upsert_metadata(int64_t asset_id, const exif::AssetMetadata& m);
     std::optional<exif::AssetMetadata> get_metadata(int64_t asset_id) const;
 
-    // (asset_id, lat, lon) for every geotagged asset — drives the map.
+    // (asset_id, lat, lon) for every geotagged asset — drives the map. Unions the
+    // manual geo_override table (priority) with EXIF GPS from asset_metadata.
     struct GeoPoint {
         int64_t asset_id;
         double  lat;
         double  lon;
     };
     std::vector<GeoPoint> geotagged() const;
+
+    // ── Manual geotag (geo_override table) ──────────────────────────────────
+    // User-placed coordinates that take precedence over EXIF GPS and survive a
+    // rescan (which refreshes asset_metadata from the file). Picasa's manual
+    // geotag / drag-onto-map. Coordinates are decimal degrees.
+    void set_geo_override(int64_t asset_id, double lat, double lon);  // INSERT OR REPLACE
+    void clear_geo_override(int64_t asset_id);                        // DELETE
+    std::optional<GeoPoint> geo_override_for(int64_t asset_id) const;
+    // Effective coordinates for one asset (override first, then EXIF); nullopt if
+    // the asset is not geotagged at all.
+    std::optional<GeoPoint> geo_for_asset(int64_t asset_id) const;
 
     // ── Albums — user-created collections (album + album_member tables) ──────
     struct AlbumRecord {

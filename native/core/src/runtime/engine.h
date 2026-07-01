@@ -72,6 +72,10 @@ public:
     std::optional<exif::AssetMetadata> asset_metadata(int64_t asset_id) const;
     // Every geotagged asset (locked) — drives the map.
     std::vector<catalog::Catalog::GeoPoint> list_geotagged() const;
+    // Manual geotag override (locked). set with lat/lon, or clear to fall back to
+    // EXIF GPS. Takes precedence in list_geotagged().
+    void set_geo(int64_t asset_id, double lat, double lon);
+    void clear_geo(int64_t asset_id);
 
     // Albums (all locked). create_album stamps the creation time itself.
     int64_t create_album(const std::string& name);

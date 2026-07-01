@@ -55,6 +55,9 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/thumb/thumb_service.cpp"
   "${NATIVE_CORE_DIR}/src/thumb/thumb_cache.cpp"
   "${NATIVE_CORE_DIR}/src/util/log.cpp"
+  # §7 XMP face-region writer (pure text; no deps) — referenced by c_api only
+  # under PHOTO_HAVE_FACES, harmless to compile everywhere.
+  "${NATIVE_CORE_DIR}/src/xmp/face_xmp.cpp"
   # M5 asset catalog (SQLite) + EXIF — unify the durable catalog across every
   # desktop target (the macOS podspec already compiles these). The SQLite probe
   # below defines PHOTO_HAVE_SQLITE, which lights up engine.cpp's catalog member

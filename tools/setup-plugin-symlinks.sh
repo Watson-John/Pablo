@@ -45,6 +45,7 @@ for rel in api/c_api.cpp \
            semantic/onnx_embedder.cpp \
            semantic/semantic_search.cpp \
            semantic/semantic_service.cpp \
+           xmp/face_xmp.cpp \
            codec/codec.cpp \
            faces/detector.cpp \
            faces/align.cpp \

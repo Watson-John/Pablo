@@ -635,6 +635,18 @@ std::vector<catalog::Catalog::GeoPoint> Engine::list_geotagged() const {
     return catalog_->geotagged();
 }
 
+void Engine::set_geo(int64_t asset_id, double lat, double lon) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_geo_override(asset_id, lat, lon);
+}
+
+void Engine::clear_geo(int64_t asset_id) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->clear_geo_override(asset_id);
+}
+
 int64_t Engine::create_album(const std::string& name) {
     if (!catalog_) return 0;
     std::lock_guard<std::mutex> lk(catalog_mu_);

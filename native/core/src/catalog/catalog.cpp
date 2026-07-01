@@ -219,6 +219,8 @@ void Catalog::migrate() {
         // embedding (NULL until status==done). `dominant_rgb` is a model-free
         // colour signature so colour search works regardless of the embedder.
         // (model_id, model_version) make the index rebuildable across models.
+        // Also geo_override (from #11) — user-placed coordinates that beat EXIF
+        // GPS and survive a rescan (asset_metadata is refreshed from the file).
         exec(db_,
              "CREATE TABLE IF NOT EXISTS embedding("
              " asset_id INTEGER PRIMARY KEY REFERENCES asset(id) ON DELETE CASCADE,"
@@ -239,6 +241,9 @@ void Catalog::migrate() {
              " name TEXT NOT NULL DEFAULT '',"
              " query_json TEXT NOT NULL DEFAULT '',"
              " created_ns INTEGER NOT NULL DEFAULT 0);"
+             "CREATE TABLE IF NOT EXISTS geo_override("
+             " asset_id INTEGER PRIMARY KEY,"
+             " lat REAL NOT NULL, lon REAL NOT NULL);"
              "PRAGMA user_version=7;");
     }
 }
@@ -535,11 +540,42 @@ std::optional<exif::AssetMetadata> Catalog::get_metadata(int64_t asset_id) const
 }
 
 std::vector<Catalog::GeoPoint> Catalog::geotagged() const {
+    // Manual overrides win; EXIF GPS fills in for assets without an override.
     std::vector<GeoPoint> out;
-    Stmt q(db_, "SELECT asset_id,gps_lat,gps_lon FROM asset_metadata WHERE has_gps=1");
+    Stmt q(db_,
+           "SELECT asset_id, lat, lon FROM geo_override "
+           "UNION ALL "
+           "SELECT asset_id, gps_lat, gps_lon FROM asset_metadata "
+           " WHERE has_gps=1 AND asset_id NOT IN (SELECT asset_id FROM geo_override)");
     while (q.step())
         out.push_back({q.col_int(0), q.col_dbl(1), q.col_dbl(2)});
     return out;
+}
+
+void Catalog::set_geo_override(int64_t asset_id, double lat, double lon) {
+    Stmt q(db_, "INSERT INTO geo_override(asset_id,lat,lon) VALUES(?,?,?) "
+                "ON CONFLICT(asset_id) DO UPDATE SET lat=excluded.lat, lon=excluded.lon");
+    q.bind(1, asset_id).bind(2, lat).bind(3, lon).run();
+}
+
+void Catalog::clear_geo_override(int64_t asset_id) {
+    Stmt q(db_, "DELETE FROM geo_override WHERE asset_id=?");
+    q.bind(1, asset_id).run();
+}
+
+std::optional<Catalog::GeoPoint> Catalog::geo_override_for(int64_t asset_id) const {
+    Stmt q(db_, "SELECT lat,lon FROM geo_override WHERE asset_id=?");
+    q.bind(1, asset_id);
+    if (!q.step()) return std::nullopt;
+    return GeoPoint{asset_id, q.col_dbl(0), q.col_dbl(1)};
+}
+
+std::optional<Catalog::GeoPoint> Catalog::geo_for_asset(int64_t asset_id) const {
+    if (auto o = geo_override_for(asset_id)) return o;
+    Stmt q(db_, "SELECT gps_lat,gps_lon FROM asset_metadata WHERE asset_id=? AND has_gps=1");
+    q.bind(1, asset_id);
+    if (!q.step()) return std::nullopt;
+    return GeoPoint{asset_id, q.col_dbl(0), q.col_dbl(1)};
 }
 
 // ── Albums ───────────────────────────────────────────────────────────────────
@@ -869,6 +905,10 @@ std::optional<exif::AssetMetadata> Catalog::get_metadata(int64_t) const {
     return std::nullopt;
 }
 std::vector<Catalog::GeoPoint> Catalog::geotagged() const { return {}; }
+void Catalog::set_geo_override(int64_t, double, double) {}
+void Catalog::clear_geo_override(int64_t) {}
+std::optional<Catalog::GeoPoint> Catalog::geo_override_for(int64_t) const { return std::nullopt; }
+std::optional<Catalog::GeoPoint> Catalog::geo_for_asset(int64_t) const { return std::nullopt; }
 int64_t Catalog::create_album(const std::string&, int64_t) { return 0; }
 void Catalog::rename_album(int64_t, const std::string&) {}
 void Catalog::delete_album(int64_t) {}

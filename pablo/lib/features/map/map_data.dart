@@ -10,6 +10,7 @@
 import 'package:photo_native/photo_native.dart' show GeoPoint;
 
 import '../../data/models.dart';
+import 'reverse_geocode.dart';
 
 /// The map markers plus, per marker, the catalog asset ids it covers (so the
 /// page can resolve the photos to show when a marker is selected).
@@ -49,6 +50,8 @@ MapData buildMapData(List<GeoPoint> points) {
       cx: cx.toDouble(),
       cy: cy.toDouble(),
       count: pts.length,
+      lat: lat,
+      lon: lon,
     ));
     byLoc[id] = [for (final p in pts) p.assetId];
   });
@@ -57,7 +60,11 @@ MapData buildMapData(List<GeoPoint> points) {
   return MapData(locations, byLoc);
 }
 
+/// A place label for a cluster centroid: the reverse-geocoded "City, Country"
+/// when a known city is near, otherwise the raw degrees.
 String _label(double lat, double lon) {
+  final place = reverseGeocode(lat, lon);
+  if (place != null && place.distanceKm <= 250) return place.label;
   final ns = lat >= 0 ? 'N' : 'S';
   final ew = lon >= 0 ? 'E' : 'W';
   return '${lat.abs().toStringAsFixed(1)}°$ns, ${lon.abs().toStringAsFixed(1)}°$ew';

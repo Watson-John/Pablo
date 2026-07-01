@@ -673,6 +673,8 @@ typedef struct {
     float    det_score;
     float    quality;
     int32_t  confirmed;         /* 0 = suggestion, 1 = user-confirmed        */
+    int32_t  ignored;           /* 0/1 — user hid this detection             */
+    int32_t  manual;            /* 0/1 — user-drawn rectangle (no embedding) */
     int32_t  _pad;
 } photo_face_t;
 
@@ -828,6 +830,56 @@ PHOTO_API size_t   photo_saved_search_list(photo_engine_t* engine,
  */
 PHOTO_API size_t   photo_saved_search_query(photo_engine_t* engine, uint64_t id,
                                             char* out, size_t cap);
+/* Face editing — ignore, manual rectangle, assign, XMP write-back.          */
+/*                                                                           */
+/* These work whenever face persistence (SQLite) is present; they do NOT     */
+/* require the ONNX models, so a build/machine without the face models can    */
+/* still browse, ignore, hand-tag and export face regions.                    */
+/* ------------------------------------------------------------------------- */
+
+/* Hide (ignore=1) or restore (ignore=0) a detected face. An ignored face is
+ * detached from its person/cluster and excluded from people + re-clustering
+ * (Picasa's ]ignoreface). Returns photo_status_t. */
+PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
+                                         uint64_t face_id, int32_t ignored);
+
+/* Add a user-drawn face rectangle to an asset, in source-image pixels. Stores
+ * the box as a manual face (no embedding). If the face models are loaded the
+ * region is also embedded so recognition can suggest it. Returns the new
+ * face_id, or 0 on failure. */
+PHOTO_API uint64_t photo_face_add_manual(photo_engine_t* engine,
+                                         uint64_t asset_id,
+                                         float box_x, float box_y,
+                                         float box_w, float box_h);
+
+/* Assign a face to a named person (create/merge by name), confirming it. Works
+ * for detector and manual faces alike. Returns photo_status_t. */
+PHOTO_API int32_t photo_face_assign(photo_engine_t* engine, uint64_t face_id,
+                                    const char* name_utf8);
+
+/* Hard-delete a face row (used to undo a manual rectangle). photo_status_t. */
+PHOTO_API int32_t photo_face_remove(photo_engine_t* engine, uint64_t face_id);
+
+/* Write the asset's named face regions to an XMP sidecar ("<path>.xmp") using
+ * the MWG Regions schema (Lightroom/digiKam-readable). OPT-IN write-back per
+ * DECISIONS D1 — only ever called on explicit user action, never automatically.
+ * If out_path/out_cap are non-NULL the written sidecar path is copied there.
+ * Returns photo_status_t (NOT_FOUND when the asset has no named faces). */
+PHOTO_API int32_t photo_asset_write_face_xmp(photo_engine_t* engine,
+                                             uint64_t asset_id,
+                                             char* out_path, size_t out_cap);
+
+/* ------------------------------------------------------------------------- */
+/* Manual geotag — override / clear an asset's map coordinates.               */
+/*                                                                           */
+/* Catalog-only, survives rescan, and takes precedence over EXIF GPS so a     */
+/* user can place a photo the camera didn't tag. Feeds photo_list_geotagged.  */
+/* ------------------------------------------------------------------------- */
+
+PHOTO_API int32_t photo_asset_set_geo(photo_engine_t* engine, uint64_t asset_id,
+                                      double lat, double lon);
+PHOTO_API int32_t photo_asset_clear_geo(photo_engine_t* engine,
+                                        uint64_t asset_id);
 
 #ifdef __cplusplus
 }  /* extern "C" */
