@@ -112,6 +112,25 @@ class MainGrid extends StatelessWidget {
         onPhotoSecondary: onPhotoSecondary,
       );
     }
+    if (section == NavSection.searchResults) {
+      final count = photosFor('search:results').length;
+      if (count == 0) {
+        return const _EmptyView(
+          icon: PabloIconName.search,
+          message: 'No photos match your search.',
+        );
+      }
+      return SectionScrollView(
+        sections: [
+          GallerySectionData(
+            id: 'search:results',
+            title: 'Search Results',
+            subtitle: '$count ${count == 1 ? 'photo' : 'photos'}',
+          ),
+        ],
+        onPhotoSecondary: onPhotoSecondary,
+      );
+    }
     if (section == NavSection.unnamed) {
       return const UnnamedFacesPage();
     }

@@ -144,4 +144,138 @@ TEST(Catalog, RemoveAsset) {
     EXPECT_FALSE(cat.asset_by_id(id).has_value());
 }
 
+// ── Stage 9: embedding / retrieval index (catalog v7) ────────────────────────
+
+TEST(Catalog, EmbeddingUpsertGetRoundTrip) {
+    Catalog cat(fresh_db("embed_crud"));  // fresh DB proves the v7 migration ran
+    auto a = sample("/lib/a.jpg");
+    const int64_t id = cat.upsert_asset(a);
+
+    Catalog::EmbeddingRecord rec;
+    rec.asset_id = id;
+    rec.model_id = "deterministic-color";
+    rec.model_version = "1";
+    rec.dim = 4;
+    rec.vec = {0.1f, 0.2f, 0.3f, 0.9f};
+    rec.dominant_rgb = 0x804020;
+    rec.status = Catalog::kEmbedDone;
+    cat.upsert_embedding(rec);
+
+    auto got = cat.get_embedding(id);
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->model_id, "deterministic-color");
+    EXPECT_EQ(got->model_version, "1");
+    EXPECT_EQ(got->dim, 4);
+    ASSERT_EQ(got->vec.size(), 4u);
+    EXPECT_FLOAT_EQ(got->vec[3], 0.9f);
+    EXPECT_EQ(got->dominant_rgb, 0x804020);
+    EXPECT_EQ(got->status, Catalog::kEmbedDone);
+
+    auto done = cat.done_embeddings();
+    ASSERT_EQ(done.size(), 1u);
+    EXPECT_EQ(done[0].asset_id, id);
+    ASSERT_EQ(done[0].vec.size(), 4u);
+
+    auto colors = cat.dominant_colors();
+    ASSERT_EQ(colors.size(), 1u);
+    EXPECT_EQ(colors[0].first, id);
+    EXPECT_EQ(colors[0].second, 0x804020);
+}
+
+TEST(Catalog, EmbeddingCountsPendingRetry) {
+    Catalog cat(fresh_db("embed_counts"));
+    auto a = sample("/lib/a.jpg");
+    auto b = sample("/lib/b.jpg");
+    auto c = sample("/lib/c.jpg");
+    const int64_t ida = cat.upsert_asset(a);
+    const int64_t idb = cat.upsert_asset(b);
+    cat.upsert_asset(c);  // idc
+
+    // Nothing embedded: all 3 are pending (no rows).
+    auto k0 = cat.embedding_counts();
+    EXPECT_EQ(k0.total, 3);
+    EXPECT_EQ(k0.done, 0);
+    EXPECT_EQ(k0.pending, 3);
+    EXPECT_EQ(cat.pending_embedding_ids("m", "1").size(), 3u);
+
+    // a done; b failed; c still has no row.
+    Catalog::EmbeddingRecord ra;
+    ra.asset_id = ida; ra.model_id = "m"; ra.model_version = "1";
+    ra.dim = 2; ra.vec = {1.0f, 0.0f}; ra.status = Catalog::kEmbedDone;
+    cat.upsert_embedding(ra);
+    cat.set_embedding_status(idb, Catalog::kEmbedFailed, "boom");
+
+    auto k1 = cat.embedding_counts();
+    EXPECT_EQ(k1.done, 1);
+    EXPECT_EQ(k1.failed, 1);
+    EXPECT_EQ(k1.pending, 1);  // only c (no row); failed is NOT auto-retried
+    // pending = just c (a is done+matching model, b is failed).
+    EXPECT_EQ(cat.pending_embedding_ids("m", "1").size(), 1u);
+
+    // Explicit retry flips b back to pending.
+    cat.retry_failed_embeddings();
+    EXPECT_EQ(cat.embedding_counts().failed, 0);
+    EXPECT_EQ(cat.pending_embedding_ids("m", "1").size(), 2u);  // b + c
+}
+
+TEST(Catalog, EmbeddingModelSwitchRequeues) {
+    Catalog cat(fresh_db("embed_switch"));
+    auto a = sample("/lib/a.jpg");
+    const int64_t id = cat.upsert_asset(a);
+    Catalog::EmbeddingRecord ra;
+    ra.asset_id = id; ra.model_id = "old"; ra.model_version = "1";
+    ra.dim = 2; ra.vec = {1.0f, 0.0f}; ra.status = Catalog::kEmbedDone;
+    cat.upsert_embedding(ra);
+
+    EXPECT_TRUE(cat.pending_embedding_ids("old", "1").empty());   // same model
+    auto pend = cat.pending_embedding_ids("new", "1");            // switched
+    ASSERT_EQ(pend.size(), 1u);
+    EXPECT_EQ(pend[0], id);
+    EXPECT_EQ(cat.pending_embedding_ids("old", "2").size(), 1u);  // new version
+}
+
+TEST(Catalog, EmbeddingPersistsAcrossReopen) {
+    const std::string db = fresh_db("embed_persist");
+    int64_t id = 0;
+    {
+        Catalog cat(db);
+        auto a = sample("/lib/a.jpg");
+        id = cat.upsert_asset(a);
+        Catalog::EmbeddingRecord r;
+        r.asset_id = id; r.model_id = "m"; r.model_version = "1";
+        r.dim = 3; r.vec = {0.5f, 0.5f, 0.7071f};
+        r.dominant_rgb = 0x112233; r.status = Catalog::kEmbedDone;
+        cat.upsert_embedding(r);
+    }
+    {
+        Catalog cat(db);  // reopen
+        auto got = cat.get_embedding(id);
+        ASSERT_TRUE(got.has_value());
+        ASSERT_EQ(got->vec.size(), 3u);
+        EXPECT_EQ(got->dominant_rgb, 0x112233);
+        EXPECT_EQ(got->status, Catalog::kEmbedDone);
+    }
+}
+
+TEST(Catalog, SavedSearchCrud) {
+    Catalog cat(fresh_db("saved"));
+    const int64_t id1 = cat.create_saved_search("Trees", "{\"text\":\"tree\"}", 100);
+    const int64_t id2 = cat.create_saved_search("Red", "{\"color\":\"red\"}", 200);
+    EXPECT_GT(id1, 0);
+    EXPECT_NE(id1, id2);
+
+    auto all = cat.list_saved_searches();
+    ASSERT_EQ(all.size(), 2u);
+    EXPECT_EQ(all[0].name, "Red");    // newest first (created desc)
+    EXPECT_EQ(all[1].name, "Trees");
+
+    auto got = cat.get_saved_search(id1);
+    ASSERT_TRUE(got.has_value());
+    EXPECT_EQ(got->query_json, "{\"text\":\"tree\"}");
+
+    cat.delete_saved_search(id1);
+    EXPECT_EQ(cat.list_saved_searches().size(), 1u);
+    EXPECT_FALSE(cat.get_saved_search(id1).has_value());
+}
+
 #endif  // PHOTO_HAVE_SQLITE

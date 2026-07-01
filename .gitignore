@@ -25,3 +25,9 @@ target/
 
 # Claude Design handoff bundle (reference only, not app code)
 /pablo-cool/
+
+# Stage 9 semantic-search: local ML venv + exported model artifacts (large, not committed)
+.venv-semantic/
+build-ort/
+/build-tests/
+build-werror/

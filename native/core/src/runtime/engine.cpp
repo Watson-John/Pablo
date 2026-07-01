@@ -134,8 +134,44 @@ Engine::Engine(fs::path catalog_path,
         catalog_.reset();
         PHOTO_LOGF(PHOTO_LOG_ERROR, "catalog DISABLED: %s", e.what());
     }
+
+    // Semantic embedder: prefer the real ONNX model (siglip2 / PE-Core) if its
+    // files are present under models_path_, else the always-available
+    // deterministic colour/concept backend. Swapping is transparent here.
+    // Construction is single-threaded; no lock needed for the initial set.
+    semantic_ = make_semantic_service();
 #endif
 }
+
+#ifdef PHOTO_HAVE_SQLITE
+std::shared_ptr<semantic::SemanticService> Engine::make_semantic_service() const {
+    auto emb = semantic::make_onnx_embedder(models_path_.string());
+    const bool real = static_cast<bool>(emb);
+    if (!emb) emb = semantic::make_deterministic_embedder();
+    auto svc = std::make_shared<semantic::SemanticService>(std::move(emb));
+    PHOTO_LOGF(PHOTO_LOG_INFO, "semantic embedder: %s model (%s, dim=%d)%s",
+               real ? "ONNX" : "deterministic", svc->model_id().c_str(),
+               svc->dim(),
+               semantic::SemanticService::has_builtin_decoder()
+                   ? "" : " [no decoder in this build → indexing skips]");
+    return svc;
+}
+
+int Engine::reload_semantic() {
+    // Re-probe the models dir (e.g. after the first-run download landed) and
+    // swap the service in. In-flight embeds/searches hold their own shared_ptr
+    // copy, so the old service (and its ONNX sessions) drains out safely. A
+    // model change re-queues stale rows via pending_embedding_ids and must not
+    // serve the old index → bump the sidecar generation.
+    auto fresh = make_semantic_service();
+    {
+        std::lock_guard<std::mutex> lk(semantic_mu_);
+        semantic_ = fresh;
+    }
+    invalidate_semantic_index();
+    return fresh->dim();
+}
+#endif
 
 Engine::~Engine() {
     PHOTO_LOGF(PHOTO_LOG_INFO, "engine destroyed (slots=%zu)", slots_.size());
@@ -359,6 +395,224 @@ uint64_t Engine::rescan() {
     jobs_.submit(PHOTO_PRIORITY_IDLE,
                  [this, req, roots] { run_import(req, roots, /*prune=*/true); });
     return req;
+}
+
+// ── Semantic search & discovery (Stage 9) ────────────────────────────────────
+
+uint64_t Engine::embedding_scan(int64_t asset_id) {
+    if (!catalog_ || !semantic_service()) return 0;
+    const uint64_t req = next_import_id_.fetch_add(1, std::memory_order_relaxed);
+    // Idle lane: yields to every interactive/viewport thumbnail request. The
+    // Dart IndexingController additionally windows submissions and sequences
+    // faces→embeddings so the two ML passes never saturate the box together.
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, asset_id] {
+        std::string path;
+        {
+            std::lock_guard<std::mutex> lk(catalog_mu_);
+            path = catalog_->path_by_id(asset_id);
+        }
+        // Heavy decode + embed runs WITHOUT the catalog lock (mirrors the face
+        // scan): only the row write is serialized. A crash mid-embed leaves no
+        // row, so the asset is simply re-queued on the next resume.
+        // Local copy: a concurrent reload_semantic must not free the service
+        // under this embed. A null copy (never expected) fails the row safely.
+        const auto svc = semantic_service();
+        auto rec = svc ? svc->embed_asset(asset_id, path)
+                       : catalog::Catalog::EmbeddingRecord{};
+        if (!svc) {
+            rec.asset_id = asset_id;
+            rec.status = catalog::Catalog::kEmbedFailed;
+            rec.error = "no embedder";
+        }
+        {
+            std::lock_guard<std::mutex> lk(catalog_mu_);
+            try { catalog_->upsert_embedding(rec); } catch (...) {}
+        }
+        // A new Done row changes the search working set → drop the RAM cache.
+        if (rec.status == catalog::Catalog::kEmbedDone)
+            invalidate_semantic_index();
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EMBED_PROGRESS;
+        ev.request_id = req;
+        ev.asset_id = static_cast<uint64_t>(asset_id);
+        ev.aux64 = 1;  // one asset processed
+        ev.status = rec.status == catalog::Catalog::kEmbedDone    ? PHOTO_STATUS_OK
+                  : rec.status == catalog::Catalog::kEmbedSkipped ? PHOTO_STATUS_UNSUPPORTED
+                                                                  : PHOTO_STATUS_DECODE_ERROR;
+        events_.push(ev);
+    });
+    return req;
+}
+
+std::vector<int64_t> Engine::pending_embedding_ids(int limit) const {
+    const auto svc = semantic_service();
+    if (!catalog_ || !svc) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->pending_embedding_ids(svc->model_id(),
+                                           svc->model_version(), limit);
+}
+
+catalog::Catalog::EmbeddingCounts Engine::embedding_counts() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->embedding_counts();
+}
+
+void Engine::retry_failed_embeddings() {
+    if (!catalog_) return;
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        catalog_->retry_failed_embeddings();
+    }
+    // Failed→pending doesn't change the Done set, but this is also the natural
+    // "re-sync" hook after any external catalog surgery — invalidating here is
+    // cheap and keeps the cache contract simple.
+    invalidate_semantic_index();
+}
+
+std::optional<catalog::Catalog::EmbeddingRecord> Engine::get_embedding(
+    int64_t asset_id) const {
+    if (!catalog_) return std::nullopt;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->get_embedding(asset_id);
+}
+
+std::vector<std::pair<int64_t, int32_t>> Engine::dominant_colors() const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->dominant_colors();
+}
+
+int Engine::embedding_dim() const {
+    const auto svc = semantic_service();
+    return svc ? svc->dim() : 0;
+}
+
+std::string Engine::embedding_model_id() const {
+    const auto svc = semantic_service();
+    return svc ? svc->model_id() : std::string{};
+}
+
+std::vector<float> Engine::embed_text(const std::string& query) const {
+    const auto svc = semantic_service();
+    return svc ? svc->embed_text(query) : std::vector<float>{};
+}
+
+void Engine::release_semantic_sessions(uint32_t mask) {
+    if (const auto svc = semantic_service()) svc->release_sessions(mask);
+}
+
+void Engine::invalidate_semantic_index() {
+    // Bump the generation FIRST: an in-flight search that snapshotted the DB
+    // before this write sees the mismatch and declines to publish its (possibly
+    // stale) rebuild. Then drop the mapping so the next search rebuilds the
+    // sidecar file. The old mapping stays alive for any concurrent scan that
+    // already copied the shared_ptr.
+    semantic_index_gen_.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<std::mutex> lk(semantic_index_mu_);
+    sidecar_.reset();
+}
+
+std::vector<semantic::SearchHit> Engine::semantic_search(
+    const std::vector<float>& query, const std::vector<int64_t>& candidates,
+    size_t cap) const {
+    if (!catalog_ || query.empty()) return {};
+    const int dim = static_cast<int>(query.size());
+    const std::string path = (cache_path_ / "semantic_index.bin").string();
+    const auto svc = semantic_service();
+    const uint64_t mhash =
+        svc ? semantic::SidecarIndex::model_hash(svc->model_id(),
+                                                 svc->model_version(), dim)
+            : 0;
+
+    std::shared_ptr<const semantic::SidecarIndex> idx;
+    uint64_t built_gen = 0;
+    {
+        std::lock_guard<std::mutex> lk(semantic_index_mu_);
+        idx = sidecar_;
+        built_gen = sidecar_built_gen_;
+    }
+    const uint64_t gen = semantic_index_gen_.load(std::memory_order_acquire);
+
+    // Hot path: current mapping, no embedding writes since it was built.
+    if (idx && built_gen == gen && idx->dim() == dim &&
+        idx->stamp_model_hash() == mhash)
+        return idx->scan(query, candidates, cap);
+
+    // Process-start adoption: an on-disk sidecar whose stamp still matches the
+    // catalog avoids re-reading every BLOB. Only worth probing when we hold no
+    // mapping at all (a generation bump means the file is known-stale).
+    if (!idx && gen == 0) {
+        auto disk = semantic::SidecarIndex::open(path);
+        if (disk && disk->dim() == dim && disk->stamp_model_hash() == mhash) {
+            catalog::Catalog::EmbeddingStamp st;
+            {
+                std::lock_guard<std::mutex> lk(catalog_mu_);
+                st = catalog_->embedding_stamp();
+            }
+            if (st.count == disk->stamp_count() &&
+                st.max_updated_ns == disk->stamp_max_updated_ns()) {
+                std::lock_guard<std::mutex> lk(semantic_index_mu_);
+                if (semantic_index_gen_.load(std::memory_order_acquire) == gen) {
+                    sidecar_ = disk;
+                    sidecar_built_gen_ = gen;
+                }
+                return disk->scan(query, candidates, cap);
+            }
+        }
+    }
+
+    // Rebuild the sidecar from the catalog (embedding writes since the last
+    // build, a model switch, or a missing/stale/corrupt file).
+    std::vector<catalog::Catalog::EmbeddingVec> items;
+    catalog::Catalog::EmbeddingStamp st;
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        items = catalog_->done_embeddings();
+        st = catalog_->embedding_stamp();
+    }
+    if (semantic::SidecarIndex::write(path, items, dim, mhash, st)) {
+        if (auto fresh = semantic::SidecarIndex::open(path)) {
+            {
+                std::lock_guard<std::mutex> lk(semantic_index_mu_);
+                if (semantic_index_gen_.load(std::memory_order_acquire) == gen) {
+                    sidecar_ = fresh;
+                    sidecar_built_gen_ = gen;
+                }
+            }
+            return fresh->scan(query, candidates, cap);
+        }
+    }
+    // Disk trouble (full / unwritable cache dir): serve this query directly
+    // from the rows we already read — uncached but correct.
+    return semantic::cosine_rank(query, items, candidates, cap);
+}
+
+int64_t Engine::create_saved_search(const std::string& name,
+                                    const std::string& query_json) {
+    if (!catalog_) return 0;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->create_saved_search(name, query_json, now_ns());
+}
+
+void Engine::delete_saved_search(int64_t id) {
+    if (!catalog_) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->delete_saved_search(id);
+}
+
+std::vector<catalog::Catalog::SavedSearchRecord> Engine::list_saved_searches()
+    const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->list_saved_searches();
+}
+
+std::optional<catalog::Catalog::SavedSearchRecord> Engine::get_saved_search(
+    int64_t id) const {
+    if (!catalog_) return std::nullopt;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->get_saved_search(id);
 }
 
 std::vector<catalog::AssetRecord> Engine::list_assets() const {

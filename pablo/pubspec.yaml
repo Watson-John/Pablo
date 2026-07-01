@@ -47,6 +47,12 @@ dependencies:
   # chooser on desktop (getDirectoryPath on macOS/Windows/Linux).
   file_selector: ^1.0.3
 
+  # SHA-256 verification of the first-run model downloads
+  # (lib/data/model_fetcher.dart). Approved exception to the "no new deps"
+  # rule: pure-Dart and already in the dependency graph as a transitive dep
+  # of google_fonts.
+  crypto: ^3.0.3
+
   # Pablo native backend (FFI + texture registrar). Path dependency on the
   # in-repo plugin under packages/photo_native.
   photo_native:

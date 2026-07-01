@@ -27,6 +27,7 @@ class _SearchHeaderState extends State<SearchHeader> {
   late final TextEditingController _ctl = TextEditingController();
   final FocusNode _focus = FocusNode();
   bool _focused = false;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -36,9 +37,21 @@ class _SearchHeaderState extends State<SearchHeader> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _ctl.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  // Store the query immediately (so the field + badge update) but debounce the
+  // actual retrieval — embedding the query + ranking runs after a short pause,
+  // not on every keystroke.
+  void _onQueryChanged(BuildContext context, String q) {
+    AppScope.of(context).setSearchText(q);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 280), () {
+      if (mounted) AppScope.read(context).runSearch();
+    });
   }
 
   // Re-import + re-scan the configured library, refreshing the catalog (stable
@@ -116,7 +129,8 @@ class _SearchHeaderState extends State<SearchHeader> {
                     child: TextField(
                       controller: _ctl,
                       focusNode: _focus,
-                      onChanged: st.setSearchText,
+                      onChanged: (q) => _onQueryChanged(context, q),
+                      onSubmitted: (_) => st.runSearch(),
                       cursorColor: PabloColors.accentPrimary,
                       style: PabloTypography.sans(fontSize: 12.5),
                       decoration: InputDecoration(
@@ -133,8 +147,9 @@ class _SearchHeaderState extends State<SearchHeader> {
                   if (st.searchText.isNotEmpty)
                     GestureDetector(
                       onTap: () {
+                        _debounce?.cancel();
                         _ctl.clear();
-                        st.setSearchText('');
+                        st.clearSearch();
                       },
                       child: Text(
                         '✕',

@@ -35,6 +35,8 @@ set(PHOTO_CORE_TEST_SOURCES
     smart_test.cpp
     compact_test.cpp
     rebase_test.cpp
+    semantic_test.cpp
+    semantic_onnx_test.cpp
     xmp_test.cpp
     geo_test.cpp
     face_store_test.cpp
