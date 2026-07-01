@@ -30,3 +30,4 @@ target/
 .venv-semantic/
 build-ort/
 /build-tests/
+build-werror/

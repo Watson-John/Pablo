@@ -216,12 +216,17 @@ private:
     // The semantic embedder: the real ONNX model when present, else the
     // dependency-free deterministic backend. Constructed at engine start and
     // hot-swappable via reload_semantic (after the first-run model download).
-    // Accessed through std::atomic_load/store free functions (libc++ has no
-    // std::atomic<shared_ptr>); every caller takes a local copy so a reload
-    // can never free a service out from under an in-flight embed.
+    // A tiny mutex guards the pointer swap — NOT std::atomic<shared_ptr>
+    // (absent on libc++/AppleClang) nor the std::atomic_load/store free
+    // functions (C++20-deprecated → -Werror on the Linux plugin build). Every
+    // caller takes a local copy under the lock, so a reload can never free a
+    // service out from under an in-flight embed; the copy outlives the swap.
+    // Swaps are rare (once, on download); reads are off the render hot path.
     std::shared_ptr<semantic::SemanticService> semantic_;
+    mutable std::mutex                         semantic_mu_;
     std::shared_ptr<semantic::SemanticService> semantic_service() const {
-        return std::atomic_load(&semantic_);
+        std::lock_guard<std::mutex> lk(semantic_mu_);
+        return semantic_;
     }
     std::shared_ptr<semantic::SemanticService> make_semantic_service() const;
     // Semantic-search working set: a DISK-resident int8 sidecar file

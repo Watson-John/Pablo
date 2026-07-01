@@ -138,7 +138,8 @@ Engine::Engine(fs::path catalog_path,
     // Semantic embedder: prefer the real ONNX model (siglip2 / PE-Core) if its
     // files are present under models_path_, else the always-available
     // deterministic colour/concept backend. Swapping is transparent here.
-    std::atomic_store(&semantic_, make_semantic_service());
+    // Construction is single-threaded; no lock needed for the initial set.
+    semantic_ = make_semantic_service();
 #endif
 }
 
@@ -163,7 +164,10 @@ int Engine::reload_semantic() {
     // model change re-queues stale rows via pending_embedding_ids and must not
     // serve the old index → bump the sidecar generation.
     auto fresh = make_semantic_service();
-    std::atomic_store(&semantic_, fresh);
+    {
+        std::lock_guard<std::mutex> lk(semantic_mu_);
+        semantic_ = fresh;
+    }
     invalidate_semantic_index();
     return fresh->dim();
 }
