@@ -20,6 +20,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         home: KeyActions(
           onUndo: () => undos++,
+          onMoveSelection: () {},
           child: const Scaffold(body: TextField()),
         ),
       ));
@@ -63,6 +64,31 @@ void main() {
     expect(undos, 0);
   });
 
+  testWidgets('⌘⇧M opens the move palette, not undo', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      var undos = 0, moves = 0;
+      await tester.pumpWidget(MaterialApp(
+        home: KeyActions(
+          onUndo: () => undos++,
+          onMoveSelection: () => moves++,
+          child: const Scaffold(body: SizedBox()),
+        ),
+      ));
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyM);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyM);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+      expect(moves, 1);
+      expect(undos, 0);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets('ignores Z without the platform modifier and Shift+mod+Z',
       (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
@@ -71,6 +97,7 @@ void main() {
       await tester.pumpWidget(MaterialApp(
         home: KeyActions(
           onUndo: () => undos++,
+          onMoveSelection: () {},
           child: const Scaffold(body: SizedBox()),
         ),
       ));

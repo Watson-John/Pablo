@@ -4,6 +4,8 @@
 // surface a snackbar with Undo. Also hosts the shared undo entry points the
 // Edit→Undo menu and Cmd/Ctrl+Z use.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:photo_native/photo_native.dart' show Engine;
 
@@ -13,6 +15,7 @@ import '../../data/boot.dart';
 import '../../data/library.dart';
 import '../../data/move_service.dart';
 import '../../data/undo_stack.dart';
+import 'move_palette.dart';
 
 /// Move [paths] into [destDir], then refresh the library and show a result
 /// snackbar with Undo. No-op for an empty drop or a same-folder drop.
@@ -25,6 +28,7 @@ Future<void> reorganizeMove(
   List<String> paths,
   String destDir, {
   Future<void> Function()? refresh,
+  List<String> createdDirs = const [],
 }) async {
   if (paths.isEmpty) return;
   final messenger = ScaffoldMessenger.maybeOf(context);
@@ -35,6 +39,7 @@ Future<void> reorganizeMove(
     destDir,
     engine: engine,
     undo: st.undoStack,
+    createdDirs: createdDirs,
   );
   if (!outcome.anyMoved) {
     messenger?.showSnackBar(const SnackBar(
@@ -54,6 +59,41 @@ Future<void> reorganizeMove(
                 undoFileOp(messenger, st, outcome.undoOp!, engine: engine, refresh: refresh),
           ),
   ));
+}
+
+/// Open the Move-to-Folder palette for [ids] and, on a pick, create the folder
+/// if new and move into it. Shared by the context menu and Cmd/Ctrl+Shift+M.
+/// No-op for an empty selection.
+Future<void> promptMoveToFolder(
+  BuildContext context,
+  PabloAppState st,
+  List<String> ids,
+) async {
+  if (ids.isEmpty) return;
+  final dest = await showMovePalette(
+    context,
+    folders: [
+      for (final f in Library.instance.folderSections)
+        FolderCandidate(path: f.id, name: f.name),
+    ],
+    photoCount: ids.length,
+    recents: st.recentMoveDests,
+  );
+  if (dest == null || !context.mounted) return;
+  final createdDirs = <String>[];
+  if (dest.isNew) {
+    try {
+      Directory(dest.dir).createSync(recursive: true);
+      createdDirs.add(dest.dir);
+    } catch (e) {
+      ScaffoldMessenger.maybeOf(context)
+          ?.showSnackBar(SnackBar(content: Text('Could not create folder: $e')));
+      return;
+    }
+  }
+  st.noteMoveDestination(dest.dir);
+  if (!context.mounted) return;
+  await reorganizeMove(context, st, ids, dest.dir, createdDirs: createdDirs);
 }
 
 /// Undo a SPECIFIC op (a snackbar's Undo action). Silently does nothing when

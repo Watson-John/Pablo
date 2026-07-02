@@ -13,10 +13,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 class KeyActions extends StatefulWidget {
-  const KeyActions({required this.onUndo, required this.child, super.key});
+  const KeyActions({
+    required this.onUndo,
+    required this.onMoveSelection,
+    required this.child,
+    super.key,
+  });
 
   /// Invoked on Cmd/Ctrl+Z when no text field owns focus.
   final VoidCallback onUndo;
+
+  /// Invoked on Cmd/Ctrl+Shift+M — open the Move-to-Folder palette for the
+  /// current selection.
+  final VoidCallback onMoveSelection;
   final Widget child;
 
   @override
@@ -38,15 +47,25 @@ class _KeyActionsState extends State<KeyActions> {
 
   bool _handle(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
-    if (event.logicalKey != LogicalKeyboardKey.keyZ) return false;
     final kb = HardwareKeyboard.instance;
     final primary = defaultTargetPlatform == TargetPlatform.macOS
         ? kb.isMetaPressed
         : kb.isControlPressed;
-    if (!primary || kb.isShiftPressed || kb.isAltPressed) return false;
-    if (_focusInsideEditableText()) return false; // let text undo happen
-    widget.onUndo();
-    return true; // consumed
+    if (!primary || kb.isAltPressed) return false;
+
+    // Cmd/Ctrl+Shift+M → Move-to-Folder palette.
+    if (event.logicalKey == LogicalKeyboardKey.keyM && kb.isShiftPressed) {
+      if (_focusInsideEditableText()) return false;
+      widget.onMoveSelection();
+      return true;
+    }
+    // Cmd/Ctrl+Z (no Shift) → file-op undo; yields to text fields.
+    if (event.logicalKey == LogicalKeyboardKey.keyZ && !kb.isShiftPressed) {
+      if (_focusInsideEditableText()) return false; // let text undo happen
+      widget.onUndo();
+      return true;
+    }
+    return false;
   }
 
   static bool _focusInsideEditableText() {

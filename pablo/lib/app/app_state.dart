@@ -181,6 +181,17 @@ class PabloAppState extends ChangeNotifier {
   // Edit→Undo menu and Cmd/Ctrl+Z consume it; MoveService pushes onto it.
   final UndoStack undoStack = UndoStack();
 
+  // Most-recent move destinations, newest first — surfaced at the top of the
+  // Move-to-Folder palette. In-memory this stage; Stage 7 persists it.
+  final List<String> recentMoveDests = <String>[];
+
+  /// Record [dir] as the newest move destination (deduped, capped).
+  void noteMoveDestination(String dir) {
+    recentMoveDests.remove(dir);
+    recentMoveDests.insert(0, dir);
+    if (recentMoveDests.length > 8) recentMoveDests.removeLast();
+  }
+
   /// Swap photo ids (== file paths) after files moved on disk, so selection,
   /// tray, the shift-anchor, and an open lightbox all follow the moved files
   /// instead of pointing at dead paths.
