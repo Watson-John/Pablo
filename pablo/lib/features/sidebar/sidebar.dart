@@ -226,8 +226,10 @@ class Sidebar extends StatelessWidget {
                                       st.activeSection == NavSection.folders
                                           ? st.selectedItem
                                           : null,
-                                  onSelect: (id) => st.setSelectedItem(
-                                      id, NavSection.folders),
+                                  onSelect: (id) {
+                                    st.setSelectedItem(id, NavSection.folders);
+                                    st.requestGalleryScroll(id);
+                                  },
                                   defaultOpen: i == 0,
                                   onDropPaths: (destDir, paths) =>
                                       reorganizeMove(context, st, paths, destDir),
@@ -305,7 +307,10 @@ class Sidebar extends StatelessWidget {
           folder: f,
           selected:
               st.activeSection == NavSection.folders && st.selectedItem == f.id,
-          onSelect: () => st.setSelectedItem(f.id, NavSection.folders),
+          onSelect: () {
+            st.setSelectedItem(f.id, NavSection.folders);
+            st.requestGalleryScroll(f.id);
+          },
           onDropPaths: (paths) => reorganizeMove(context, st, paths, f.id),
           onContextMenu: (pos) => _folderContextMenu(context, f.id, pos),
         ),

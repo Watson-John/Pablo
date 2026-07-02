@@ -1,6 +1,8 @@
 // Single ChangeNotifier holding the whole app's UI state.
 // Per-feature state stays local in the relevant widget.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:photo_native/photo_native.dart' show Album, Engine;
 
@@ -184,6 +186,35 @@ class PabloAppState extends ChangeNotifier {
   // Most-recent move destinations, newest first — surfaced at the top of the
   // Move-to-Folder palette. In-memory this stage; Stage 7 persists it.
   final List<String> recentMoveDests = <String>[];
+
+  // A one-shot request for the gallery to scroll a section (and optionally a
+  // photo) into view. The SectionScrollView consumes and clears it.
+  ({String sectionId, String? photoId})? pendingGalleryScroll;
+
+  /// Ask the gallery to scroll [sectionId] (optionally centering [photoId])
+  /// into view on its next build.
+  void requestGalleryScroll(String sectionId, {String? photoId}) {
+    pendingGalleryScroll = (sectionId: sectionId, photoId: photoId);
+    notifyListeners();
+  }
+
+  /// Called by the view once it has consumed the pending scroll request.
+  void clearGalleryScroll() => pendingGalleryScroll = null;
+
+  // A photo id to flash briefly (post-navigation highlight). Cleared by a timer.
+  String? flashPhotoId;
+  Timer? _flashTimer;
+
+  /// Flash [id] for ~1.2s so the user's eye lands on it after a jump.
+  void flashPhoto(String id) {
+    flashPhotoId = id;
+    _flashTimer?.cancel();
+    _flashTimer = Timer(const Duration(milliseconds: 1200), () {
+      flashPhotoId = null;
+      notifyListeners();
+    });
+    notifyListeners();
+  }
 
   /// Record [dir] as the newest move destination (deduped, capped).
   void noteMoveDestination(String dir) {

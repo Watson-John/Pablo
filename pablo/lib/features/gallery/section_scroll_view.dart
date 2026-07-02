@@ -23,6 +23,7 @@ import '../../data/models.dart';
 import '../../data/library.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
+import 'gallery_scroll.dart';
 import 'justified_rows.dart';
 import 'photo_thumb.dart';
 
@@ -80,7 +81,7 @@ class GallerySectionData {
   final String subtitle;
 }
 
-class SectionScrollView extends StatelessWidget {
+class SectionScrollView extends StatefulWidget {
   const SectionScrollView({
     required this.sections,
     this.onPhotoSecondary,
@@ -93,6 +94,31 @@ class SectionScrollView extends StatelessWidget {
   // Horizontal gutter on each side of the grid.
   static const double _hPad = PabloSpacing.xxl;
   static const double _spacing = PabloSpacing.base;
+  // Sticky-header extent + the SliverPadding around each section's grid, and a
+  // fixed footprint for an empty section — the scroll-to math mirrors these.
+  static const double _headerExtent = _SectionHeaderDelegate._extent;
+  static const double _padTop = PabloSpacing.xl;
+  static const double _padBottom = 18;
+  static const double _emptyExtent = 45;
+
+  @override
+  State<SectionScrollView> createState() => _SectionScrollViewState();
+}
+
+class _SectionScrollViewState extends State<SectionScrollView> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<GallerySectionData> get sections => widget.sections;
+  void Function(Offset, String photoId)? get onPhotoSecondary =>
+      widget.onPhotoSecondary;
+  static const double _hPad = SectionScrollView._hPad;
+  static const double _spacing = SectionScrollView._spacing;
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +142,10 @@ class SectionScrollView extends StatelessWidget {
             // Justified-grid target row height (mirrors the old cell intuition,
             // so the thumb-size slider still reads sensibly).
             final targetH = st.thumbSize * 0.72;
+
+            // Consume a pending scroll-to request (Show in Pablo / sidebar
+            // click) once this build's layout inputs are known.
+            _maybeScroll(st, masonry, avail, targetH, cols, cw, rev);
 
             final slivers = <Widget>[];
             for (final section in sections) {
@@ -176,12 +206,113 @@ class SectionScrollView extends StatelessWidget {
                 }
                 return false;
               },
-              child: CustomScrollView(cacheExtent: 1200, slivers: slivers),
+              child: CustomScrollView(
+                  controller: _controller, cacheExtent: 1200, slivers: slivers),
             );
           },
         ),
       ),
     );
+  }
+
+  // Consume AppState.pendingGalleryScroll: compute the target offset from this
+  // build's layout inputs, then jump/animate post-frame. Grid math is exact;
+  // masonry estimates then corrects with ensureVisible on the keyed tile.
+  void _maybeScroll(PabloAppState st, bool masonry, double avail,
+      double targetH, int cols, double cw, int rev) {
+    final req = st.pendingGalleryScroll;
+    if (req == null) return;
+    final targetIdx = sections.indexWhere((s) => s.id == req.sectionId);
+    if (targetIdx < 0) {
+      st.clearGalleryScroll();
+      return;
+    }
+    st.clearGalleryScroll();
+
+    final offset = masonry
+        ? _masonryOffset(req, targetIdx, cols, cw)
+        : _gridOffset(req, targetIdx, avail, targetH, rev);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_controller.hasClients) return;
+      final max = _controller.position.maxScrollExtent;
+      final target = offset.clamp(0.0, max);
+      _controller.animateTo(target,
+          duration: const Duration(milliseconds: 320), curve: Curves.easeOut);
+    });
+  }
+
+  // Exact grid offset: sum preceding section extents, then into the target
+  // section by header + top padding + the rows above the target photo's row.
+  double _gridOffset(({String sectionId, String? photoId}) req, int targetIdx,
+      double avail, double targetH, int rev) {
+    final before = <double>[];
+    for (var i = 0; i < targetIdx; i++) {
+      final photos = photosFor(sections[i].id);
+      if (photos.isEmpty) {
+        before.add(SectionScrollView._headerExtent + SectionScrollView._emptyExtent);
+      } else {
+        final rows =
+            _rowPlanFor(sections[i].id, photos, avail, targetH, _spacing, rev);
+        before.add(gridSectionExtent([for (final r in rows) r.height],
+            gap: _spacing,
+            headerExtent: SectionScrollView._headerExtent,
+            padTop: SectionScrollView._padTop,
+            padBottom: SectionScrollView._padBottom));
+      }
+    }
+    final photos = photosFor(req.sectionId);
+    final rows = _rowPlanFor(req.sectionId, photos, avail, targetH, _spacing, rev);
+    var rowIdx = 0;
+    if (req.photoId != null) {
+      final pi = photos.indexWhere((p) => p.id == req.photoId);
+      if (pi >= 0) {
+        rowIdx = rowIndexForPhoto(
+            [for (final r in rows) (start: r.start, count: r.count)], pi);
+      }
+    }
+    return gridTargetOffset(
+      sectionExtentsBefore: before,
+      headerExtent: SectionScrollView._headerExtent,
+      padTop: SectionScrollView._padTop,
+      targetRowHeights: [for (final r in rows) r.height],
+      gap: _spacing,
+      targetRowIndex: rowIdx,
+    );
+  }
+
+  // Masonry estimate: preceding sections use the shortest-column packing (the
+  // same algorithm SliverMasonryGrid.count uses), the target photo its packed
+  // top. ensureVisible corrects any residual after the jump.
+  double _masonryOffset(({String sectionId, String? photoId}) req,
+      int targetIdx, int cols, double cw) {
+    double sectionContent(List<Photo> photos) {
+      final heights = [for (final p in photos) cw / aspectFor(p)];
+      return masonryLayout(heights, cols, _spacing).contentHeight;
+    }
+
+    var offset = 0.0;
+    for (var i = 0; i < targetIdx; i++) {
+      final photos = photosFor(sections[i].id);
+      if (photos.isEmpty) {
+        offset += SectionScrollView._headerExtent + SectionScrollView._emptyExtent;
+      } else {
+        offset += SectionScrollView._headerExtent +
+            SectionScrollView._padTop +
+            sectionContent(photos) +
+            SectionScrollView._padBottom;
+      }
+    }
+    offset += SectionScrollView._padTop; // into the target section's grid
+    final photos = photosFor(req.sectionId);
+    if (req.photoId != null) {
+      final pi = photos.indexWhere((p) => p.id == req.photoId);
+      if (pi >= 0) {
+        final heights = [for (final p in photos) cw / aspectFor(p)];
+        offset += masonryLayout(heights, cols, _spacing).tops[pi];
+      }
+    }
+    return offset < 0 ? 0 : offset;
   }
 
   /// Justified, fixed-row-height grid: every tile in a row shares one height,
@@ -287,6 +418,7 @@ class SectionScrollView extends StatelessWidget {
       showLabel: showLabel,
       dragPaths: dragPaths,
       selected: selected,
+      flash: st.flashPhotoId == p.id,
       inTray: st.trayPhotos.contains(p.id),
       onTap: (e) {
         st.selectPhoto(
@@ -314,20 +446,25 @@ class _EmptySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        SectionScrollView._hPad,
-        PabloSpacing.xl,
-        SectionScrollView._hPad,
-        18,
-      ),
-      child: Text(
-        'No photos yet.',
-        style: PabloTypography.sans(
-          fontSize: 12,
-          color: PabloColors.textMuted,
-          fontWeight: FontWeight.w400,
-        ).copyWith(fontStyle: FontStyle.italic),
+    // Fixed footprint so the scroll-to math (SectionScrollView._emptyExtent)
+    // stays exact past an empty section.
+    return SizedBox(
+      height: SectionScrollView._emptyExtent,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          SectionScrollView._hPad,
+          PabloSpacing.xl,
+          SectionScrollView._hPad,
+          18,
+        ),
+        child: Text(
+          'No photos yet.',
+          style: PabloTypography.sans(
+            fontSize: 12,
+            color: PabloColors.textMuted,
+            fontWeight: FontWeight.w400,
+          ).copyWith(fontStyle: FontStyle.italic),
+        ),
       ),
     );
   }

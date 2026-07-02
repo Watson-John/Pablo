@@ -13,6 +13,7 @@ void main() {
         onMoveToFolder: (_) {},
         onSetAlbumCover: (_) {},
         onRemoveFromAlbum: (_) {},
+        onShowInPablo: (_) {},
         isStarred: (_) => false,
         isHidden: (_) => false,
       );

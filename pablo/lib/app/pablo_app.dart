@@ -1,7 +1,7 @@
 // Root MaterialApp providing the AppScope and the WindowShell.
 
 import 'dart:async';
-import 'dart:io' show Directory;
+import 'dart:io' show Directory, File;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
@@ -424,9 +424,23 @@ class _BodyState extends State<_Body> {
         onMoveToFolder: _moveToFolder,
         onSetAlbumCover: _setAlbumCover,
         onRemoveFromAlbum: _removeFromCurrentAlbum,
+        onShowInPablo: _showInPablo,
         isStarred: (id) => isStarredAsset(assetIdFor(id)),
         isHidden: isHiddenPhoto,
       );
+
+  // Jump from a virtual view (search/album/smart/people/timeline) to the
+  // photo's home folder in the Folders view: select the folder, scroll it into
+  // view with the photo, select + flash the photo.
+  void _showInPablo(String id) {
+    final st = AppScope.of(context);
+    final folder = File(id).parent.path;
+    st.setSelectedItem(folder, NavSection.folders);
+    st.requestGalleryScroll(folder, photoId: id);
+    st.selectPhoto(id,
+        contextPhotoIds: photosFor(folder).map((p) => p.id).toList());
+    st.flashPhoto(id);
+  }
 
   // Star/unstar the whole target set: if any is unstarred, star all; else
   // unstar all (matches the menu's verb). Catalog-persisted.

@@ -12,6 +12,7 @@ import 'package:flutter/widgets.dart';
 import '../../app/app_state.dart';
 import '../../components/context_menu.dart';
 import '../../data/library.dart' show photosFor;
+import '../../data/models.dart' show NavSection;
 import '../../utils/reveal_in_file_manager.dart';
 
 /// The photos an action should operate on: the current selection (in visible
@@ -40,6 +41,7 @@ class PhotoMenuActions {
     required this.onMoveToFolder,
     required this.onSetAlbumCover,
     required this.onRemoveFromAlbum,
+    required this.onShowInPablo,
     required this.isStarred,
     required this.isHidden,
   });
@@ -51,8 +53,23 @@ class PhotoMenuActions {
   final void Function(List<String> ids) onMoveToFolder;
   final void Function(String clickedId) onSetAlbumCover;
   final void Function(List<String> ids) onRemoveFromAlbum;
+
+  /// Jump to the clicked photo's home folder in the Folders view.
+  final void Function(String clickedId) onShowInPablo;
   final bool Function(String id) isStarred;
   final bool Function(String id) isHidden;
+}
+
+/// True when [st] is showing a virtual view (search / album / smart / people /
+/// timeline) rather than the real folder tree — where "Show in Pablo" helps.
+bool isVirtualView(PabloAppState st) {
+  if (st.activeSection != NavSection.folders) return true;
+  final id = st.selectedItem;
+  return id.startsWith('album:') ||
+      id.startsWith('smart:') ||
+      id.startsWith('search:') ||
+      id.startsWith('tm') ||
+      id.startsWith('ty');
 }
 
 /// Build + show the photo context menu at [position].
@@ -100,6 +117,12 @@ List<ContextMenuItem> buildPhotoMenuItems({
         iconCharacter: '✏️',
         onPressed: () => actions.onView(clickedId),
       ),
+      if (isVirtualView(st))
+        ContextMenuItem(
+          label: 'Show in Pablo',
+          iconCharacter: '📍',
+          onPressed: () => actions.onShowInPablo(clickedId),
+        ),
       ContextMenuItem.separator(),
       ContextMenuItem(
         label: anyUnstarred ? withCount('Star', 'Photos') : withCount('Unstar', 'Photos'),
