@@ -43,6 +43,7 @@ class PhotoMenuActions {
     required this.onRemoveFromAlbum,
     required this.onShowInPablo,
     required this.onSplitFolder,
+    required this.onRename,
     required this.isStarred,
     required this.isHidden,
   });
@@ -60,6 +61,9 @@ class PhotoMenuActions {
 
   /// Split the current folder at the clicked photo into a new sibling.
   final void Function(String clickedId) onSplitFolder;
+
+  /// Rename the target photos (single dialog for one, batch modal for many).
+  final void Function(List<String> ids) onRename;
   final bool Function(String id) isStarred;
   final bool Function(String id) isHidden;
 }
@@ -149,6 +153,11 @@ List<ContextMenuItem> buildPhotoMenuItems({
           iconCharacter: '✂️',
           onPressed: () => actions.onSplitFolder(clickedId),
         ),
+      ContextMenuItem(
+        label: multi ? 'Batch Rename $n Photos…' : 'Rename…',
+        iconCharacter: '🔤',
+        onPressed: () => actions.onRename(targets),
+      ),
       ContextMenuItem(
         label: multi ? 'Add $n Photos to Album' : 'Add to Album',
         iconCharacter: '+',

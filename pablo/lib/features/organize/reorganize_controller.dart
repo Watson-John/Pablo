@@ -106,6 +106,36 @@ Future<void> promptMoveToFolder(
   await reorganizeMove(context, st, ids, dest.dir, createdDirs: createdDirs);
 }
 
+/// Apply explicit (from → to) renames (same-directory), then refresh + undo +
+/// snackbar. Used by Batch Rename; routes through MoveService so sidecars,
+/// catalog relocation, id remap, and undo all come for free.
+Future<void> reorganizeRename(
+  BuildContext context,
+  PabloAppState st,
+  List<PlannedMove> moves, {
+  required String label,
+  Future<void> Function()? refresh,
+}) async {
+  if (moves.isEmpty) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final engine = NativeBackendScope.maybeOf(context)?.engine;
+  final outcome = MoveService.moveExact(moves,
+      engine: engine, undo: st.undoStack, label: label);
+  await _applyOutcome(st, outcome, refresh: refresh);
+  final n = outcome.movedCount;
+  messenger?.showSnackBar(SnackBar(
+    content: Text('Renamed $n photo${n == 1 ? '' : 's'}'
+        '${outcome.failedCount > 0 ? ' · ${outcome.failedCount} failed' : ''}'),
+    action: outcome.undoOp == null
+        ? null
+        : SnackBarAction(
+            label: 'Undo',
+            onPressed: () => undoFileOp(messenger, st, outcome.undoOp!,
+                engine: engine, refresh: refresh),
+          ),
+  ));
+}
+
 /// Undo a SPECIFIC op (a snackbar's Undo action). Silently does nothing when
 /// the op was already consumed by Cmd+Z / Edit→Undo — [UndoStack.remove]
 /// guards the double-reverse.

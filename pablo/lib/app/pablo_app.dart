@@ -26,6 +26,9 @@ import '../features/gallery/compare_view.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/gallery/photo_context_menu.dart';
+import '../data/move_service.dart' show PlannedMove;
+import '../data/scheme_engine.dart' show hardenComponent;
+import '../features/organize/batch_rename_modal.dart';
 import '../features/organize/folder_ops.dart';
 import '../features/info_panel/info_panel.dart';
 import '../features/organize/reorganize_controller.dart';
@@ -427,9 +430,61 @@ class _BodyState extends State<_Body> {
         onRemoveFromAlbum: _removeFromCurrentAlbum,
         onShowInPablo: _showInPablo,
         onSplitFolder: _splitFolderHere,
+        onRename: _rename,
         isStarred: (id) => isStarredAsset(assetIdFor(id)),
         isHidden: isHiddenPhoto,
       );
+
+  // Rename: a single photo gets a quick name dialog; a multi-selection opens
+  // the token-based batch modal. Both apply through the shared rename path.
+  Future<void> _rename(List<String> ids) async {
+    final st = AppScope.of(context);
+    if (ids.length > 1) {
+      await showBatchRenameModal(context, st, ids);
+      return;
+    }
+    final path = ids.first;
+    final dot = path.lastIndexOf('.');
+    final ext = dot > 0 ? path.substring(dot) : '';
+    final cut = path.lastIndexOf(RegExp(r'[/\\]'));
+    final currentStem =
+        (cut < 0 ? path : path.substring(cut + 1)).replaceAll(ext, '');
+    final newStem = await _promptRename(currentStem);
+    if (newStem == null || newStem.trim().isEmpty || !mounted) return;
+    final hardened = hardenComponent(newStem.trim());
+    if (hardened.isEmpty || hardened == currentStem) return;
+    final prefix = cut < 0 ? '' : path.substring(0, cut + 1);
+    await reorganizeRename(
+      context,
+      st,
+      [PlannedMove(path, '$prefix$hardened$ext')],
+      label: 'Rename photo',
+    );
+  }
+
+  Future<String?> _promptRename(String initial) {
+    final ctl = TextEditingController(text: initial);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename photo'),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'File name (no extension)'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(ctl.text),
+              child: const Text('Rename')),
+        ],
+      ),
+    );
+  }
 
   // Split the current folder at the clicked photo into a new sibling folder.
   void _splitFolderHere(String clickedId) {

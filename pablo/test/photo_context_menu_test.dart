@@ -15,6 +15,7 @@ void main() {
         onRemoveFromAlbum: (_) {},
         onShowInPablo: (_) {},
         onSplitFolder: (_) {},
+        onRename: (_) {},
         isStarred: (_) => false,
         isHidden: (_) => false,
       );
