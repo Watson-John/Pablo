@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:photo_native/photo_native.dart' show Album, Engine;
 
+import '../data/folder_prefs.dart';
 import '../data/indexing/indexing_controller.dart';
 import '../data/library.dart';
 import '../data/models.dart';
@@ -184,8 +185,8 @@ class PabloAppState extends ChangeNotifier {
   final UndoStack undoStack = UndoStack();
 
   // Most-recent move destinations, newest first — surfaced at the top of the
-  // Move-to-Folder palette. In-memory this stage; Stage 7 persists it.
-  final List<String> recentMoveDests = <String>[];
+  // Move-to-Folder palette. Persisted via FolderPrefs (folder_prefs.json).
+  List<String> get recentMoveDests => FolderPrefs.instance.recents;
 
   // A one-shot request for the gallery to scroll a section (and optionally a
   // photo) into view. The SectionScrollView consumes and clears it.
@@ -216,12 +217,9 @@ class PabloAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Record [dir] as the newest move destination (deduped, capped).
-  void noteMoveDestination(String dir) {
-    recentMoveDests.remove(dir);
-    recentMoveDests.insert(0, dir);
-    if (recentMoveDests.length > 8) recentMoveDests.removeLast();
-  }
+  /// Record [dir] as the newest move destination (deduped, capped, persisted).
+  void noteMoveDestination(String dir) =>
+      FolderPrefs.instance.noteRecent(dir);
 
   /// Swap photo ids (== file paths) after files moved on disk, so selection,
   /// tray, the shift-anchor, and an open lightbox all follow the moved files

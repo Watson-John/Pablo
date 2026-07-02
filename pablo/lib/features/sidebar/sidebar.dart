@@ -12,6 +12,7 @@ import '../../components/context_menu.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/section_header.dart';
+import '../../data/folder_prefs.dart';
 import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
@@ -30,9 +31,13 @@ import '../people/unnamed_faces_row.dart';
 class Sidebar extends StatelessWidget {
   const Sidebar({super.key});
 
+  static String _leafName(String path) =>
+      path.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
+
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
+    FolderPrefs.instance.ensureLoaded();
     final pc = PeopleScope.of(context);
     final narrow = st.sidebarWidth < 210;
 
@@ -204,6 +209,43 @@ class Sidebar extends StatelessWidget {
                           ),
                   ),
 
+                  // Pinned — user-pinned folders, one drag-drop-target row
+                  // each. Reacts to FolderPrefs; hidden entirely when empty.
+                  ListenableBuilder(
+                    listenable: FolderPrefs.instance,
+                    builder: (context, _) {
+                      final pins = FolderPrefs.instance.pins;
+                      if (pins.isEmpty) return const SizedBox.shrink();
+                      return CollapsibleSection(
+                        label: 'Pinned',
+                        icon: PabloIconName.star,
+                        iconColor: PabloColors.amber,
+                        collapsedCount: '${pins.length}',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final path in pins)
+                              FolderLeaf(
+                                folder: FolderNode(
+                                    id: path, name: _leafName(path), path: path),
+                                selected: st.activeSection ==
+                                        NavSection.folders &&
+                                    st.selectedItem == path,
+                                onSelect: () {
+                                  st.setSelectedItem(path, NavSection.folders);
+                                  st.requestGalleryScroll(path);
+                                },
+                                onDropPaths: (paths) =>
+                                    reorganizeMove(context, st, paths, path),
+                                onContextMenu: (pos) =>
+                                    _folderContextMenu(context, path, pos),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+
                   // Folders — the real directory tree under the import root.
                   CollapsibleSection(
                     label: 'Folders',
@@ -360,6 +402,15 @@ class Sidebar extends StatelessWidget {
           enabled: isEmpty,
           onPressed:
               isEmpty ? () => deleteFolderIfEmpty(context, st, folderId) : null,
+        ),
+        ContextMenuItem.separator(),
+        ContextMenuItem(
+          label: FolderPrefs.instance.isPinned(folderId)
+              ? 'Unpin Folder'
+              : 'Pin Folder',
+          iconCharacter: '📌',
+          checked: FolderPrefs.instance.isPinned(folderId),
+          onPressed: () => FolderPrefs.instance.togglePin(folderId),
         ),
         if (backend != null) ...[
           ContextMenuItem.separator(),

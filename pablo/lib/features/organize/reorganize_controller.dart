@@ -12,6 +12,7 @@ import 'package:photo_native/photo_native.dart' show Engine;
 import '../../app/app_state.dart';
 import '../../backend/native_backend.dart';
 import '../../data/boot.dart';
+import '../../data/folder_prefs.dart';
 import '../../data/library.dart';
 import '../../data/move_service.dart';
 import '../../data/undo_stack.dart';
@@ -77,6 +78,7 @@ Future<void> promptMoveToFolder(
   List<String> ids,
 ) async {
   if (ids.isEmpty) return;
+  FolderPrefs.instance.ensureLoaded();
   final dest = await showMovePalette(
     context,
     folders: [
@@ -84,6 +86,7 @@ Future<void> promptMoveToFolder(
         FolderCandidate(path: f.id, name: f.name),
     ],
     photoCount: ids.length,
+    pinned: FolderPrefs.instance.pins,
     recents: st.recentMoveDests,
   );
   if (dest == null || !context.mounted) return;
