@@ -13,6 +13,7 @@
 //     functions treat NULL engine as a misuse and return a sentinel.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -1800,3 +1801,51 @@ extern "C" PHOTO_API void photo_test_publish_solid(photo_engine_t* engine,
     if (!slot) return;
     slot->publish_solid_color(b, g, r, a);
 }
+
+// ---------------------------------------------------------------------------
+// ABI layout pins.
+//
+// These are the byte layouts the Dart side hand-mirrors (core_api.dart) and
+// ffigen generates from (bindings_generated.dart). If one of these fires you
+// have changed the FFI ABI: either revert to an append-only change, or bump
+// PHOTO_ABI_VERSION and regenerate/update BOTH Dart mirrors in the same
+// commit. The Dart twin of this block is photo_native's abi_drift_test.dart.
+// ---------------------------------------------------------------------------
+
+static_assert(sizeof(void*) == 8,
+              "photo_core ABI is pinned for 64-bit targets only");
+static_assert(sizeof(photo_config_t)         == 64,  "ABI break: photo_config_t");
+static_assert(sizeof(photo_frame_view_t)     == 32,  "ABI break: photo_frame_view_t");
+static_assert(sizeof(photo_event_t)          == 80,  "ABI break: photo_event_t");
+static_assert(sizeof(photo_catalog_stats_t)  == 24,  "ABI break: photo_catalog_stats_t");
+static_assert(sizeof(photo_person_t)         == 168, "ABI break: photo_person_t");
+static_assert(sizeof(photo_face_t)           == 72,  "ABI break: photo_face_t");
+static_assert(sizeof(photo_asset_t)          == 4160,"ABI break: photo_asset_t");
+static_assert(sizeof(photo_geopoint_t)       == 24,  "ABI break: photo_geopoint_t");
+static_assert(sizeof(photo_organize_t)       == 520, "ABI break: photo_organize_t");
+static_assert(sizeof(photo_album_t)          == 160, "ABI break: photo_album_t");
+static_assert(sizeof(photo_embed_counts_t)   == 48,  "ABI break: photo_embed_counts_t");
+static_assert(sizeof(photo_search_hit_t)     == 16,  "ABI break: photo_search_hit_t");
+static_assert(sizeof(photo_asset_color_t)    == 16,  "ABI break: photo_asset_color_t");
+static_assert(sizeof(photo_saved_search_t)   == 144, "ABI break: photo_saved_search_t");
+static_assert(sizeof(photo_export_options_t) == 300, "ABI break: photo_export_options_t");
+static_assert(sizeof(photo_collage_cell_t)   == 32,  "ABI break: photo_collage_cell_t");
+static_assert(sizeof(photo_metadata_t)       == 408, "ABI break: photo_metadata_t");
+static_assert(sizeof(photo_region_t)         == 12,  "ABI break: photo_region_t");
+
+// Field offsets the Dart event pump / asset hydration dereference directly.
+static_assert(offsetof(photo_event_t, kind)       == 0,  "ABI break: event.kind");
+static_assert(offsetof(photo_event_t, status)     == 8,  "ABI break: event.status");
+static_assert(offsetof(photo_event_t, request_id) == 24, "ABI break: event.request_id");
+static_assert(offsetof(photo_event_t, asset_id)   == 32, "ABI break: event.asset_id");
+static_assert(offsetof(photo_event_t, aux64)      == 56, "ABI break: event.aux64");
+static_assert(offsetof(photo_event_t, aux64_b)    == 64, "ABI break: event.aux64_b");
+static_assert(offsetof(photo_event_t, _reserved)  == 72, "ABI break: event._reserved");
+static_assert(offsetof(photo_asset_t, asset_id)   == 0,  "ABI break: asset.asset_id");
+static_assert(offsetof(photo_asset_t, flags)      == 44, "ABI break: asset.flags");
+static_assert(offsetof(photo_asset_t, _reserved)  == 48, "ABI break: asset._reserved");
+static_assert(offsetof(photo_asset_t, path)       == 60, "ABI break: asset.path");
+static_assert(offsetof(photo_face_t, ignored)     == 60, "ABI break: face.ignored");
+static_assert(offsetof(photo_face_t, manual)      == 64, "ABI break: face.manual");
+static_assert(offsetof(photo_export_options_t, wm_text) == 44,
+              "ABI break: export_options.wm_text");

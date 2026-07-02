@@ -2329,3 +2329,32 @@ final class _Bindings {
         'photo_asset_clear_geo',
       );
 }
+
+// ---------------------------------------------------------------------------
+// ABI drift-gate seam.
+//
+// Byte sizes of every hand-mirrored native struct above, keyed by the C
+// typedef name. photo_native's abi_drift_test compares these against the
+// ffigen-generated layouts (bindings_generated.dart) and against the pins in
+// c_api.cpp's static_assert block, so a header change that isn't propagated
+// here fails a test instead of corrupting memory at runtime.
+// ---------------------------------------------------------------------------
+
+Map<String, int> debugNativeStructSizes() => {
+      'photo_config_t': sizeOf<_NativeConfig>(),
+      'photo_frame_view_t': sizeOf<_NativeFrameView>(),
+      'photo_event_t': sizeOf<NativeEvent>(),
+      'photo_catalog_stats_t': sizeOf<_NativeCatalogStats>(),
+      'photo_person_t': sizeOf<_NativePerson>(),
+      'photo_face_t': sizeOf<_NativeFace>(),
+      'photo_asset_t': sizeOf<_NativeAsset>(),
+      'photo_geopoint_t': sizeOf<_NativeGeoPoint>(),
+      'photo_organize_t': sizeOf<_NativeOrganize>(),
+      'photo_album_t': sizeOf<_NativeAlbum>(),
+      'photo_embed_counts_t': sizeOf<_NativeEmbedCounts>(),
+      'photo_search_hit_t': sizeOf<_NativeSearchHit>(),
+      'photo_asset_color_t': sizeOf<_NativeAssetColor>(),
+      'photo_saved_search_t': sizeOf<_NativeSavedSearch>(),
+      'photo_export_options_t': sizeOf<_NativeExportOptions>(),
+      'photo_collage_cell_t': sizeOf<_NativeCollageCell>(),
+    };

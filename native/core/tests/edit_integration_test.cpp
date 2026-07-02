@@ -628,4 +628,86 @@ TEST(EditExport, LayeredTiffHasTwoPagesAndEmbeddedSpec) {
     g_object_unref(tif);
 }
 
+// The layered TIFF's SECOND page is the untouched original — the D1
+// reversibility invariant on disk. A heavy edit on page 1 must leave page 2
+// byte-equivalent to the source pixels (page 1 exists to look edited; page 2
+// exists so the edit can always be re-derived or reverted).
+TEST(EditExport, LayeredTiffPreservesOriginalPixelsOnPage2) {
+    auto dir = exportns::temp_directory_path() / "photo_edit_layered_orig";
+    exportns::remove_all(dir);
+    exportns::create_directories(dir);
+    const std::string src = write_src(dir, 96, 64);
+    auto eng = export_engine(dir);
+    ASSERT_NE(eng, nullptr);
+
+    const auto out = (dir / "layered.tif").string();
+    // Desaturate hard so edited != original is unambiguous.
+    const uint64_t req = eng->save_layered(src, out, "saturation=-100;");
+    ASSERT_GT(req, 0u);
+    ASSERT_TRUE(wait_export(*eng, req));
+
+    VipsImage* orig = vips_image_new_from_file(src.c_str(), nullptr);
+    VipsImage* p1 = vips_image_new_from_file(out.c_str(), "page", 0, nullptr);
+    VipsImage* p2 = vips_image_new_from_file(out.c_str(), "page", 1, nullptr);
+    ASSERT_NE(orig, nullptr);
+    ASSERT_NE(p1, nullptr);
+    ASSERT_NE(p2, nullptr);
+
+    // Layered pages share one canvas; the source is embedded top-left. Sample
+    // inside the source bounds. quadrants() puts saturated red top-left and
+    // green top-right.
+    auto rgb = [](VipsImage* im, int x, int y, double out3[3]) {
+        double* v = nullptr; int n = 0;
+        ASSERT_EQ(vips_getpoint(im, &v, &n, x, y, nullptr), 0);
+        ASSERT_GE(n, 3);
+        out3[0] = v[0]; out3[1] = v[1]; out3[2] = v[2];
+        g_free(v);
+    };
+    double o[3], edited[3], kept[3];
+    rgb(orig, 10, 10, o);
+    rgb(p1, 10, 10, edited);
+    rgb(p2, 10, 10, kept);
+    // Page 2 == original (allow codec jitter); page 1 visibly desaturated
+    // (red channel pulled toward the grey point).
+    for (int c = 0; c < 3; ++c) EXPECT_NEAR(kept[c], o[c], 4.0) << "chan " << c;
+    EXPECT_LT(edited[0] - edited[1], (o[0] - o[1]) * 0.5)
+        << "page 1 does not look desaturated — edit missing from edited layer";
+
+    g_object_unref(orig);
+    g_object_unref(p1);
+    g_object_unref(p2);
+}
+
+// File-level tone check: the pixels WRITTEN to disk carry the edit (the buffer
+// pipeline is unit-tested elsewhere; this pins decode→edit→encode→decode).
+TEST(EditExport, ExportedFileCarriesToneEdit) {
+    auto dir = exportns::temp_directory_path() / "photo_edit_tone_export";
+    exportns::remove_all(dir);
+    exportns::create_directories(dir);
+    const std::string src = write_src(dir, 80, 80);
+    auto eng = export_engine(dir);
+    ASSERT_NE(eng, nullptr);
+
+    const auto out = (dir / "grey.jpg").string();
+    const uint64_t req = eng->export_path(src, out, "saturation=-100;", 95);
+    ASSERT_GT(req, 0u);
+    ASSERT_TRUE(wait_export(*eng, req));
+
+    // Fully desaturated: every sampled pixel has near-equal channels, where
+    // the source quadrants were saturated primaries.
+    VipsImage* got = vips_image_new_from_file(out.c_str(), nullptr);
+    ASSERT_NE(got, nullptr);
+    for (const auto [x, y] : {std::pair{10, 10}, {70, 10}, {10, 70}, {70, 70}}) {
+        double* v = nullptr; int n = 0;
+        ASSERT_EQ(vips_getpoint(got, &v, &n, x, y, nullptr), 0);
+        ASSERT_GE(n, 3);
+        const double spread = std::max({v[0], v[1], v[2]}) -
+                              std::min({v[0], v[1], v[2]});
+        EXPECT_LT(spread, 12.0) << "pixel (" << x << "," << y
+                                << ") still saturated in the written file";
+        g_free(v);
+    }
+    g_object_unref(got);
+}
+
 #endif  // PHOTO_HAVE_VIPS
