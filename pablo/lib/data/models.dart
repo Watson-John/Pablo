@@ -83,10 +83,19 @@ class Photo {
     this.aspect,
     this.modified,
     this.sizeBytes = 0,
+    this.isVideo = false,
+    this.durationMs = 0,
   });
 
   final String id;
   final String label;
+
+  /// True for video assets (§11). The grid badges these and the lightbox opens
+  /// a player instead of a still image.
+  final bool isVideo;
+
+  /// Video length in milliseconds (0 for photos or until the catalog fills it).
+  final int durationMs;
 
   /// Absolute path to the real image file on disk. PhotoThumb routes this to
   /// the native libvips decoder via the TextureSlot seam.

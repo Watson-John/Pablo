@@ -813,57 +813,107 @@ void apply_heal(FrameBuffer& fb, const EditSpec& spec) {
 }
 
 #ifdef PHOTO_HAVE_VIPS
+namespace {
+
+// Rasterize `text` with Pango at `fontpx` and alpha-blend it (colour `rgb`
+// 0xRRGGBB, extra opacity `alpha` 0..1) over the frame. `place(tw, th, &x0,
+// &y0)` maps the rasterized mask size to the box's top-left, so callers can
+// centre (apply_text) or corner-anchor (draw_watermark); off-frame pixels are
+// clipped per row/column. Shared by apply_text and draw_watermark.
+template <typename PlaceFn>
+void blend_text_mask(FrameBuffer& fb, const std::string& text, int fontpx,
+                     uint32_t rgb, float alpha, PlaceFn place) {
+    const int W = static_cast<int>(fb.width), H = static_cast<int>(fb.height);
+    const int stride = static_cast<int>(fb.stride);
+    if (W <= 0 || H <= 0 || text.empty() || alpha <= 0.f) return;
+    const std::string font = "sans " + std::to_string(std::max(6, fontpx));
+    VipsImage* mask = nullptr;
+    if (vips_text(&mask, text.c_str(), "font", font.c_str(), "dpi", 72,
+                  nullptr) != 0) {
+        vips_error_clear();
+        return;
+    }
+    const int tw = vips_image_get_width(mask);
+    const int th = vips_image_get_height(mask);
+    size_t n = 0;
+    auto* mem = static_cast<uint8_t*>(vips_image_write_to_memory(mask, &n));
+    g_object_unref(mask);
+    if (mem == nullptr || tw <= 0 || th <= 0) { if (mem) g_free(mem); return; }
+    const int bands = static_cast<int>(n / (static_cast<size_t>(tw) * th));
+    int x0 = 0, y0 = 0;
+    place(tw, th, &x0, &y0);
+    const uint8_t cr = (rgb >> 16) & 0xFF;
+    const uint8_t cg = (rgb >> 8) & 0xFF;
+    const uint8_t cb = rgb & 0xFF;
+    for (int yy = 0; yy < th; ++yy) {
+        const int dy = y0 + yy;
+        if (dy < 0 || dy >= H) continue;
+        for (int xx = 0; xx < tw; ++xx) {
+            const int dx = x0 + xx;
+            if (dx < 0 || dx >= W) continue;
+            const uint8_t a =
+                mem[(static_cast<size_t>(yy) * tw + xx) * bands];  // coverage
+            if (a == 0) continue;
+            const float af = (a / 255.f) * alpha;
+            uint8_t* p = fb.bgra.data() + static_cast<size_t>(dy) * stride +
+                         static_cast<size_t>(dx) * 4;
+            // Opaque frame (A=255) → premultiplied == straight; blend over.
+            p[0] = static_cast<uint8_t>(std::lround(cb * af + p[0] * (1 - af)));
+            p[1] = static_cast<uint8_t>(std::lround(cg * af + p[1] * (1 - af)));
+            p[2] = static_cast<uint8_t>(std::lround(cr * af + p[2] * (1 - af)));
+        }
+    }
+    g_free(mem);
+}
+
+}  // namespace
+
 void apply_text(FrameBuffer& fb, const EditSpec& spec) {
     if (spec.texts.empty()) return;
     const int W = static_cast<int>(fb.width), H = static_cast<int>(fb.height);
-    const int stride = static_cast<int>(fb.stride);
     if (W <= 0 || H <= 0) return;
     for (const TextItem& t : spec.texts) {
-        if (t.text.empty()) continue;
         const int fontpx = std::max(6, static_cast<int>(std::lround(t.size * H)));
-        const std::string font = "sans " + std::to_string(fontpx);
-        VipsImage* mask = nullptr;
-        if (vips_text(&mask, t.text.c_str(), "font", font.c_str(), "dpi", 72,
-                      nullptr) != 0) {
-            vips_error_clear();
-            continue;
-        }
-        const int tw = vips_image_get_width(mask);
-        const int th = vips_image_get_height(mask);
-        size_t n = 0;
-        auto* mem = static_cast<uint8_t*>(vips_image_write_to_memory(mask, &n));
-        g_object_unref(mask);
-        if (mem == nullptr || tw <= 0 || th <= 0) { if (mem) g_free(mem); continue; }
-        const int bands = static_cast<int>(n / (static_cast<size_t>(tw) * th));
-        // (x,y) is the CENTRE of the text box.
-        const int x0 = static_cast<int>(std::lround(t.x * W)) - tw / 2;
-        const int y0 = static_cast<int>(std::lround(t.y * H)) - th / 2;
-        const uint8_t cr = (t.color >> 16) & 0xFF;
-        const uint8_t cg = (t.color >> 8) & 0xFF;
-        const uint8_t cb = t.color & 0xFF;
-        for (int yy = 0; yy < th; ++yy) {
-            const int dy = y0 + yy;
-            if (dy < 0 || dy >= H) continue;
-            for (int xx = 0; xx < tw; ++xx) {
-                const int dx = x0 + xx;
-                if (dx < 0 || dx >= W) continue;
-                const uint8_t a =
-                    mem[(static_cast<size_t>(yy) * tw + xx) * bands];  // coverage
-                if (a == 0) continue;
-                const float af = a / 255.f;
-                uint8_t* p = fb.bgra.data() + static_cast<size_t>(dy) * stride +
-                             static_cast<size_t>(dx) * 4;
-                // Opaque frame (A=255) → premultiplied == straight; blend over.
-                p[0] = static_cast<uint8_t>(std::lround(cb * af + p[0] * (1 - af)));
-                p[1] = static_cast<uint8_t>(std::lround(cg * af + p[1] * (1 - af)));
-                p[2] = static_cast<uint8_t>(std::lround(cr * af + p[2] * (1 - af)));
-            }
-        }
-        g_free(mem);
+        blend_text_mask(fb, t.text, fontpx, t.color, 1.f,
+                        [&](int tw, int th, int* x0, int* y0) {
+                            // (x,y) is the CENTRE of the text box.
+                            *x0 = static_cast<int>(std::lround(t.x * W)) - tw / 2;
+                            *y0 = static_cast<int>(std::lround(t.y * H)) - th / 2;
+                        });
     }
+}
+
+void draw_watermark(FrameBuffer& fb, const Watermark& wm) {
+    const int W = static_cast<int>(fb.width), H = static_cast<int>(fb.height);
+    if (W <= 0 || H <= 0 || wm.text.empty()) return;
+    const float alpha = ((wm.argb >> 24) & 0xFF) / 255.f;
+    if (alpha <= 0.f) return;
+    const int short_edge = std::min(W, H);
+    const float size = wm.size > 0.f ? wm.size : 0.04f;
+    const float margin_f = wm.margin >= 0.f ? wm.margin : 0.02f;
+    const int fontpx =
+        std::max(6, static_cast<int>(std::lround(size * short_edge)));
+    const int margin =
+        std::max(0, static_cast<int>(std::lround(margin_f * short_edge)));
+    blend_text_mask(fb, wm.text, fontpx, wm.argb & 0xFFFFFFu, alpha,
+                    [&](int tw, int th, int* x0, int* y0) {
+                        switch (wm.anchor) {
+                            case 1:  // bottom-left
+                                *x0 = margin; *y0 = H - margin - th; break;
+                            case 2:  // top-right
+                                *x0 = W - margin - tw; *y0 = margin; break;
+                            case 3:  // top-left
+                                *x0 = margin; *y0 = margin; break;
+                            case 4:  // centre
+                                *x0 = (W - tw) / 2; *y0 = (H - th) / 2; break;
+                            default:  // bottom-right
+                                *x0 = W - margin - tw; *y0 = H - margin - th;
+                        }
+                    });
 }
 #else
 void apply_text(FrameBuffer&, const EditSpec&) {}
+void draw_watermark(FrameBuffer&, const Watermark&) {}
 #endif
 
 namespace {

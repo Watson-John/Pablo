@@ -210,6 +210,21 @@ class _PhotoThumbState extends State<PhotoThumb> {
                               Positioned.fill(
                                 child: PhotoSurface(photo: widget.photo),
                               ),
+                              // §11 video cues: a centered play circle (always)
+                              // and a duration pill (hidden on hover so it
+                              // doesn't fight the add-to-tray "+").
+                              if (widget.photo.isVideo) ...[
+                                const Positioned.fill(
+                                  child: Center(child: _PlayCircle()),
+                                ),
+                                if (!_hover && widget.photo.durationMs > 0)
+                                  Positioned(
+                                    bottom: 6,
+                                    right: 6,
+                                    child: _DurationPill(
+                                        ms: widget.photo.durationMs),
+                                  ),
+                              ],
                               if (widget.photo.starred ||
                                   isStarredAsset(assetIdFor(widget.photo.id)))
                                 const Positioned(
@@ -388,6 +403,65 @@ class _CaptionBand extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Format a duration in ms as m:ss (or h:mm:ss for long clips).
+String formatDuration(int ms) {
+  final total = (ms / 1000).round();
+  final h = total ~/ 3600;
+  final m = (total % 3600) ~/ 60;
+  final s = total % 60;
+  final ss = s.toString().padLeft(2, '0');
+  if (h > 0) return '$h:${m.toString().padLeft(2, '0')}:$ss';
+  return '$m:$ss';
+}
+
+/// Centered translucent play circle marking a video thumbnail (§11).
+class _PlayCircle extends StatelessWidget {
+  const _PlayCircle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 34,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white.withValues(alpha: 0.85), width: 1.5),
+      ),
+      child: const PabloIcon(
+        PabloIconName.playFill,
+        size: 16,
+        color: Colors.white,
+      ),
+    );
+  }
+}
+
+/// A small dark pill showing a video clip's duration (bottom-right of the tile).
+class _DurationPill extends StatelessWidget {
+  const _DurationPill({required this.ms});
+  final int ms;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.sm, vertical: 1),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.62),
+        borderRadius: PabloRadius.smAll,
+      ),
+      child: Text(
+        formatDuration(ms),
+        style: PabloTypography.mono(
+          fontSize: 9.5,
+          color: Colors.white,
+        ),
+      ),
     );
   }
 }

@@ -206,6 +206,7 @@ final class _NativeAsset extends Struct {
 
 /// PHOTO_ASSET_FLAG_HIDDEN.
 const int _kAssetFlagHidden = 1 << 0;
+const int _kAssetFlagVideo = 1 << 1;
 
 /// photo_geopoint_t mirror.
 final class _NativeGeoPoint extends Struct {
@@ -284,6 +285,52 @@ final class _NativeSavedSearch extends Struct {
   external int created;
   @Array(128)
   external Array<Uint8> name;
+}
+
+/// photo_export_options_t mirror (Stage V1 export: resize/quality/watermark).
+final class _NativeExportOptions extends Struct {
+  @Uint32()
+  external int maxDim;
+  @Int32()
+  external int quality;
+  @Uint32()
+  external int wmArgb;
+  @Float()
+  external double wmSize;
+  @Float()
+  external double wmMargin;
+  @Uint32()
+  external int wmAnchor;
+  @Uint32()
+  external int flags;
+  @Array(4)
+  external Array<Uint32> reserved;
+  @Array(256)
+  external Array<Uint8> wmText;
+}
+
+/// photo_collage_cell_t mirror (§10/collage). The char* fields are set to
+/// caller-allocated UTF-8 buffers freed after the call returns.
+final class _NativeCollageCell extends Struct {
+  @Float()
+  external double x;
+  @Float()
+  external double y;
+  @Float()
+  external double w;
+  @Float()
+  external double h;
+  external Pointer<Utf8> src;
+  external Pointer<Utf8> spec;
+}
+
+/// PHOTO_EXPORT_ANCHOR_* mirror — watermark corner placement.
+abstract final class ExportAnchor {
+  static const int bottomRight = 0;
+  static const int bottomLeft = 1;
+  static const int topRight = 2;
+  static const int topLeft = 3;
+  static const int center = 4;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +509,24 @@ typedef _SaveLayeredC = Uint64 Function(
     Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _SaveLayeredDart = int Function(
     Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _Export2C = Uint64 Function(Pointer<Void>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Utf8>, Pointer<_NativeExportOptions>);
+typedef _Export2Dart = int Function(Pointer<Void>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Utf8>, Pointer<_NativeExportOptions>);
+typedef _CollageC = Uint64 Function(Pointer<Void>, Pointer<_NativeCollageCell>,
+    IntPtr, Pointer<Utf8>, Uint32, Uint32, Uint32, Int32);
+typedef _CollageDart = int Function(Pointer<Void>, Pointer<_NativeCollageCell>,
+    int, Pointer<Utf8>, int, int, int, int);
+typedef _VideoSetTrimC = Int32 Function(Pointer<Void>, Uint64, Int64, Int64);
+typedef _VideoSetTrimDart = int Function(Pointer<Void>, int, int, int);
+typedef _VideoGetTrimC = Int32 Function(
+    Pointer<Void>, Uint64, Pointer<Int64>, Pointer<Int64>);
+typedef _VideoGetTrimDart = int Function(
+    Pointer<Void>, int, Pointer<Int64>, Pointer<Int64>);
+typedef _VideoExportTrimmedC = Uint64 Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Int64, Int64);
+typedef _VideoExportTrimmedDart = int Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, int, int);
 
 // Hide (folder set-hidden + hidden-folders NUL-buffer). Per-asset set-hidden
 // reuses _AssetSetIntC/Dart (photo_asset_set_hidden).
@@ -1063,6 +1128,55 @@ final class Engine {
     }
   }
 
+  /// [exportAsset] with output options: [maxDim] bounds the long edge of the
+  /// written file (0 = original size, never upscales) and a text watermark
+  /// draws when [watermarkText] is non-empty ([watermarkArgb] carries opacity
+  /// in the top byte; size/margin are fractions of the OUTPUT short edge).
+  /// Same async request-id + exportComplete contract as [exportAsset].
+  int exportAsset2({
+    required String srcPath,
+    required String dstPath,
+    String spec = '',
+    int maxDim = 0,
+    int quality = 92,
+    String watermarkText = '',
+    int watermarkArgb = 0x80FFFFFF,
+    double watermarkSize = 0.04,
+    double watermarkMargin = 0.02,
+    int watermarkAnchor = ExportAnchor.bottomRight,
+  }) {
+    final s = srcPath.toNativeUtf8();
+    final d = dstPath.toNativeUtf8();
+    final sp = spec.toNativeUtf8();
+    final opts = calloc<_NativeExportOptions>();
+    try {
+      opts.ref
+        ..maxDim = maxDim
+        ..quality = quality
+        ..wmArgb = watermarkArgb
+        ..wmSize = watermarkSize
+        ..wmMargin = watermarkMargin
+        ..wmAnchor = watermarkAnchor;
+      final bytes = utf8.encode(watermarkText);
+      var n = bytes.length < 255 ? bytes.length : 255;
+      // Don't split a multi-byte sequence at the truncation point (Pango
+      // rejects invalid UTF-8 and the watermark would silently vanish).
+      while (n > 0 && n < bytes.length && (bytes[n] & 0xC0) == 0x80) {
+        n--;
+      }
+      for (var i = 0; i < n; i++) {
+        opts.ref.wmText[i] = bytes[i];
+      }
+      opts.ref.wmText[n] = 0;
+      return _Bindings.exportAsset2(_handle, s, d, sp, opts);
+    } finally {
+      calloc.free(opts);
+      calloc.free(s);
+      calloc.free(d);
+      calloc.free(sp);
+    }
+  }
+
   /// Write a self-contained layered TIFF (page 0 edited, page 1 original, spec
   /// in metadata) to [dstPath]. Same async contract as [exportAsset].
   int saveLayered({
@@ -1079,6 +1193,84 @@ final class Engine {
       calloc.free(s);
       calloc.free(d);
       calloc.free(sp);
+    }
+  }
+
+  /// §10/collage: composite [cells] (each a normalized rect + source path +
+  /// edit spec) onto a [canvasW]×[canvasH] canvas filled with [bgRgb]
+  /// (0xRRGGBB) and write a JPEG to [dstPath]. Async: returns a request id; a
+  /// [PhotoEventKind.exportComplete] event fires. 0 on rejection / no libvips.
+  int createCollage({
+    required List<CollageCell> cells,
+    required String dstPath,
+    required int canvasW,
+    required int canvasH,
+    int bgRgb = 0xFFFFFF,
+    int quality = 92,
+  }) {
+    if (cells.isEmpty) return 0;
+    final arr = calloc<_NativeCollageCell>(cells.length);
+    final d = dstPath.toNativeUtf8();
+    final strs = <Pointer<Utf8>>[];
+    try {
+      for (var i = 0; i < cells.length; i++) {
+        final s = cells[i].src.toNativeUtf8();
+        final sp = cells[i].spec.toNativeUtf8();
+        strs.add(s);
+        strs.add(sp);
+        arr[i]
+          ..x = cells[i].x
+          ..y = cells[i].y
+          ..w = cells[i].w
+          ..h = cells[i].h
+          ..src = s
+          ..spec = sp;
+      }
+      return _Bindings.createCollage(
+          _handle, arr, cells.length, d, canvasW, canvasH, bgRgb, quality);
+    } finally {
+      for (final p in strs) {
+        calloc.free(p);
+      }
+      calloc.free(arr);
+      calloc.free(d);
+    }
+  }
+
+  /// §11 video trim (catalog-only). (0, 0) clears. Returns true on success.
+  bool videoSetTrim(int assetId, int startMs, int endMs) =>
+      _Bindings.videoSetTrim(_handle, assetId, startMs, endMs) == 0;
+
+  /// Read an asset's saved trim as (startMs, endMs); endMs 0 = to the end,
+  /// both 0 = no trim.
+  ({int startMs, int endMs}) videoGetTrim(int assetId) {
+    final s = calloc<Int64>();
+    final e = calloc<Int64>();
+    try {
+      _Bindings.videoGetTrim(_handle, assetId, s, e);
+      return (startMs: s.value, endMs: e.value);
+    } finally {
+      calloc.free(s);
+      calloc.free(e);
+    }
+  }
+
+  /// Export a stream-copied trimmed clip [startMs, endMs) of [srcPath] to
+  /// [dstPath] (no re-encode). Async: returns a request id + exportComplete
+  /// event; 0 on rejection / no FFmpeg.
+  int videoExportTrimmed({
+    required String srcPath,
+    required String dstPath,
+    required int startMs,
+    required int endMs,
+  }) {
+    final s = srcPath.toNativeUtf8();
+    final d = dstPath.toNativeUtf8();
+    try {
+      return _Bindings.videoExportTrimmed(_handle, s, d, startMs, endMs);
+    } finally {
+      calloc.free(s);
+      calloc.free(d);
     }
   }
 
@@ -1703,6 +1895,9 @@ final class AssetRow {
       starred = a.starred != 0,
       rating = a.rating,
       hidden = (a.flags & _kAssetFlagHidden) != 0,
+      isVideo = (a.flags & _kAssetFlagVideo) != 0,
+      // §11: video duration (ms) rides in _reserved[0] — see photo_core.h.
+      durationMs = a.reserved[0],
       path = _readCName(a.path, 4096);
 
   final int assetId;
@@ -1715,6 +1910,30 @@ final class AssetRow {
   final bool starred;
   final int rating;
   final bool hidden;
+
+  /// True when this asset is a video (§11); [durationMs] then holds its length.
+  final bool isVideo;
+  final int durationMs;
+}
+
+/// One collage cell for [Engine.createCollage]: a normalized rect [0,1] on the
+/// canvas, the source image path, and its edit spec ('' = none).
+class CollageCell {
+  const CollageCell({
+    required this.x,
+    required this.y,
+    required this.w,
+    required this.h,
+    required this.src,
+    this.spec = '',
+  });
+
+  final double x;
+  final double y;
+  final double w;
+  final double h;
+  final String src;
+  final String spec;
 }
 
 /// A geotagged asset: id + decimal-degree coordinates. Immutable projection of
@@ -2006,6 +2225,19 @@ final class _Bindings {
   static final _SaveLayeredDart saveLayered =
       _dylib.lookupFunction<_SaveLayeredC, _SaveLayeredDart>(
           'photo_asset_save_layered');
+  static final _Export2Dart exportAsset2 =
+      _dylib.lookupFunction<_Export2C, _Export2Dart>('photo_asset_export2');
+  static final _CollageDart createCollage =
+      _dylib.lookupFunction<_CollageC, _CollageDart>('photo_create_collage');
+  static final _VideoSetTrimDart videoSetTrim =
+      _dylib.lookupFunction<_VideoSetTrimC, _VideoSetTrimDart>(
+          'photo_video_set_trim');
+  static final _VideoGetTrimDart videoGetTrim =
+      _dylib.lookupFunction<_VideoGetTrimC, _VideoGetTrimDart>(
+          'photo_video_get_trim');
+  static final _VideoExportTrimmedDart videoExportTrimmed =
+      _dylib.lookupFunction<_VideoExportTrimmedC, _VideoExportTrimmedDart>(
+          'photo_video_export_trimmed');
   static final _AssetSetIntDart assetSetHidden = _dylib
       .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_hidden');
   static final _FolderSetHiddenDart folderSetHidden =

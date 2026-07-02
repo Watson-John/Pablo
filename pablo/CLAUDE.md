@@ -14,7 +14,7 @@ Pablo is a Picasa-successor photo management desktop app. The source-of-truth de
 2. **Modular.** Each feature lives in its own folder under `lib/features/`. Shared primitives live in `lib/components/`. No monolithic files (target ≤ 250 lines).
 3. **Two distinct accents.** Copper `#C17A3A` is the *action* accent (Import button, sliders). Blue `#2563EB` is the *selection* accent (sidebar selected, photo selection ring). They are not interchangeable.
 4. **Verbatim data port.** People/Folders/Albums/Timeline/Map data + the `_h()` hash + EXIF/tag generators are ported byte-for-byte from `pablo3-foundation.jsx` / `pablo3-map.jsx`.
-5. **No new pub deps** beyond what's already in `pubspec.yaml`, except `google_fonts: ^6.2.1` (loads DM Sans / Lora / JetBrains Mono at runtime) and `file_selector: ^1.0.3` (native OS folder picker for Tools → Relocate Library — approved exception for a real directory chooser).
+5. **No new pub deps** beyond what's already in `pubspec.yaml`, except the approved exceptions: `google_fonts: ^6.2.1` (DM Sans / Lora / JetBrains Mono at runtime), `file_selector: ^1.0.3` (native folder picker for Relocate/Export), `crypto` (model-download SHA-256), added in §10 Stage V2 — `share_plus` (OS share sheet / NSSharingServicePicker), `printing` (native print dialog), and `pdf` (pure-Dart print-layout builder); and §11 Stage V3 — `video_player` (AVFoundation playback on macOS).
 
 ## Design tokens (see `lib/theme/tokens.dart`)
 

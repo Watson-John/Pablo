@@ -20,6 +20,9 @@ import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/edit_session.dart';
 import '../features/editor/photo_edit_panel.dart';
+import '../features/export/export_runner.dart';
+import '../features/print/print_service.dart';
+import '../features/share/share_service.dart';
 import '../features/find_duplicates/dedup_scope.dart';
 import '../features/find_duplicates/find_duplicates_flow.dart';
 import '../features/gallery/compare_view.dart';
@@ -433,7 +436,19 @@ class _BodyState extends State<_Body> {
         onRename: _rename,
         isStarred: (id) => isStarredAsset(assetIdFor(id)),
         isHidden: isHiddenPhoto,
+        onExport: (ids) =>
+            runExportToFolder(context, photos: _photosForIds(ids)),
+        onShare: (ids) => sharePhotos(context,
+            photos: _photosForIds(ids), origin: shareOriginFrom(context)),
+        onPrint: (ids) => runPrint(context, photos: _photosForIds(ids)),
       );
+
+  // Resolve menu-target ids to Photo records, dropping any that vanished
+  // between the right-click and the action (e.g. a concurrent move).
+  List<Photo> _photosForIds(List<String> ids) => [
+        for (final id in ids)
+          if (photoById(id) case final Photo p) p,
+      ];
 
   // Rename: a single photo gets a quick name dialog; a multi-selection opens
   // the token-based batch modal. Both apply through the shared rename path.
@@ -651,10 +666,12 @@ class _BodyState extends State<_Body> {
         ? _contextPhotosFor(st, lightboxPhoto)
         : <Photo>[];
 
+    // Videos aren't editable (§11): keep the sidebar rather than the edit panel.
+    final showEditPanel = lightboxPhoto != null && !lightboxPhoto.isVideo;
     final Widget shell = Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (lightboxPhoto != null)
+        if (showEditPanel)
           PhotoEditPanel(photo: lightboxPhoto, width: st.sidebarWidth)
         else
           const Sidebar(),

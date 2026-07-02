@@ -298,6 +298,73 @@ Linux/Windows. Skipped: per-dab confidence scores, Auto-origin fallback flags
 
 ---
 
+## D12. Export options — dedicated ABI POD, watermark stays out of the edit spec
+
+**Status:** Locked (2026-07-02, Stage V1).
+
+Export resize + quality + text watermark ship as a new append-only C-ABI call
+`photo_asset_export2(engine, src, dst, spec, const photo_export_options_t*)`
+(ABI version unchanged; `opts == NULL` reproduces `photo_asset_export` at
+quality 92). The watermark is a RENDER-TIME option (`photo_export_options_t`),
+deliberately NOT an `EditSpec` `text=` entry: that grammar is positional with
+the free text LAST, so it cannot grow an opacity field backward-compatibly, and
+its (x,y) is a box centre while a watermark needs corner anchoring against the
+rasterized text metrics. The watermark is drawn on the POST-resize frame so
+`wm_size`/`wm_margin` (fractions of the output short edge) are exact on disk.
+Batch export is Dart-side (one idle-lane request per file, tracked against the
+shared `PHOTO_EVT_EXPORT_COMPLETE` stream) — no native batch job. Any future
+spec-level text opacity must be a NEW key, never a positional insert into
+`text=`. Amends nothing in [D1] (originals untouched; export writes new files).
+
+---
+
+## D13. Video (§11) — FFmpeg optional native module + video_player playback
+
+**Status:** Locked (2026-07-02, Stage V3).
+
+Video support is a native `video/video_io` module gated on `PHOTO_HAVE_FFMPEG`
+(the same optional-dep pattern as libvips): `probe` (dims/duration/codec via
+libavformat) and `poster_frame` (seek ~10% → decode → swscale→BGRA) flow through
+the existing thumb slot/cache pipeline, so the grid needs no special path.
+`is_video_path()` is always compiled; without FFmpeg a video still imports
+(catalog **v9** `asset.kind=1`, `duration_ms=0`) — video is never dropped for
+lack of a decoder. Duration reaches Dart via `photo_asset_t.flags` bit1
+(`PHOTO_ASSET_FLAG_VIDEO`) + `_reserved[0]` (ms) — **no struct growth, ABI
+unchanged**. Playback is Flutter `video_player` (AVFoundation on macOS); it has
+no desktop Linux/Windows backend, so the lightbox player is `Platform.isMacOS`-
+gated with a poster-only fallback elsewhere. Trim is non-destructive per [D1]:
+catalog `video_edit(trim_start_ms, trim_end_ms)` (shipped in v9) + a
+stream-copy `remux_trim` for explicit clip export (wired in Stage V4) — the
+original file is never rewritten.
+
+**Watch-out (shipping):** Homebrew's FFmpeg is a **GPL** build (bundles
+x264/x265). For a shippable LGPL binary, rebuild FFmpeg `--disable-gpl`
+(decode + stream-copy only need LGPL components). Recorded in LICENSES.md.
+
+---
+
+## D14. Collage + trim (§10/§11 P2) — native compositor, catalog-only trim
+
+**Status:** Locked (2026-07-02, Stage V4).
+
+Collage is a native libvips compositor (`photo_create_collage`): Dart computes
+normalized cell rects (pure `collage_layouts`, unit-tested), native renders each
+source through the full edit stack (`render_full_image`, so saved edits show),
+cover-fits into cells, and writes a JPEG on the idle lane (shares
+`PHOTO_EVT_EXPORT_COMPLETE`). The result is imported back into the library — a
+collage becomes a first-class asset (Picasa parity). Chosen over a Dart-canvas
+render for full-res output + testability + edit reuse.
+
+Trim is non-destructive per [D1]: the trim window lives in catalog `video_edit`
+(`photo_video_set_trim`/`get_trim`), playback is clamped/looped in Dart
+(`TrimController`), and "Export clip…" runs a **stream-copy** remux
+(`video_io.remux_trim`, `photo_video_export_trimmed`) — no re-encode, so the
+original is untouched and the clip is fast + lossless. The start point snaps to
+the nearest preceding keyframe (stream copy can't cut mid-GOP); the UI says so.
+All additions are append-only C-ABI (version unchanged).
+
+---
+
 ## Decision queue (open)
 
 | Item | Owed by | Notes |

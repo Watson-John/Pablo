@@ -24,6 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pablo/data/move_service.dart';
 import 'package:pablo/data/undo_stack.dart';
 import 'package:pablo/utils/asset_id.dart';
+import 'package:pablo/utils/image_dims.dart';
 import 'package:photo_native/photo_native.dart';
 
 /// Resolve once a [PhotoEvent] matching [pred] is drained by the pump.
@@ -398,4 +399,239 @@ void main() {
     expect(rescanned.importAdded, 0);
     expect(rescanned.importRemoved, 0);
   }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // ── Stage V1: export-with-options through the real render pipeline ──
+  // Uses the committed real JPEG fixture (the catalog test's 8-byte files are
+  // not decodable, so they can't exercise export). Skips when the dylib has no
+  // libvips (exportAsset2 returns 0) or isn't loadable at all.
+  test('exportAsset2 resizes + batches through the real FFI', () async {
+    final sep = Platform.pathSeparator;
+    // Committed fixture, resolved relative to the pablo/ package (test CWD).
+    final fixture = File(
+        '..${sep}native${sep}core${sep}tests${sep}fixtures${sep}exif_full.jpg');
+    if (!fixture.existsSync()) {
+      markTestSkipped('export fixture missing (${fixture.path})');
+      return;
+    }
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_export_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    final libDir = '${tmp.path}${sep}lib';
+    final outDir = '${tmp.path}${sep}out';
+    Directory(libDir).createSync(recursive: true);
+    Directory(outDir).createSync(recursive: true);
+    final srcPath = '$libDir${sep}photo.jpg';
+    fixture.copySync(srcPath);
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null (no catalog support)');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    // Record every completion from ONE up-front subscription. The batch below
+    // fires all its events before a sequential per-request listener could
+    // subscribe (a broadcast stream drops events with no matching listener), so
+    // collect into maps and poll instead.
+    final exportStatus = <int, int>{};
+    final importDone = <int>{};
+    final sub = pump.stream.listen((e) {
+      if (e.kind == PhotoEventKind.exportComplete) {
+        exportStatus[e.requestId] = e.status;
+      } else if (e.kind == PhotoEventKind.importComplete) {
+        importDone.add(e.requestId);
+      }
+    });
+    addTearDown(sub.cancel);
+
+    Future<void> waitUntil(bool Function() cond,
+        {Duration timeout = const Duration(seconds: 20)}) async {
+      final deadline = DateTime.now().add(timeout);
+      while (!cond() && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    final importReq = engine.importPath(libDir);
+    await waitUntil(() => importDone.contains(importReq));
+    expect(importDone, contains(importReq));
+    final assets = engine.listAssets();
+    expect(assets, isNotEmpty);
+
+    // Single export downscaled to an 8 px long edge (the fixture is 16x16, so
+    // a small cap proves the resize path without needing a large fixture).
+    const cap = 8;
+    final outPath = '$outDir${sep}resized.jpg';
+    final req = engine.exportAsset2(
+        srcPath: srcPath, dstPath: outPath, maxDim: cap, quality: 80);
+    if (req == 0) {
+      markTestSkipped('export unsupported in this build (no libvips)');
+      return;
+    }
+    await waitUntil(() => exportStatus.containsKey(req));
+    expect(exportStatus[req], 0);
+    expect(File(outPath).existsSync(), isTrue);
+
+    // Read the output's dimensions from its JPEG header (pure Dart — no engine
+    // frame pump, which flutter_test's binding doesn't drive) and assert the
+    // long edge was bounded.
+    final dims = readImageDimensions(outPath);
+    expect(dims, isNotNull);
+    expect(dims!.width, lessThanOrEqualTo(cap));
+    expect(dims.height, lessThanOrEqualTo(cap));
+    expect(dims.width == cap || dims.height == cap, isTrue); // long edge hit cap
+
+    // Batch of 3 distinct destinations → 3 completion events.
+    final reqs = <int>[];
+    for (var i = 0; i < 3; i++) {
+      reqs.add(engine.exportAsset2(
+          srcPath: srcPath, dstPath: '$outDir${sep}b$i.jpg', quality: 85));
+    }
+    expect(reqs.every((r) => r != 0), isTrue);
+    await waitUntil(() => reqs.every(exportStatus.containsKey));
+    for (final r in reqs) {
+      expect(exportStatus[r], 0);
+    }
+    for (var i = 0; i < 3; i++) {
+      expect(File('$outDir${sep}b$i.jpg').existsSync(), isTrue);
+    }
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  // ── Stage V3: video import surfaces isVideo + duration through the FFI ──
+  test('importing a video exposes isVideo + durationMs', () async {
+    final sep = Platform.pathSeparator;
+    final fixture = File(
+        '..${sep}native${sep}core${sep}tests${sep}data${sep}tiny.mp4');
+    if (!fixture.existsSync()) {
+      markTestSkipped('video fixture missing (${fixture.path})');
+      return;
+    }
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_video_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+    final libDir = '${tmp.path}${sep}lib';
+    Directory(libDir).createSync(recursive: true);
+    fixture.copySync('$libDir${sep}clip.mp4');
+    // A plain image alongside it so we can assert the flag discriminates.
+    File('$libDir${sep}note.jpg').writeAsBytesSync(List.filled(8, 1));
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final req = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == req);
+
+    final assets = engine.listAssets();
+    final clip = assets.firstWhere((a) => a.path.endsWith('clip.mp4'));
+    final note = assets.firstWhere((a) => a.path.endsWith('note.jpg'));
+    expect(clip.isVideo, isTrue);
+    expect(note.isVideo, isFalse);
+    // Duration is filled when the dylib linked FFmpeg; 0 otherwise (still imports).
+    if (clip.durationMs > 0) {
+      expect(clip.durationMs, closeTo(2000, 300));
+      expect(clip.width, 64);
+      expect(clip.height, 48);
+    }
+
+    // §11 trim round-trips through the catalog FFI (catalog-only, no FFmpeg).
+    expect(engine.videoSetTrim(clip.assetId, 500, 1500), isTrue);
+    var t = engine.videoGetTrim(clip.assetId);
+    expect(t.startMs, 500);
+    expect(t.endMs, 1500);
+    engine.videoSetTrim(clip.assetId, 0, 0); // clear
+    t = engine.videoGetTrim(clip.assetId);
+    expect(t.startMs, 0);
+    expect(t.endMs, 0);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  // ── Stage V4: collage compositor through the FFI (needs libvips) ──
+  test('createCollage composites and emits an export event', () async {
+    final sep = Platform.pathSeparator;
+    final fixture = File(
+        '..${sep}native${sep}core${sep}tests${sep}fixtures${sep}exif_full.jpg');
+    if (!fixture.existsSync()) {
+      markTestSkipped('collage fixture missing');
+      return;
+    }
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_collage_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+    final a = '${tmp.path}${sep}a.jpg';
+    final b = '${tmp.path}${sep}b.jpg';
+    fixture.copySync(a);
+    fixture.copySync(b);
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final out = '${tmp.path}${sep}collage.jpg';
+    final req = engine.createCollage(
+      cells: [
+        CollageCell(x: 0.0, y: 0.0, w: 0.5, h: 1.0, src: a),
+        CollageCell(x: 0.5, y: 0.0, w: 0.5, h: 1.0, src: b),
+      ],
+      dstPath: out,
+      canvasW: 128,
+      canvasH: 64,
+    );
+    if (req == 0) {
+      markTestSkipped('collage unsupported (no libvips)');
+      return;
+    }
+    final done = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.exportComplete && e.requestId == req);
+    expect(done.status, 0);
+    expect(File(out).existsSync(), isTrue);
+    final dims = readImageDimensions(out);
+    expect(dims, isNotNull);
+    expect(dims!.width, 128);
+    expect(dims.height, 64);
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

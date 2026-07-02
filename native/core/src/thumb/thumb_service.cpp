@@ -16,6 +16,7 @@
 #include "edit/render.h"
 #include "thumb/slot.h"
 #include "thumb/thumb_cache.h"
+#include "video/video_io.h"
 
 #ifdef PHOTO_HAVE_VIPS
 #include <vips/vips.h>
@@ -443,14 +444,47 @@ void ThumbService::preview(uint64_t slot_id, uint64_t generation,
 
 bool ThumbService::export_to_file(const std::string& src, const std::string& dst,
                                   const edit::EditSpec& spec, int quality) {
+    ExportOptions opts;
+    opts.quality = quality;
+    return export_to_file2(src, dst, spec, opts);
+}
+
+bool ThumbService::export_to_file2(const std::string& src,
+                                   const std::string& dst,
+                                   const edit::EditSpec& spec,
+                                   const ExportOptions& opts) {
 #ifdef PHOTO_HAVE_VIPS
     VipsImage* out = render_full_image(src, spec);
     if (out == nullptr) return false;
-    const bool ok = write_vips(out, dst, quality);
+    if (opts.max_dim > 0) {
+        // Long-edge bound on the RENDERED image (post-geometry), downscale only.
+        VipsImage* sized = nullptr;
+        if (vips_thumbnail_image(out, &sized, static_cast<int>(opts.max_dim),
+                                 "size", VIPS_SIZE_DOWN, nullptr) != 0) {
+            vips_error_clear();
+            g_object_unref(out);
+            return false;
+        }
+        g_object_unref(out);
+        out = sized;
+    }
+    if (!opts.wm.text.empty()) {
+        // Watermark blends over a raster frame; round-trip through FrameBuffer
+        // at the (already final) output size, mirroring render_full_image.
+        const int W = vips_image_get_width(out);
+        const int H = vips_image_get_height(out);
+        FramePtr frame = frame_from_base(out, std::max(W, H));
+        g_object_unref(out);
+        if (frame == nullptr) return false;
+        edit::draw_watermark(const_cast<FrameBuffer&>(*frame), opts.wm);
+        out = frame_to_rgb_vips(*frame);
+        if (out == nullptr) return false;
+    }
+    const bool ok = write_vips(out, dst, opts.quality);
     g_object_unref(out);
     return ok;
 #else
-    (void)src; (void)dst; (void)spec; (void)quality;
+    (void)src; (void)dst; (void)spec; (void)opts;
     return false;
 #endif
 }
@@ -519,6 +553,81 @@ bool ThumbService::save_layered_tiff(const std::string& src,
     return ok;
 #else
     (void)src; (void)dst; (void)spec;
+    return false;
+#endif
+}
+
+bool ThumbService::create_collage(const std::vector<CollageCell>& cells,
+                                  const std::string& dst, uint32_t canvas_w,
+                                  uint32_t canvas_h, uint32_t bg_rgb,
+                                  int quality) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!ensure_vips() || canvas_w == 0 || canvas_h == 0) return false;
+    const int CW = static_cast<int>(canvas_w), CH = static_cast<int>(canvas_h);
+    // Solid-background canvas: black(0) then out = 1*x + bg == bg per band.
+    double ones[3] = {1.0, 1.0, 1.0};
+    double bg[3] = {static_cast<double>((bg_rgb >> 16) & 0xFF),
+                    static_cast<double>((bg_rgb >> 8) & 0xFF),
+                    static_cast<double>(bg_rgb & 0xFF)};
+    VipsImage* black = nullptr;
+    if (vips_black(&black, CW, CH, "bands", 3, nullptr) != 0) {
+        vips_error_clear();
+        return false;
+    }
+    VipsImage* canvas = nullptr;
+    if (vips_linear(black, &canvas, ones, bg, 3, nullptr) != 0) {
+        vips_error_clear();
+        g_object_unref(black);
+        return false;
+    }
+    g_object_unref(black);
+    // vips_linear promotes to float; bring it back to 8-bit for compositing.
+    {
+        VipsImage* u8 = nullptr;
+        if (vips_cast(canvas, &u8, VIPS_FORMAT_UCHAR, nullptr) == 0) {
+            g_object_unref(canvas);
+            canvas = u8;
+        } else {
+            vips_error_clear();
+        }
+    }
+
+    // Composite each cell: render the source (honouring its edit spec), cover-
+    // fit into the cell's pixel rect, and insert at the cell origin.
+    for (const CollageCell& c : cells) {
+        const int cw = std::max(1, static_cast<int>(std::lround(c.w * CW)));
+        const int ch = std::max(1, static_cast<int>(std::lround(c.h * CH)));
+        const int cx = static_cast<int>(std::lround(c.x * CW));
+        const int cy = static_cast<int>(std::lround(c.y * CH));
+        edit::EditSpec spec = edit::parse_edit_spec(c.spec);
+        VipsImage* rendered = render_full_image(c.src, spec);
+        if (rendered == nullptr) continue;  // skip an undecodable source
+        // Cover-fit to the cell (crop to fill, centre) via vips_thumbnail_image.
+        VipsImage* fitted = nullptr;
+        if (vips_thumbnail_image(rendered, &fitted, cw, "height", ch, "size",
+                                 VIPS_SIZE_BOTH, "crop", VIPS_INTERESTING_CENTRE,
+                                 nullptr) != 0) {
+            vips_error_clear();
+            g_object_unref(rendered);
+            continue;
+        }
+        g_object_unref(rendered);
+        VipsImage* placed = nullptr;
+        if (vips_insert(canvas, fitted, &placed, cx, cy, nullptr) == 0) {
+            g_object_unref(canvas);
+            canvas = placed;
+        } else {
+            vips_error_clear();
+        }
+        g_object_unref(fitted);
+    }
+
+    const bool ok = write_vips(canvas, dst, quality);
+    g_object_unref(canvas);
+    return ok;
+#else
+    (void)cells; (void)dst; (void)canvas_w; (void)canvas_h;
+    (void)bg_rgb; (void)quality;
     return false;
 #endif
 }
@@ -609,6 +718,29 @@ void ThumbService::run_synthetic(uint64_t request_id,
         }
     }
     if (max_miss_dim == 0) return;  // fully served from cache — no file decode
+
+    // 1b) Video: extract a poster frame (FFmpeg) instead of decoding a still.
+    //     Videos aren't editable, so this skips the geometry/edit pipeline; the
+    //     poster flows through the same slot/cache path as a photo thumbnail.
+    if (video::is_video_path(path)) {
+        for (size_t i = 0; i < 3; ++i) {
+            if (!reqs[i].wanted || reqs[i].served) continue;
+            if (slot->current_generation() != generation) break;  // stale
+            FramePtr frame = video::poster_frame(path, reqs[i].dim);
+            if (frame == nullptr) {
+                emit_stage_failed(request_id, asset_id, slot_id, generation,
+                                  reqs[i].stage, PHOTO_STATUS_DECODE_ERROR);
+                continue;
+            }
+            if (use_cache) cache_->put(reqs[i].key, *frame);
+            const uint32_t fw = frame->width;
+            const uint32_t fh = frame->height;
+            slot->publish_frame(std::move(frame));
+            emit_stage_ready(request_id, asset_id, slot_id, generation,
+                             reqs[i].stage, fw, fh);
+        }
+        return;
+    }
 
     // 2) Decode the source once — inflating the box for any geometry crop /
     //    straighten so the visible region stays sharp — apply geometry, then

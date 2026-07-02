@@ -8,11 +8,16 @@ import '../app/app_scope.dart';
 import '../app/app_state.dart';
 import '../backend/native_backend.dart';
 import '../data/catalog_maintenance.dart';
-import '../data/library.dart' show PhotoSort;
+import '../data/library.dart' show PhotoSort, photosFor;
 import '../data/library_location.dart';
+import '../features/collage/collage_controller.dart';
 import '../features/editor/edit_settings_dialog.dart';
+import '../features/export/export_runner.dart';
 import '../features/organize/reorganize_controller.dart';
 import '../features/organize/storage_scheme_modal.dart';
+import '../features/print/print_service.dart';
+import '../features/share/share_service.dart';
+import '../features/slideshow/slideshow_view.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_scope.dart';
 import '../theme/tokens.dart';
@@ -50,14 +55,25 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
     VoidCallback? onScanFaces,
   ) =>
       {
-        'File': const [
-          _MenuEntry(label: 'Add Folder to Pablo…'),
-          _MenuEntry(label: 'Import From…'),
-          _MenuEntry(label: '', isSeparator: true),
-          _MenuEntry(label: 'Export as Web Page…'),
-          _MenuEntry(label: 'Print…'),
-          _MenuEntry(label: '', isSeparator: true),
-          _MenuEntry(label: 'Exit'),
+        'File': [
+          const _MenuEntry(label: 'Add Folder to Pablo…'),
+          const _MenuEntry(label: 'Import From…'),
+          _MenuEntry.sep(),
+          _MenuEntry(
+            label: 'Export to Folder…',
+            onTap: () => runExportToFolder(context),
+          ),
+          const _MenuEntry(label: 'Export as Web Page…'),
+          _MenuEntry(
+            label: 'Share…',
+            onTap: () => _shareCurrent(context, st),
+          ),
+          _MenuEntry(
+            label: 'Print…',
+            onTap: () => _printCurrent(context, st),
+          ),
+          _MenuEntry.sep(),
+          const _MenuEntry(label: 'Exit'),
         ],
         'Edit': [
           // Live file-op undo (shares the UndoStack with Cmd/Ctrl+Z); label
@@ -115,6 +131,11 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
             onTap: () => st.setSortReversed(!st.sortReversed),
           ),
           _MenuEntry.sep(),
+          _MenuEntry(
+            label: 'Slideshow',
+            onTap: () => _startSlideshow(context, st),
+          ),
+          _MenuEntry.sep(),
           const _MenuEntry(label: 'Thumbnail Size: Small'),
           const _MenuEntry(label: 'Thumbnail Size: Medium'),
           const _MenuEntry(label: 'Thumbnail Size: Large'),
@@ -150,6 +171,12 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           ),
           _MenuEntry.sep(),
           const _MenuEntry(label: 'Batch Edit…'),
+          _MenuEntry(
+            label: st.trayPhotos.length >= 2
+                ? 'Create Collage… (${st.trayPhotos.length})'
+                : 'Create Collage…',
+            onTap: () => runCollage(context),
+          ),
           _MenuEntry(
             label: 'Organization Scheme…',
             onTap: () => openStorageSchemeBuilder(context, st),
@@ -200,6 +227,40 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
       if (!context.mounted) return;
       await _info(context, 'Could not relocate', '$e');
     }
+  }
+
+  // File → Share…/Print…: act on the tray/selection/active photo (Picasa's
+  // "current selection"), reusing the export resolver.
+  void _shareCurrent(BuildContext context, PabloAppState st) {
+    final photos = resolveExportPhotos(st);
+    if (photos.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('Select photos or add them to the tray to share.')));
+      return;
+    }
+    sharePhotos(context, photos: photos, origin: shareOriginFrom(context));
+  }
+
+  void _printCurrent(BuildContext context, PabloAppState st) {
+    final photos = resolveExportPhotos(st);
+    if (photos.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('Select photos or add them to the tray to print.')));
+      return;
+    }
+    runPrint(context, photos: photos);
+  }
+
+  // View → Slideshow: run a fullscreen show over the current view's photos.
+  void _startSlideshow(BuildContext context, PabloAppState st) {
+    final photos = photosFor(st.selectedItem);
+    if (photos.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No photos to show here.')),
+      );
+      return;
+    }
+    showSlideshow(context, photos: photos);
   }
 
   Future<void> _info(BuildContext context, String title, String body) {

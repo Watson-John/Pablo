@@ -46,6 +46,9 @@ class PhotoMenuActions {
     required this.onRename,
     required this.isStarred,
     required this.isHidden,
+    this.onExport,
+    this.onShare,
+    this.onPrint,
   });
 
   final void Function(String clickedId) onView;
@@ -66,6 +69,13 @@ class PhotoMenuActions {
   final void Function(List<String> ids) onRename;
   final bool Function(String id) isStarred;
   final bool Function(String id) isHidden;
+
+  /// Export/Share/Print the target photos (§10). Null when the backend that
+  /// renders edited copies isn't wired — the items are omitted so the menu
+  /// never dangles a dead action.
+  final void Function(List<String> ids)? onExport;
+  final void Function(List<String> ids)? onShare;
+  final void Function(List<String> ids)? onPrint;
 }
 
 /// True when the gallery is showing a real on-disk folder (Folders nav on a
@@ -192,8 +202,24 @@ List<ContextMenuItem> buildPhotoMenuItems({
         onPressed: () => copyPathsToClipboard(targets),
       ),
       ContextMenuItem.separator(),
-      ContextMenuItem(label: 'Share', iconCharacter: '📤'),
-      ContextMenuItem(label: 'Print', iconCharacter: '🖨'),
+      if (actions.onExport != null)
+        ContextMenuItem(
+          label: multi ? 'Export $n Photos…' : 'Export…',
+          iconCharacter: '⤓',
+          onPressed: () => actions.onExport!(targets),
+        ),
+      if (actions.onShare != null)
+        ContextMenuItem(
+          label: withCount('Share', 'Photos'),
+          iconCharacter: '📤',
+          onPressed: () => actions.onShare!(targets),
+        ),
+      if (actions.onPrint != null)
+        ContextMenuItem(
+          label: withCount('Print', 'Photos'),
+          iconCharacter: '🖨',
+          onPressed: () => actions.onPrint!(targets),
+        ),
       ContextMenuItem.separator(),
       ContextMenuItem(
         label: withCount('Delete', 'Photos'),

@@ -248,4 +248,44 @@ TEST(Import, RescanAfterRelocateIsChurnFree) {
     EXPECT_TRUE(found);
 }
 
+// §11: a mixed photo+video folder imports both; the video row is flagged
+// kind=1. Duration is filled when the build linked FFmpeg (else stays 0 but the
+// row still imports — video is never dropped for lack of a decoder).
+TEST(Import, VideoIsImportedAndFlagged) {
+    auto dir = make_tree("video");
+    write_file(dir / "photo.jpg");
+    fs::copy_file(fs::path(PHOTO_TEST_DATA_DIR) / "tiny.mp4",
+                  dir / "clip.mp4", fs::copy_options::overwrite_existing);
+
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    const uint64_t req = eng->import_path(dir.string());
+    ASSERT_NE(req, 0u);
+    ASSERT_TRUE(wait_for_import(*eng, req));
+
+    auto assets = eng->list_assets();
+    ASSERT_EQ(assets.size(), 2u);
+    const photo::catalog::AssetRecord* vid = nullptr;
+    const photo::catalog::AssetRecord* pho = nullptr;
+    for (const auto& a : assets) {
+        if (a.path == (dir / "clip.mp4").string()) vid = &a;
+        if (a.path == (dir / "photo.jpg").string()) pho = &a;
+    }
+    ASSERT_NE(vid, nullptr);
+    ASSERT_NE(pho, nullptr);
+    EXPECT_EQ(vid->kind, 1);
+    EXPECT_EQ(pho->kind, 0);
+#ifdef PHOTO_HAVE_FFMPEG
+    EXPECT_EQ(vid->width, 64);
+    EXPECT_EQ(vid->height, 48);
+    EXPECT_NEAR(vid->duration_ms, 2000, 200);
+#endif
+
+    // Rescan is idempotent (unchanged files skipped, nothing re-added).
+    const auto ev = wait_for_import_event(*eng, eng->rescan());
+    EXPECT_EQ(ev.aux64, 0u);         // added
+    EXPECT_EQ(ev.aux64_b, 0u);       // updated
+    EXPECT_EQ(eng->list_assets().size(), 2u);
+}
+
 #endif  // PHOTO_HAVE_SQLITE

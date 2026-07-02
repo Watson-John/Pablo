@@ -74,6 +74,9 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/semantic/onnx_embedder.cpp"
   "${NATIVE_CORE_DIR}/src/semantic/semantic_search.cpp"
   "${NATIVE_CORE_DIR}/src/semantic/semantic_service.cpp"
+  # §11 video I/O — is_video_path() always compiles; probe/poster self-stub
+  # unless PHOTO_HAVE_FFMPEG (the optional libav* probe below defines it).
+  "${NATIVE_CORE_DIR}/src/video/video_io.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})
@@ -135,6 +138,23 @@ if(LIBEXIF_FOUND)
   message(STATUS "photo_native(linux): EXIF metadata ENABLED (libexif ${LIBEXIF_VERSION})")
 else()
   message(STATUS "photo_native(linux): libexif absent -> EXIF metadata disabled")
+endif()
+
+# ---- §11 video I/O (FFmpeg, optional) ----
+# video_io.cpp's decode paths light up when all four libav* modules resolve
+# (apt: libavformat-dev libavcodec-dev libavutil-dev libswscale-dev). Absent,
+# is_video_path() still compiles; probe/poster self-stub.
+pkg_check_modules(AVFORMAT IMPORTED_TARGET libavformat)
+pkg_check_modules(AVCODEC IMPORTED_TARGET libavcodec)
+pkg_check_modules(AVUTIL IMPORTED_TARGET libavutil)
+pkg_check_modules(SWSCALE IMPORTED_TARGET libswscale)
+if(AVFORMAT_FOUND AND AVCODEC_FOUND AND AVUTIL_FOUND AND SWSCALE_FOUND)
+  target_compile_definitions(${PLUGIN_NAME} PRIVATE PHOTO_HAVE_FFMPEG=1)
+  target_link_libraries(${PLUGIN_NAME} PRIVATE
+    PkgConfig::AVFORMAT PkgConfig::AVCODEC PkgConfig::AVUTIL PkgConfig::SWSCALE)
+  message(STATUS "photo_native(linux): FFmpeg video ENABLED (libavformat ${AVFORMAT_VERSION})")
+else()
+  message(STATUS "photo_native(linux): FFmpeg absent -> video probe/poster disabled")
 endif()
 
 set(photo_native_bundled_libraries "" PARENT_SCOPE)
