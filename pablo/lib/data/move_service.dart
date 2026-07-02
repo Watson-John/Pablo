@@ -204,9 +204,9 @@ class MoveService {
     }
   }
 
-  /// Distinct source parents of [ok] moves that now contain no image file
-  /// (leftover sidecars/other files don't count as photos, but they will
-  /// still block an actual rmdir later — deliberately).
+  /// Distinct source parents of [ok] moves that now contain no library media
+  /// (images or §11 videos; leftover sidecars/other files don't count, but
+  /// they will still block an actual rmdir later — deliberately).
   static List<String> _emptiedDirs(List<MoveResult> ok) {
     final dirs = <String>{for (final m in ok) File(m.fromPath).parent.path};
     final emptied = <String>[];
@@ -216,7 +216,7 @@ class MoveService {
         if (!dir.existsSync()) continue;
         final hasImage = dir
             .listSync(recursive: true, followLinks: false)
-            .any((e) => e is File && hasImageExtension(e.path));
+            .any((e) => e is File && hasMediaExtension(e.path));
         if (!hasImage) emptied.add(d);
       } catch (_) {/* unreadable — don't offer cleanup */}
     }

@@ -14,6 +14,7 @@ The LGPL link policy is recorded in [DECISIONS.md §D5](docs/DECISIONS.md). Link
 | libjxl | 0.10+ | BSD 3-clause + patents grant | Yes | static or dynamic | M5 | JPEG XL reference impl |
 | LibRaw | 0.21+ | LGPL 2.1 or CDDL 1.0 | Yes (dyn link) | **dynamic** | M5 | Choose LGPL variant for consistency. Embedded preview path only (D4). |
 | libexif | 0.6.24+ | LGPL 2.1+ | Yes (dyn link) | **dynamic** | M5 | EXIF read only |
+| FFmpeg (libavformat/libavcodec/libavutil/libswscale) | 5.0+ | LGPL 2.1+ (default build) | Yes (dyn link) | **dynamic** | §11 (Stage V3) | Video probe / poster-frame / trim remux. Optional (PHOTO_HAVE_FFMPEG). **Use the LGPL build — no GPL-only components (x264/x265 encoders); decode + stream-copy only.** |
 | pugixml | 1.14+ | MIT | Yes | static | M5 | XMP/IPTC custom parser backend |
 | LMDB | 0.9.31+ | OpenLDAP Public License | Yes | static | M3 | Blob cache; permissive license |
 | SQLite | 3.45+ | Public domain | Yes | static (amalgamation) | M3 | Catalog; WAL mode |

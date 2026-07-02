@@ -19,6 +19,8 @@ import '../editor/edit_preview_surface.dart';
 import '../editor/edit_session.dart';
 import '../people/face_naming.dart';
 import '../people/people_scope.dart';
+import '../slideshow/slideshow_view.dart';
+import 'lightbox_video.dart';
 import 'photo_surface.dart';
 
 class LightboxView extends StatefulWidget {
@@ -262,8 +264,18 @@ class _LightboxViewState extends State<LightboxView> {
                             color: Colors.white.withValues(alpha: 0.28),
                           ),
                         ),
+                        const SizedBox(width: PabloSpacing.xl),
+                        _TopBarButton(
+                          icon: PabloIconName.play,
+                          tooltip: 'Slideshow',
+                          onTap: () => showSlideshow(
+                            context,
+                            photos: widget.photos,
+                            startIndex: idx,
+                          ),
+                        ),
                         if (widget.onToggleFullscreen != null) ...[
-                          const SizedBox(width: PabloSpacing.xl),
+                          const SizedBox(width: PabloSpacing.base),
                           _FullscreenButton(
                             fullscreen: widget.fullscreen,
                             onTap: widget.onToggleFullscreen!,
@@ -363,12 +375,17 @@ class _LightboxViewState extends State<LightboxView> {
                             horizontal: 40,
                             vertical: PabloSpacing.xxxxl,
                           ),
-                          child: _LightboxImage(
-                            photo: photo,
-                            faces: faces,
-                            imgW: exif.width,
-                            imgH: exif.height,
-                          ),
+                          child: photo.isVideo
+                              ? LightboxVideo(
+                                  key: ValueKey('vid-${photo.id}'),
+                                  photo: photo,
+                                )
+                              : _LightboxImage(
+                                  photo: photo,
+                                  faces: faces,
+                                  imgW: exif.width,
+                                  imgH: exif.height,
+                                ),
                         ),
                         if (hasPrev)
                           _navArrow(
@@ -666,6 +683,57 @@ class _FullscreenButtonState extends State<_FullscreenButton> {
             ),
             child: PabloIcon(
               widget.fullscreen ? PabloIconName.zoomOut : PabloIconName.zoomIn,
+              size: 16,
+              color: _hover
+                  ? PabloColors.lightboxNavHoverIcon
+                  : PabloColors.lightboxNavIcon,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A generic lightbox top-bar icon button (tooltip + hover well), matching
+/// [_FullscreenButton]'s styling. Used for the Slideshow launcher.
+class _TopBarButton extends StatefulWidget {
+  const _TopBarButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+  final PabloIconName icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  @override
+  State<_TopBarButton> createState() => _TopBarButtonState();
+}
+
+class _TopBarButtonState extends State<_TopBarButton> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: PabloDurations.hover,
+            width: 30,
+            height: 30,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color:
+                  _hover ? PabloColors.lightboxNavHoverBg : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: PabloIcon(
+              widget.icon,
               size: 16,
               color: _hover
                   ? PabloColors.lightboxNavHoverIcon

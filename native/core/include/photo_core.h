@@ -382,12 +382,14 @@ typedef struct {
     uint32_t orientation;   /* EXIF orientation 1..8                          */
     int32_t  starred;       /* 0/1                                            */
     int32_t  rating;        /* 0..5                                           */
-    uint32_t flags;         /* bit0: hidden                                   */
+    uint32_t flags;         /* bit0: hidden; bit1: video (§11)                */
+    /* _reserved[0] = video duration in ms (0 for photos, §11); [1..2] unused */
     uint32_t _reserved[3];
     char     path[4096];
 } photo_asset_t;
 
 #define PHOTO_ASSET_FLAG_HIDDEN (1u << 0)
+#define PHOTO_ASSET_FLAG_VIDEO  (1u << 1)
 
 /*
  * List catalog assets (hidden excluded), ordered by path. Fills up to `cap`
@@ -667,6 +669,86 @@ PHOTO_API uint64_t photo_asset_export(photo_engine_t* engine,
                                       const char* dst_path_utf8,
                                       const char* spec_utf8,
                                       int32_t quality);
+
+/* Watermark corner anchors for photo_export_options_t. */
+enum {
+    PHOTO_EXPORT_ANCHOR_BR = 0,
+    PHOTO_EXPORT_ANCHOR_BL = 1,
+    PHOTO_EXPORT_ANCHOR_TR = 2,
+    PHOTO_EXPORT_ANCHOR_TL = 3,
+    PHOTO_EXPORT_ANCHOR_CENTER = 4
+};
+
+/*
+ * Output options for photo_asset_export2. Zero-init for the legacy behaviour
+ * (original size, quality 92 via the <=0 fallback, no watermark). The
+ * watermark applies when `wm_text` is non-empty; it is drawn AFTER the resize
+ * so `wm_size` / `wm_margin` (fractions of the OUTPUT short edge) are exact in
+ * the written file. It never enters the edit-spec `text=` grammar (positional,
+ * free-text-last — it cannot carry opacity compatibly).
+ */
+typedef struct {
+    uint32_t max_dim;      /* long-edge px bound; 0 = original size          */
+    int32_t  quality;      /* jpg 1..100; <=0 -> 92                          */
+    uint32_t wm_argb;      /* watermark colour+opacity, 0xAARRGGBB           */
+    float    wm_size;      /* text height / short edge; <=0 -> 0.04          */
+    float    wm_margin;    /* corner inset / short edge; <0 -> 0.02          */
+    uint32_t wm_anchor;    /* PHOTO_EXPORT_ANCHOR_*                          */
+    uint32_t flags;        /* reserved; pass 0                               */
+    uint32_t _reserved[4];
+    char     wm_text[256]; /* UTF-8, NUL-terminated; empty = no watermark    */
+} photo_export_options_t;
+
+/*
+ * photo_asset_export with output options. `opts` may be NULL (exact legacy
+ * photo_asset_export behaviour at quality 92). Same async request-id +
+ * PHOTO_EVT_EXPORT_COMPLETE contract; 0 without libvips.
+ */
+PHOTO_API uint64_t photo_asset_export2(photo_engine_t* engine,
+                                       const char* src_path_utf8,
+                                       const char* dst_path_utf8,
+                                       const char* spec_utf8,
+                                       const photo_export_options_t* opts);
+
+/*
+ * §11/collage: one cell — a normalized rect on the canvas [0,1] plus the source
+ * to render into it. `spec_utf8` may be NULL/"" (no edit). Pointers are only
+ * borrowed for the duration of the photo_create_collage call.
+ */
+typedef struct {
+    float x, y, w, h;        /* fractions of the canvas                       */
+    const char* src_utf8;    /* source image path                            */
+    const char* spec_utf8;   /* edit spec ("" / NULL = none)                  */
+} photo_collage_cell_t;
+
+/*
+ * Composite `cells` onto a `canvas_w × canvas_h` canvas filled with `bg_rgb`
+ * (0xRRGGBB) and write a JPEG to `dst_path` (jpg `quality`). Each source is
+ * rendered full-res and cover-fit into its cell. Async on the idle lane: returns
+ * a request id + emits PHOTO_EVT_EXPORT_COMPLETE. 0 on rejection / no libvips.
+ */
+PHOTO_API uint64_t photo_create_collage(photo_engine_t* engine,
+                                        const photo_collage_cell_t* cells,
+                                        size_t count, const char* dst_path_utf8,
+                                        uint32_t canvas_w, uint32_t canvas_h,
+                                        uint32_t bg_rgb, int32_t quality);
+
+/*
+ * §11 video trim (non-destructive, catalog-only). set(0,0) clears. get fills
+ * *start_ms/*end_ms (end 0 = to the end; both 0 = no trim); returns
+ * photo_status_t. export_trimmed stream-copies [start,end) of `src` to `dst`
+ * (no re-encode) on the idle lane, sharing the export event stream.
+ */
+PHOTO_API int32_t photo_video_set_trim(photo_engine_t* engine,
+                                       uint64_t asset_id, int64_t start_ms,
+                                       int64_t end_ms);
+PHOTO_API int32_t photo_video_get_trim(photo_engine_t* engine,
+                                       uint64_t asset_id, int64_t* start_ms,
+                                       int64_t* end_ms);
+PHOTO_API uint64_t photo_video_export_trimmed(photo_engine_t* engine,
+                                              const char* src_path_utf8,
+                                              const char* dst_path_utf8,
+                                              int64_t start_ms, int64_t end_ms);
 
 /*
  * Save mode `layeredTiff`: write a self-contained multi-page TIFF to `dst_path`

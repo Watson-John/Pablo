@@ -179,6 +179,18 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_GETMINMAXINFO: {
+      // Pablo's shell is designed for a 960x600 minimum; below that the gallery
+      // and bars are squeezed past their content and Flutter throws layout/
+      // hit-test errors. Clamp the minimum tracking size (DPI-scaled) so the
+      // window can't be resized into that broken state.
+      auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+      const UINT dpi = FlutterDesktopGetDpiForHWND(hwnd);
+      const double scale = dpi / 96.0;
+      info->ptMinTrackSize.x = static_cast<LONG>(960 * scale);
+      info->ptMinTrackSize.y = static_cast<LONG>(600 * scale);
+      return 0;
+    }
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

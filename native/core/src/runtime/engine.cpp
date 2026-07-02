@@ -18,6 +18,7 @@
 #include "util/log.h"
 #include "thumb/thumb_cache.h"
 #include "edit/render.h"
+#include "video/video_io.h"
 #ifdef PHOTO_HAVE_FACES
 #include "codec/codec.h"
 #endif
@@ -264,6 +265,23 @@ uint64_t Engine::export_path(const std::string& src, const std::string& dst,
     return req;
 }
 
+uint64_t Engine::export_path2(const std::string& src, const std::string& dst,
+                              const std::string& spec_str,
+                              const ThumbService::ExportOptions& opts) {
+    if (src.empty() || dst.empty()) return 0;
+    edit::EditSpec spec = edit::parse_edit_spec(spec_str);
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, src, dst, spec, opts] {
+        const bool ok = thumbs_.export_to_file2(src, dst, spec, opts);
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+        ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+        ev.request_id = req;
+        events_.push(ev);
+    });
+    return req;
+}
+
 uint64_t Engine::save_layered(const std::string& src, const std::string& dst,
                               const std::string& spec_str) {
     if (src.empty() || dst.empty()) return 0;
@@ -332,6 +350,13 @@ const std::unordered_set<std::string>& image_exts() {
     return kExts;
 }
 
+const std::unordered_set<std::string>& video_exts() {
+    // Mirrors video::is_video_path() and library.dart's _kVideoExts (§11).
+    static const std::unordered_set<std::string> kExts = {
+        ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"};
+    return kExts;
+}
+
 std::string lower_ext(const fs::path& p) {
     std::string ext = p.extension().string();
     for (char& c : ext) c = static_cast<char>(std::tolower((unsigned char)c));
@@ -339,6 +364,8 @@ std::string lower_ext(const fs::path& p) {
 }
 
 bool is_image(const fs::path& p) { return image_exts().count(lower_ext(p)) > 0; }
+bool is_video(const fs::path& p) { return video_exts().count(lower_ext(p)) > 0; }
+bool is_media(const fs::path& p) { return is_image(p) || is_video(p); }
 
 // "jpeg" / "png" / … from the extension; jpg is normalized to jpeg.
 std::string format_of(const fs::path& p) {
@@ -402,7 +429,7 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
         fs::path rp(root);
         if (!fs::exists(rp, ec)) continue;
         if (fs::is_regular_file(rp, ec)) {
-            if (is_image(rp)) add_file(rp);
+            if (is_media(rp)) add_file(rp);
             continue;
         }
         for (fs::recursive_directory_iterator it(
@@ -410,7 +437,7 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
              end;
              it != end; it.increment(ec)) {
             if (ec) { ec.clear(); continue; }
-            if (it->is_regular_file(ec) && is_image(it->path())) add_file(it->path());
+            if (it->is_regular_file(ec) && is_media(it->path())) add_file(it->path());
         }
     }
 
@@ -448,12 +475,25 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
             r.mtime_ns = f.mtime_ns;
             r.format = format_of(f.path);
             r.import_time = import_time;  // ignored by upsert on conflict
-            // EXIF read (no-op without libexif): fills dimensions/orientation on
-            // the asset row and the searchable asset_metadata row.
-            exif::AssetMetadata meta = exif::extract(path);
-            r.width = meta.width;
-            r.height = meta.height;
-            r.orientation = meta.orientation;
+            exif::AssetMetadata meta;
+            if (is_video(f.path)) {
+                // §11: videos carry no EXIF; probe dims/duration via FFmpeg
+                // (ok=false without it → row still imports as kind=1, dur 0).
+                r.kind = 1;
+                const video::ProbeResult vp = video::probe(path);
+                if (vp.ok) {
+                    r.width = vp.width;
+                    r.height = vp.height;
+                    r.duration_ms = vp.duration_ms;
+                }
+            } else {
+                // EXIF read (no-op without libexif): fills dimensions/orientation
+                // on the asset row and the searchable asset_metadata row.
+                meta = exif::extract(path);
+                r.width = meta.width;
+                r.height = meta.height;
+                r.orientation = meta.orientation;
+            }
             pending.push_back({std::move(r), std::move(meta)});
             if (is_new) ++added; else ++updated;
         }
@@ -756,6 +796,67 @@ std::optional<catalog::Catalog::SavedSearchRecord> Engine::get_saved_search(
     if (!catalog_) return std::nullopt;
     std::lock_guard<std::mutex> lk(catalog_mu_);
     return catalog_->get_saved_search(id);
+}
+
+uint64_t Engine::create_collage(std::vector<ThumbService::CollageCell> cells,
+                                const std::string& dst, uint32_t canvas_w,
+                                uint32_t canvas_h, uint32_t bg_rgb,
+                                int quality) {
+    if (dst.empty() || cells.empty() || canvas_w == 0 || canvas_h == 0)
+        return 0;
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE,
+                 [this, req, cells = std::move(cells), dst, canvas_w, canvas_h,
+                  bg_rgb, quality]() mutable {
+                     const bool ok = thumbs_.create_collage(
+                         cells, dst, canvas_w, canvas_h, bg_rgb, quality);
+                     photo_event_t ev{};
+                     ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+                     ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+                     ev.request_id = req;
+                     events_.push(ev);
+                 });
+    return req;
+}
+
+void Engine::video_set_trim(int64_t asset_id, int64_t start_ms,
+                            int64_t end_ms) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (catalog_ == nullptr) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_trim(asset_id, start_ms, end_ms, now_ns());
+#else
+    (void)asset_id; (void)start_ms; (void)end_ms;
+#endif
+}
+
+std::pair<int64_t, int64_t> Engine::video_get_trim(int64_t asset_id) const {
+#ifdef PHOTO_HAVE_SQLITE
+    if (catalog_ != nullptr) {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        if (auto t = catalog_->trim_for(asset_id))
+            return {t->start_ms, t->end_ms};
+    }
+#else
+    (void)asset_id;
+#endif
+    return {0, 0};
+}
+
+uint64_t Engine::video_export_trimmed(const std::string& src,
+                                      const std::string& dst, int64_t start_ms,
+                                      int64_t end_ms) {
+    if (src.empty() || dst.empty()) return 0;
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, src, dst, start_ms, end_ms] {
+        const bool ok = video::remux_trim(src, dst, start_ms, end_ms);
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+        ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+        ev.request_id = req;
+        events_.push(ev);
+    });
+    return req;
 }
 
 std::vector<catalog::AssetRecord> Engine::list_assets() const {

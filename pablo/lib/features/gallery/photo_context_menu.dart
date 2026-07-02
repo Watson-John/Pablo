@@ -44,6 +44,9 @@ class PhotoMenuActions {
     required this.onShowInPablo,
     required this.onSplitFolder,
     required this.onRename,
+    required this.onExport,
+    required this.onShare,
+    required this.onPrint,
     required this.isStarred,
     required this.isHidden,
   });
@@ -64,6 +67,11 @@ class PhotoMenuActions {
 
   /// Rename the target photos (single dialog for one, batch modal for many).
   final void Function(List<String> ids) onRename;
+
+  /// §10 create/output: batch export / OS share sheet / print the targets.
+  final void Function(List<String> ids) onExport;
+  final void Function(List<String> ids) onShare;
+  final void Function(List<String> ids) onPrint;
   final bool Function(String id) isStarred;
   final bool Function(String id) isHidden;
 }
@@ -192,8 +200,22 @@ List<ContextMenuItem> buildPhotoMenuItems({
         onPressed: () => copyPathsToClipboard(targets),
       ),
       ContextMenuItem.separator(),
-      ContextMenuItem(label: 'Share', iconCharacter: '📤'),
-      ContextMenuItem(label: 'Print', iconCharacter: '🖨'),
+      // §10 create/output — batch-capable: acts on the whole selection.
+      ContextMenuItem(
+        label: multi ? 'Export $n Photos…' : 'Export…',
+        iconCharacter: '⤓',
+        onPressed: () => actions.onExport(targets),
+      ),
+      ContextMenuItem(
+        label: multi ? 'Share $n Photos…' : 'Share…',
+        iconCharacter: '📤',
+        onPressed: () => actions.onShare(targets),
+      ),
+      ContextMenuItem(
+        label: multi ? 'Print $n Photos…' : 'Print…',
+        iconCharacter: '🖨',
+        onPressed: () => actions.onPrint(targets),
+      ),
       ContextMenuItem.separator(),
       ContextMenuItem(
         label: withCount('Delete', 'Photos'),

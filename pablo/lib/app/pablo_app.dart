@@ -20,6 +20,9 @@ import '../data/sources/face_repository.dart';
 import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/edit_session.dart';
 import '../features/editor/photo_edit_panel.dart';
+import '../features/export/export_runner.dart';
+import '../features/print/print_service.dart';
+import '../features/share/share_service.dart';
 import '../features/find_duplicates/dedup_scope.dart';
 import '../features/find_duplicates/find_duplicates_flow.dart';
 import '../features/gallery/compare_view.dart';
@@ -431,9 +434,37 @@ class _BodyState extends State<_Body> {
         onShowInPablo: _showInPablo,
         onSplitFolder: _splitFolderHere,
         onRename: _rename,
+        onExport: _exportPhotos,
+        onShare: _sharePhotos,
+        onPrint: _printPhotos,
         isStarred: (id) => isStarredAsset(assetIdFor(id)),
         isHidden: isHiddenPhoto,
       );
+
+  // §10 create/output — resolve target ids to Photos and run the flows. The
+  // menu passes the whole selection when the clicked photo is part of one.
+  List<Photo> _photosFromIds(List<String> ids) => [
+        for (final id in ids)
+          if (photoById(id) case final p?) p,
+      ];
+
+  void _exportPhotos(List<String> ids) {
+    final photos = _photosFromIds(ids);
+    if (photos.isEmpty) return;
+    runExportToFolder(context, photos: photos);
+  }
+
+  void _sharePhotos(List<String> ids) {
+    final photos = _photosFromIds(ids);
+    if (photos.isEmpty) return;
+    sharePhotos(context, photos: photos, origin: shareOriginFrom(context));
+  }
+
+  void _printPhotos(List<String> ids) {
+    final photos = _photosFromIds(ids);
+    if (photos.isEmpty) return;
+    runPrint(context, photos: photos);
+  }
 
   // Rename: a single photo gets a quick name dialog; a multi-selection opens
   // the token-based batch modal. Both apply through the shared rename path.
@@ -651,10 +682,12 @@ class _BodyState extends State<_Body> {
         ? _contextPhotosFor(st, lightboxPhoto)
         : <Photo>[];
 
+    // Videos aren't editable (§11): keep the sidebar rather than the edit panel.
+    final showEditPanel = lightboxPhoto != null && !lightboxPhoto.isVideo;
     final Widget shell = Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (lightboxPhoto != null)
+        if (showEditPanel)
           PhotoEditPanel(photo: lightboxPhoto, width: st.sidebarWidth)
         else
           const Sidebar(),
@@ -696,6 +729,9 @@ class _BodyState extends State<_Body> {
                                   children: [
                                     Expanded(
                                       child: MainGrid(
+                                        // §10 export/share/print ride main's
+                                        // selection-aware menu via the
+                                        // PhotoMenuActions seam (multi-capable).
                                         onPhotoSecondary: (pos, id) =>
                                             showPhotoContextMenu(
                                           context,

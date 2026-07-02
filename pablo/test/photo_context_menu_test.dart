@@ -16,6 +16,9 @@ void main() {
         onShowInPablo: (_) {},
         onSplitFolder: (_) {},
         onRename: (_) {},
+        onExport: (_) {},
+        onShare: (_) {},
+        onPrint: (_) {},
         isStarred: (_) => false,
         isHidden: (_) => false,
       );
@@ -51,6 +54,10 @@ void main() {
     expect(ls, contains('Move 3 Photos to Folder…'));
     expect(ls, contains('Star 3 Photos'));
     expect(ls, contains('Copy 3 Paths'));
+    // §10 create/output items are selection-aware too.
+    expect(ls, contains('Export 3 Photos…'));
+    expect(ls, contains('Share 3 Photos…'));
+    expect(ls, contains('Print 3 Photos…'));
   });
 
   test('single target uses unnumbered labels', () {

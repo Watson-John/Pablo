@@ -86,7 +86,8 @@ int64_t user_version(sqlite3* db) {
 // read_asset().
 constexpr const char* kAssetCols =
     "id,path,folder,filename,size,mtime_ns,content_hash,"
-    "width,height,orientation,format,import_time,starred,rating,caption,hidden";
+    "width,height,orientation,format,import_time,starred,rating,caption,hidden,"
+    "kind,duration_ms";
 
 AssetRecord read_asset(const Stmt& q) {
     AssetRecord r;
@@ -106,6 +107,8 @@ AssetRecord read_asset(const Stmt& q) {
     r.rating       = static_cast<int32_t>(q.col_int(13));
     r.caption      = q.col_text(14);
     r.hidden       = q.col_int(15) != 0;
+    r.kind         = static_cast<int32_t>(q.col_int(16));
+    r.duration_ms  = q.col_int(17);
     return r;
 }
 
@@ -261,6 +264,24 @@ void Catalog::migrate() {
              " updated_ns INTEGER NOT NULL DEFAULT 0);"
              "PRAGMA user_version=8;");
     }
+    if (user_version(db_) < 9) {
+        // §11 video: mark video assets and remember their duration so the grid
+        // can badge them without a per-tile probe. kind 0 = photo, 1 = video.
+        // The non-destructive trim points live in a side table (mirrors
+        // asset_edit: FK + ON DELETE CASCADE so a rescan-prune drops them).
+        // trim_end_ms 0 means "to the end". D1-compliant — the original file is
+        // never rewritten; a trimmed clip is an explicit export.
+        exec(db_,
+             "ALTER TABLE asset ADD COLUMN kind INTEGER NOT NULL DEFAULT 0;"
+             "ALTER TABLE asset ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;"
+             "CREATE TABLE IF NOT EXISTS video_edit("
+             " asset_id INTEGER PRIMARY KEY"
+             "   REFERENCES asset(id) ON DELETE CASCADE,"
+             " trim_start_ms INTEGER NOT NULL DEFAULT 0,"
+             " trim_end_ms INTEGER NOT NULL DEFAULT 0,"
+             " updated_ns INTEGER NOT NULL DEFAULT 0);"
+             "PRAGMA user_version=9;");
+    }
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {
@@ -268,19 +289,21 @@ int64_t Catalog::upsert_asset(AssetRecord& rec) {
     // rating, caption, hidden) and import_time are intentionally left intact.
     Stmt q(db_,
            "INSERT INTO asset(path,folder,filename,size,mtime_ns,content_hash,"
-           "width,height,orientation,format,import_time)"
-           " VALUES(?,?,?,?,?,?,?,?,?,?,?)"
+           "width,height,orientation,format,import_time,kind,duration_ms)"
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
            " ON CONFLICT(path) DO UPDATE SET"
            "  folder=excluded.folder, filename=excluded.filename,"
            "  size=excluded.size, mtime_ns=excluded.mtime_ns,"
            "  content_hash=excluded.content_hash,"
            "  width=excluded.width, height=excluded.height,"
-           "  orientation=excluded.orientation, format=excluded.format");
+           "  orientation=excluded.orientation, format=excluded.format,"
+           "  kind=excluded.kind, duration_ms=excluded.duration_ms");
     q.bind(1, rec.path).bind(2, rec.folder).bind(3, rec.filename)
      .bind(4, rec.size).bind(5, rec.mtime_ns).bind(6, rec.content_hash)
      .bind(7, (int64_t)rec.width).bind(8, (int64_t)rec.height)
      .bind(9, (int64_t)rec.orientation).bind(10, rec.format)
-     .bind(11, rec.import_time);
+     .bind(11, rec.import_time).bind(12, (int64_t)rec.kind)
+     .bind(13, rec.duration_ms);
     q.run();
 
     Stmt id(db_, "SELECT id FROM asset WHERE path=?");
@@ -800,6 +823,37 @@ std::vector<std::pair<int64_t, Catalog::EditRow>> Catalog::all_edits() const {
     return out;
 }
 
+// ── Video trim ────────────────────────────────────────────────────────────────
+
+std::optional<Catalog::TrimRow> Catalog::trim_for(int64_t asset_id) const {
+    Stmt q(db_,
+           "SELECT trim_start_ms, trim_end_ms FROM video_edit WHERE asset_id=?");
+    q.bind(1, asset_id);
+    if (!q.step()) return std::nullopt;
+    return TrimRow{q.col_int(0), q.col_int(1)};
+}
+
+void Catalog::set_trim(int64_t asset_id, int64_t start_ms, int64_t end_ms,
+                       int64_t now_ns) {
+    // (0,0) means "no trim" — drop the row so trim_for reports none.
+    if (start_ms <= 0 && end_ms <= 0) {
+        Stmt d(db_, "DELETE FROM video_edit WHERE asset_id=?");
+        d.bind(1, asset_id);
+        d.run();
+        return;
+    }
+    Stmt q(db_,
+           "INSERT INTO video_edit(asset_id,trim_start_ms,trim_end_ms,updated_ns)"
+           " VALUES(?,?,?,?)"
+           " ON CONFLICT(asset_id) DO UPDATE SET"
+           "  trim_start_ms=excluded.trim_start_ms,"
+           "  trim_end_ms=excluded.trim_end_ms,"
+           "  updated_ns=excluded.updated_ns");
+    q.bind(1, asset_id).bind(2, start_ms < 0 ? 0 : start_ms)
+     .bind(3, end_ms < 0 ? 0 : end_ms).bind(4, now_ns);
+    q.run();
+}
+
 // ── Embeddings ───────────────────────────────────────────────────────────────
 
 void Catalog::upsert_embedding(const EmbeddingRecord& r) {
@@ -1052,6 +1106,8 @@ std::optional<Catalog::EditRow> Catalog::edit_for(int64_t) const { return std::n
 int64_t Catalog::set_edit(int64_t, const std::string&, int64_t) { return 0; }
 void Catalog::clear_edit(int64_t) {}
 std::vector<std::pair<int64_t, Catalog::EditRow>> Catalog::all_edits() const { return {}; }
+std::optional<Catalog::TrimRow> Catalog::trim_for(int64_t) const { return std::nullopt; }
+void Catalog::set_trim(int64_t, int64_t, int64_t, int64_t) {}
 void Catalog::upsert_embedding(const EmbeddingRecord&) {}
 void Catalog::set_embedding_status(int64_t, int32_t, const std::string&) {}
 std::optional<Catalog::EmbeddingRecord> Catalog::get_embedding(int64_t) const { return std::nullopt; }

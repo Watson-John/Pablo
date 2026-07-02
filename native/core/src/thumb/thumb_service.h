@@ -24,8 +24,10 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "edit/edit_spec.h"
+#include "edit/render.h"  // edit::Watermark (ExportOptions member)
 #include "photo_core.h"
 #include "runtime/event_ring.h"
 #include "runtime/job_system.h"
@@ -69,6 +71,35 @@ public:
     // No slot/cache. libvips only (false without it). Used by "Save as Copy".
     bool export_to_file(const std::string& src, const std::string& dst,
                         const edit::EditSpec& spec, int quality);
+
+    // Export output options. `max_dim` bounds the LONG edge of the written file
+    // (0 = source size; never upscales). A watermark applies when `wm.text` is
+    // non-empty, drawn on the post-resize frame so its on-disk scale is exact.
+    struct ExportOptions {
+        uint32_t max_dim = 0;
+        int quality = 92;
+        edit::Watermark wm;
+    };
+
+    // export_to_file with resize + watermark. Same contract otherwise; the
+    // quality-only export_to_file delegates here with default options.
+    bool export_to_file2(const std::string& src, const std::string& dst,
+                         const edit::EditSpec& spec, const ExportOptions& opts);
+
+    // One collage cell: normalized rect on the canvas + the source to render
+    // into it (through its saved edit spec, so edits are honoured) cover-fit.
+    struct CollageCell {
+        float x = 0, y = 0, w = 0, h = 0;  // fractions of the canvas [0,1]
+        std::string src;
+        std::string spec;  // edit spec string ("" = none)
+    };
+
+    // Composite `cells` onto a `canvas_w × canvas_h` canvas filled with
+    // `bg_rgb` (0xRRGGBB) and write a JPEG to `dst` (jpg quality). Each source
+    // is rendered full-res, cover-fit into its cell. libvips only. §11/collage.
+    bool create_collage(const std::vector<CollageCell>& cells,
+                        const std::string& dst, uint32_t canvas_w,
+                        uint32_t canvas_h, uint32_t bg_rgb, int quality);
 
     // Write a layered TIFF to `dst`: page 0 = the full edited render, page 1 =
     // the untouched original (both padded to a common canvas), with the spec in

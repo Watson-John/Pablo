@@ -45,6 +45,24 @@ const Set<String> _kImageExts = {
   '.bmp'
 };
 
+/// §11 video containers. Mirrors native engine.cpp video_exts() +
+/// video::is_video_path so the Dart gallery and the catalog agree.
+const Set<String> _kVideoExts = {
+  '.mp4',
+  '.mov',
+  '.m4v',
+  '.avi',
+  '.mkv',
+  '.webm',
+};
+
+/// True when [path]'s extension is a supported video (used by the scan + the
+/// Photo.isVideo flag).
+bool isVideoPath(String path) {
+  final dot = path.lastIndexOf('.');
+  return dot >= 0 && _kVideoExts.contains(path.substring(dot).toLowerCase());
+}
+
 /// True when [path] has an extension the library scan treats as an image.
 /// The move service uses this to decide when a source folder has been emptied
 /// of photos (leftover sidecars don't count).
@@ -53,6 +71,12 @@ bool hasImageExtension(String path) {
   if (dot < 0) return false;
   return _kImageExts.contains(path.substring(dot).toLowerCase());
 }
+
+/// True when [path] is any library media (image OR §11 video). Post-move
+/// folder-cleanup checks use this so a folder still holding a video is never
+/// treated as emptied.
+bool hasMediaExtension(String path) =>
+    hasImageExtension(path) || isVideoPath(path);
 
 const List<String> _kMonthNames = [
   '',
@@ -278,7 +302,9 @@ class _ScanCtx {
   void addFile(String path, DateTime? when, [int sizeBytes = 0]) {
     final dot = path.lastIndexOf('.');
     if (dot < 0) return;
-    if (!_kImageExts.contains(path.substring(dot).toLowerCase())) return;
+    final ext = path.substring(dot).toLowerCase();
+    final isVideo = _kVideoExts.contains(ext);
+    if (!_kImageExts.contains(ext) && !isVideo) return;
 
     final name = path.substring(path.lastIndexOf(Platform.pathSeparator) + 1);
     final photo = Photo(
@@ -287,6 +313,8 @@ class _ScanCtx {
       filePath: path,
       modified: when,
       sizeBytes: sizeBytes,
+      isVideo: isVideo,
+      durationMs: videoDurationOf(path),
     );
     byId[path] = photo;
 
@@ -526,6 +554,19 @@ void setStarredLocal(int assetId, bool v) {
   _starredByAsset = {..._starredByAsset, assetId: v};
   _invalidateGallery();
 }
+
+/// §11 video durations (ms) keyed by absolute path, hydrated from the catalog at
+/// import so the grid can badge a clip's length. Kept off the immutable Photo's
+/// scan-time value (which is 0 until the native probe fills it). Empty until
+/// hydration; the scan seeds Photo.durationMs from here so a rescan keeps it.
+Map<String, int> _videoDurationByPath = const {};
+void hydrateVideoDurations(Map<String, int> byPath) {
+  _videoDurationByPath = byPath;
+  _invalidateGallery();
+}
+
+/// Duration (ms) for a video path, or 0 if unknown / not a video.
+int videoDurationOf(String path) => _videoDurationByPath[path] ?? 0;
 
 /// Catalog hidden state as a set of hidden file paths (== Photo.id), hydrated at
 /// import and toggled by the context menu. Hidden photos are filtered out of

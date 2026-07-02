@@ -48,6 +48,7 @@ for rel in api/c_api.cpp \
            semantic/semantic_search.cpp \
            semantic/semantic_service.cpp \
            xmp/face_xmp.cpp \
+           video/video_io.cpp \
            codec/codec.cpp \
            faces/detector.cpp \
            faces/align.cpp \

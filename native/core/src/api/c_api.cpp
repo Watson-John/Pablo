@@ -241,7 +241,12 @@ PHOTO_API size_t photo_list_assets(photo_engine_t* engine,
                 d.orientation = static_cast<uint32_t>(a.orientation);
                 d.starred     = a.starred ? 1 : 0;
                 d.rating      = a.rating;
-                d.flags       = a.hidden ? PHOTO_ASSET_FLAG_HIDDEN : 0u;
+                d.flags       = (a.hidden ? PHOTO_ASSET_FLAG_HIDDEN : 0u) |
+                                (a.kind == 1 ? PHOTO_ASSET_FLAG_VIDEO : 0u);
+                // §11: video duration rides in _reserved[0] (ms) — no struct
+                // growth, so the ABI stays fixed. 0 for photos.
+                d._reserved[0] = static_cast<uint32_t>(
+                    a.duration_ms < 0 ? 0 : a.duration_ms);
                 std::snprintf(d.path, sizeof(d.path), "%s", a.path.c_str());
             }
         }
@@ -963,6 +968,121 @@ PHOTO_API uint64_t photo_asset_export(photo_engine_t* engine,
 #else
     (void)engine; (void)src_path_utf8; (void)dst_path_utf8;
     (void)spec_utf8; (void)quality;
+    return 0;
+#endif
+}
+
+PHOTO_API uint64_t photo_asset_export2(photo_engine_t* engine,
+                                       const char* src_path_utf8,
+                                       const char* dst_path_utf8,
+                                       const char* spec_utf8,
+                                       const photo_export_options_t* opts) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!engine || !src_path_utf8 || !dst_path_utf8) return 0;
+    try {
+        photo::ThumbService::ExportOptions o;
+        if (opts != nullptr) {
+            o.max_dim = opts->max_dim;
+            o.quality = opts->quality > 0 ? opts->quality : 92;
+            // NUL-termination is the caller's contract; clamp defensively.
+            const size_t n = strnlen(opts->wm_text, sizeof(opts->wm_text));
+            o.wm.text.assign(opts->wm_text, n);
+            o.wm.argb = opts->wm_argb;
+            o.wm.size = opts->wm_size;
+            o.wm.margin = opts->wm_margin;
+            o.wm.anchor = static_cast<int>(opts->wm_anchor);
+        }
+        return cast(engine)->export_path2(src_path_utf8, dst_path_utf8,
+                                          spec_utf8 ? spec_utf8 : "", o);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_export2: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)src_path_utf8; (void)dst_path_utf8;
+    (void)spec_utf8; (void)opts;
+    return 0;
+#endif
+}
+
+PHOTO_API uint64_t photo_create_collage(photo_engine_t* engine,
+                                        const photo_collage_cell_t* cells,
+                                        size_t count, const char* dst_path_utf8,
+                                        uint32_t canvas_w, uint32_t canvas_h,
+                                        uint32_t bg_rgb, int32_t quality) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!engine || !cells || count == 0 || !dst_path_utf8) return 0;
+    try {
+        std::vector<photo::ThumbService::CollageCell> v;
+        v.reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            photo::ThumbService::CollageCell c;
+            c.x = cells[i].x; c.y = cells[i].y;
+            c.w = cells[i].w; c.h = cells[i].h;
+            c.src = cells[i].src_utf8 ? cells[i].src_utf8 : "";
+            c.spec = cells[i].spec_utf8 ? cells[i].spec_utf8 : "";
+            v.push_back(std::move(c));
+        }
+        return cast(engine)->create_collage(std::move(v), dst_path_utf8,
+                                            canvas_w, canvas_h, bg_rgb,
+                                            quality > 0 ? quality : 92);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_create_collage: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)cells; (void)count; (void)dst_path_utf8;
+    (void)canvas_w; (void)canvas_h; (void)bg_rgb; (void)quality;
+    return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_video_set_trim(photo_engine_t* engine,
+                                       uint64_t asset_id, int64_t start_ms,
+                                       int64_t end_ms) {
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->video_set_trim(static_cast<int64_t>(asset_id), start_ms,
+                                     end_ms);
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_video_set_trim: %s", e.what());
+        return PHOTO_STATUS_IO_ERROR;
+    }
+}
+
+PHOTO_API int32_t photo_video_get_trim(photo_engine_t* engine,
+                                       uint64_t asset_id, int64_t* start_ms,
+                                       int64_t* end_ms) {
+    if (!engine) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        const auto t = cast(engine)->video_get_trim(
+            static_cast<int64_t>(asset_id));
+        if (start_ms) *start_ms = t.first;
+        if (end_ms) *end_ms = t.second;
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_video_get_trim: %s", e.what());
+        return PHOTO_STATUS_IO_ERROR;
+    }
+}
+
+PHOTO_API uint64_t photo_video_export_trimmed(photo_engine_t* engine,
+                                              const char* src_path_utf8,
+                                              const char* dst_path_utf8,
+                                              int64_t start_ms, int64_t end_ms) {
+#ifdef PHOTO_HAVE_FFMPEG
+    if (!engine || !src_path_utf8 || !dst_path_utf8) return 0;
+    try {
+        return cast(engine)->video_export_trimmed(src_path_utf8, dst_path_utf8,
+                                                  start_ms, end_ms);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_video_export_trimmed: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)src_path_utf8; (void)dst_path_utf8;
+    (void)start_ms; (void)end_ms;
     return 0;
 #endif
 }

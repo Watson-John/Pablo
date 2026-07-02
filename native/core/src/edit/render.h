@@ -84,6 +84,26 @@ void apply_heal(FrameBuffer& fb, const EditSpec& spec);
 // to the frame, so they scale correctly across thumbnail / full-res renders.
 void apply_text(FrameBuffer& fb, const EditSpec& spec);
 
+// A render-time export watermark. Deliberately NOT part of EditSpec: the
+// `text=` grammar is positional with the free text LAST, so it cannot grow an
+// opacity field compatibly, and its (x,y) is a box centre while a watermark
+// needs corner anchoring against the rasterized text size. `size` and `margin`
+// are fractions of the output frame's SHORT edge; opacity rides in the top
+// byte of `argb`.
+struct Watermark {
+    std::string text;             // empty = no watermark
+    uint32_t argb = 0x80FFFFFF;   // AARRGGBB
+    float size    = 0.04f;        // text height / short edge
+    float margin  = 0.02f;        // corner inset / short edge
+    int anchor    = 0;            // 0=BR 1=BL 2=TR 3=TL 4=centre
+};
+
+// Alpha-blend `wm` onto the frame at its anchor. Called on the FINAL
+// (post-resize) export frame so the on-disk watermark scale is exact. Shares
+// apply_text's Pango rasterize+blend path; a no-op without libvips, on empty
+// text, or when the alpha byte is 0.
+void draw_watermark(FrameBuffer& fb, const Watermark& wm);
+
 // Apply the geometry of `spec` (flip → rot90 → straighten+auto-crop → crop) to
 // a decoded libvips image. ALWAYS returns a NEW owned reference the caller must
 // g_object_unref (an identity spec returns `in` with an added ref). Without

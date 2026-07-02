@@ -205,8 +205,31 @@ public:
     // needed, so these sit outside the SQLite guard. 0 on immediate rejection.
     uint64_t export_path(const std::string& src, const std::string& dst,
                          const std::string& spec_str, int quality);
+    // export_path with output options (long-edge resize + text watermark). All
+    // export flavours share next_export_id_ so callers can await any of them
+    // through the one PHOTO_EVT_EXPORT_COMPLETE stream.
+    uint64_t export_path2(const std::string& src, const std::string& dst,
+                          const std::string& spec_str,
+                          const ThumbService::ExportOptions& opts);
     uint64_t save_layered(const std::string& src, const std::string& dst,
                           const std::string& spec_str);
+
+    // §11/collage: composite `cells` (each a normalized rect + source path +
+    // edit spec) onto a canvas and write a JPEG to `dst`, on the idle lane.
+    // Shares next_export_id_ + PHOTO_EVT_EXPORT_COMPLETE. 0 on rejection.
+    uint64_t create_collage(std::vector<ThumbService::CollageCell> cells,
+                            const std::string& dst, uint32_t canvas_w,
+                            uint32_t canvas_h, uint32_t bg_rgb, int quality);
+
+    // §11 video trim (catalog-only; D1). Get returns (start_ms, end_ms) with
+    // end 0 = "to end"; both 0 = no trim. set(0,0) clears. These touch the
+    // catalog, so they run under catalog_mu_.
+    void video_set_trim(int64_t asset_id, int64_t start_ms, int64_t end_ms);
+    std::pair<int64_t, int64_t> video_get_trim(int64_t asset_id) const;
+    // Export a trimmed clip [start,end) of `src` to `dst` (stream-copy remux,
+    // no re-encode) on the idle lane. Shares the export event stream.
+    uint64_t video_export_trimmed(const std::string& src, const std::string& dst,
+                                  int64_t start_ms, int64_t end_ms);
 
     // Red-eye auto-detect: decode `path`, look up this asset's stored eye
     // landmarks (from the face scan), and return a red-eye brush Region for every
