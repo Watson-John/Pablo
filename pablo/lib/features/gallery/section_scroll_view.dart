@@ -409,12 +409,22 @@ class _SectionHeader extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: PabloTypography.sectionTitle),
+                Text(
+                  title,
+                  style: PabloTypography.sectionTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 if (subtitle.isNotEmpty) ...[
                   const SizedBox(height: 2),
+                  // Single line + ellipsis: the header has a fixed 64px extent,
+                  // so a long subtitle (e.g. a folder path) must not wrap and
+                  // overflow it at narrow widths.
                   Text(
                     subtitle,
                     style: PabloTypography.caption,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ],
