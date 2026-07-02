@@ -23,8 +23,9 @@ Map<int, String> _catalogPaths = const {};
 /// Install the catalog's stable path → asset_id mapping (called once after the
 /// native import completes). Replaces any prior mapping; also builds the
 /// inverse (asset_id → path) used to resolve a catalog asset back to a photo.
+/// Copies into growable maps so [remapCatalogPath] can update them in place.
 void hydrateCatalogIds(Map<String, int> idByPath) {
-  _catalogIds = idByPath;
+  _catalogIds = Map.of(idByPath);
   _catalogPaths = {for (final e in idByPath.entries) e.value: e.key};
 }
 
@@ -33,3 +34,20 @@ int assetIdFor(String key) =>
 
 /// Path for a stable catalog asset_id, or null if unknown (e.g. pre-hydration).
 String? pathForAssetId(int assetId) => _catalogPaths[assetId];
+
+/// The hydrated catalog id for [path], or null when the path is unknown or
+/// hydration hasn't happened yet. Unlike [assetIdFor] this never falls back to
+/// the per-run path hash — use it wherever the id crosses the FFI as a real
+/// catalog id (e.g. Engine.relocateAssets), where a hash would corrupt rows.
+int? catalogIdForPath(String path) => _catalogIds[path];
+
+/// Point an asset's in-memory mapping at its new path after a file move (the
+/// catalog row was already relocated natively). No-op when [oldPath] was never
+/// hydrated.
+void remapCatalogPath(String oldPath, String newPath) {
+  final id = _catalogIds[oldPath];
+  if (id == null) return;
+  _catalogIds.remove(oldPath);
+  _catalogIds[newPath] = id;
+  _catalogPaths[id] = newPath;
+}

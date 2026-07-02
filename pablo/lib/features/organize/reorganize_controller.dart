@@ -1,14 +1,18 @@
-// reorganize_controller.dart — the in-app drag-drop reorganize action: move the
-// dragged photos into a target folder on disk, refresh the library, and offer an
-// Undo. Built on LibraryMover (verified moves) + the existing Dart Library scan
-// (the chosen Phase-B foundation on this branch).
+// reorganize_controller.dart — the UI side of in-app file moves: route the
+// gesture through MoveService (which keeps disk + catalog + id maps
+// convergent), remap app selection state, refresh the library snapshot, and
+// surface a snackbar with Undo. Also hosts the shared undo entry points the
+// Edit→Undo menu and Cmd/Ctrl+Z use.
 
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart' show Engine;
 
 import '../../app/app_state.dart';
+import '../../backend/native_backend.dart';
 import '../../data/boot.dart';
 import '../../data/library.dart';
-import '../../data/library_mover.dart';
+import '../../data/move_service.dart';
+import '../../data/undo_stack.dart';
 
 /// Move [paths] into [destDir], then refresh the library and show a result
 /// snackbar with Undo. No-op for an empty drop or a same-folder drop.
@@ -23,50 +27,89 @@ Future<void> reorganizeMove(
   Future<void> Function()? refresh,
 }) async {
   if (paths.isEmpty) return;
-  final doRefresh = refresh ?? _refreshLibrary;
   final messenger = ScaffoldMessenger.maybeOf(context);
-  final batch = LibraryMover.moveInto(paths, destDir);
-  if (!batch.anyMoved) {
+  final engine = NativeBackendScope.maybeOf(context)?.engine;
+
+  final outcome = MoveService.moveInto(
+    paths,
+    destDir,
+    engine: engine,
+    undo: st.undoStack,
+  );
+  if (!outcome.anyMoved) {
     messenger?.showSnackBar(const SnackBar(
         content: Text('Nothing to move (already in that folder)')));
     return;
   }
-  // Old ids (== source paths) are now stale; drop them from selection/tray.
-  for (final m in batch.moves) {
-    if (m.ok) {
-      st.selectedPhotos.remove(m.fromPath);
-      st.trayPhotos.remove(m.fromPath);
-    }
-  }
-  await doRefresh();
-  st.libraryChanged();
-  if (!context.mounted) return;
-  final n = batch.movedCount;
+  await _applyOutcome(st, outcome, refresh: refresh);
+  final n = outcome.movedCount;
   messenger?.showSnackBar(SnackBar(
     content: Text('Moved $n photo${n == 1 ? '' : 's'}'
-        '${batch.failedCount > 0 ? ' · ${batch.failedCount} failed' : ''}'),
-    action: SnackBarAction(
-      label: 'Undo',
-      onPressed: () => _undo(context, st, batch, refresh: refresh),
-    ),
+        '${outcome.failedCount > 0 ? ' · ${outcome.failedCount} failed' : ''}'),
+    action: outcome.undoOp == null
+        ? null
+        : SnackBarAction(
+            label: 'Undo',
+            onPressed: () =>
+                undoFileOp(messenger, st, outcome.undoOp!, engine: engine, refresh: refresh),
+          ),
   ));
 }
 
-Future<void> _undo(
-  BuildContext context,
+/// Undo a SPECIFIC op (a snackbar's Undo action). Silently does nothing when
+/// the op was already consumed by Cmd+Z / Edit→Undo — [UndoStack.remove]
+/// guards the double-reverse.
+Future<void> undoFileOp(
+  ScaffoldMessengerState? messenger,
   PabloAppState st,
-  MoveBatch batch, {
+  UndoableFileOp op, {
+  Engine? engine,
   Future<void> Function()? refresh,
 }) async {
+  if (!st.undoStack.remove(op)) return;
+  await _reverse(messenger, st, op, engine: engine, refresh: refresh);
+}
+
+/// Undo the NEWEST file op (Cmd/Ctrl+Z and Edit→Undo). No-op when the stack
+/// is empty.
+Future<void> undoLastFileOp(
+  BuildContext context,
+  PabloAppState st, {
+  Future<void> Function()? refresh,
+}) async {
+  final op = st.undoStack.pop();
+  if (op == null) return;
   final messenger = ScaffoldMessenger.maybeOf(context);
-  final result = LibraryMover.undo(batch);
-  await (refresh ?? _refreshLibrary)();
-  st.libraryChanged();
+  final engine = NativeBackendScope.maybeOf(context)?.engine;
+  await _reverse(messenger, st, op, engine: engine, refresh: refresh);
+}
+
+Future<void> _reverse(
+  ScaffoldMessengerState? messenger,
+  PabloAppState st,
+  UndoableFileOp op, {
+  Engine? engine,
+  Future<void> Function()? refresh,
+}) async {
+  final result = MoveService.undoOp(op, engine: engine);
+  await _applyOutcome(st, result, refresh: refresh);
   messenger?.showSnackBar(SnackBar(
     content: Text(result.failedCount > 0
         ? 'Undo partially failed (${result.failedCount})'
-        : 'Move undone'),
+        : 'Undid ${op.label}'),
   ));
+}
+
+/// Shared post-move bookkeeping: remap ids everywhere, refresh the snapshot,
+/// rebuild.
+Future<void> _applyOutcome(
+  PabloAppState st,
+  MoveOutcome outcome, {
+  Future<void> Function()? refresh,
+}) async {
+  st.remapPhotoIds(outcome.remapped);
+  await (refresh ?? _refreshLibrary)();
+  st.libraryChanged();
 }
 
 /// Re-scan the import root and notify the app to rebuild against it. A full

@@ -27,6 +27,7 @@ import '../features/gallery/compare_view.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/info_panel/info_panel.dart';
+import '../features/organize/reorganize_controller.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_controller.dart';
 import '../features/people/people_scope.dart';
@@ -40,6 +41,7 @@ import '../theme/tokens.dart';
 import '../utils/asset_id.dart';
 import 'app_scope.dart';
 import 'app_state.dart';
+import 'key_actions.dart';
 
 class PabloApp extends StatefulWidget {
   const PabloApp({super.key});
@@ -385,9 +387,12 @@ class _Home extends StatelessWidget {
     final photos = photosFor(st.selectedItem);
     return Scaffold(
       backgroundColor: PabloColors.backgroundShell,
-      body: WindowShell(
-        statusPhotoCount: photos.length,
-        body: st.dedupOpen ? const FindDuplicatesFlow() : _Body(),
+      body: KeyActions(
+        onUndo: () => undoLastFileOp(context, st),
+        child: WindowShell(
+          statusPhotoCount: photos.length,
+          body: st.dedupOpen ? const FindDuplicatesFlow() : _Body(),
+        ),
       ),
     );
   }

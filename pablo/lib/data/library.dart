@@ -45,6 +45,15 @@ const Set<String> _kImageExts = {
   '.bmp'
 };
 
+/// True when [path] has an extension the library scan treats as an image.
+/// The move service uses this to decide when a source folder has been emptied
+/// of photos (leftover sidecars don't count).
+bool hasImageExtension(String path) {
+  final dot = path.lastIndexOf('.');
+  if (dot < 0) return false;
+  return _kImageExts.contains(path.substring(dot).toLowerCase());
+}
+
 const List<String> _kMonthNames = [
   '',
   'January',

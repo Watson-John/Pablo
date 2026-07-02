@@ -1,7 +1,7 @@
 // End-to-end test for the reorganize controller against a temp filesystem, with
 // the library refresh injected. Covers the pipeline the live run exercised:
-// move on disk → stale selection/tray cleared → refresh invoked → snackbar with
-// Undo → Undo reverses the move.
+// move on disk → selection/tray REMAPPED to the new paths → refresh invoked →
+// snackbar with Undo → Undo reverses the move (and remaps back).
 
 import 'dart:io';
 
@@ -17,7 +17,7 @@ void main() {
     if (tmp.existsSync()) tmp.deleteSync(recursive: true);
   });
 
-  testWidgets('move clears selection, refreshes, snackbars; Undo reverses',
+  testWidgets('move remaps selection, refreshes, snackbars; Undo reverses',
       (tester) async {
     final a = File('${tmp.path}/A/p.jpg')
       ..createSync(recursive: true)
@@ -48,9 +48,11 @@ void main() {
     // Moved on disk.
     expect(File('${tmp.path}/B/p.jpg').existsSync(), isTrue);
     expect(a.existsSync(), isFalse);
-    // Stale id dropped from selection + tray.
-    expect(st.selectedPhotos.contains(a.path), isFalse);
-    expect(st.trayPhotos.contains(a.path), isFalse);
+    // Selection + tray FOLLOW the moved file (remapped, not dropped).
+    expect(st.selectedPhotos, {'${tmp.path}/B/p.jpg'});
+    expect(st.trayPhotos, ['${tmp.path}/B/p.jpg']);
+    // The batch is undoable via Cmd+Z too.
+    expect(st.undoStack.length, 1);
     // Library refresh was invoked.
     expect(refreshCalls, 1);
     // Result snackbar with an Undo action.
@@ -66,11 +68,15 @@ void main() {
     expect(File('${tmp.path}/A/p.jpg').existsSync(), isTrue);
     expect(File('${tmp.path}/B/p.jpg').existsSync(), isFalse);
     expect(refreshCalls, 2);
+    // Consumed off the stack (a later Cmd+Z must not double-reverse) and the
+    // selection followed the file back home.
+    expect(st.undoStack.isEmpty, isTrue);
+    expect(st.selectedPhotos, {'${tmp.path}/A/p.jpg'});
 
-    // The first snackbar dismisses (via the action) before "Move undone"
+    // The first snackbar dismisses (via the action) before the undo result
     // presents; pump through that transition.
     await tester.pump(const Duration(milliseconds: 800));
-    expect(find.text('Move undone'), findsOneWidget);
+    expect(find.text('Undid Move 1 photo'), findsOneWidget);
 
     // Drain snackbar auto-dismiss timers so the test ends clean.
     await tester.pump(const Duration(seconds: 5));

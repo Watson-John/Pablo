@@ -9,6 +9,7 @@ import '../data/library.dart';
 import '../data/models.dart';
 import '../data/scheme_store.dart';
 import '../data/storage_scheme.dart';
+import '../data/undo_stack.dart';
 import '../utils/asset_id.dart';
 
 class GridMode {
@@ -175,6 +176,25 @@ class PabloAppState extends ChangeNotifier {
   // Tray
   final List<String> trayPhotos = <String>[];
   bool trayLocked = false;
+
+  // Session-scoped undo for file operations (moves/splits/renames) — the
+  // Edit→Undo menu and Cmd/Ctrl+Z consume it; MoveService pushes onto it.
+  final UndoStack undoStack = UndoStack();
+
+  /// Swap photo ids (== file paths) after files moved on disk, so selection,
+  /// tray, the shift-anchor, and an open lightbox all follow the moved files
+  /// instead of pointing at dead paths.
+  void remapPhotoIds(Map<String, String> moved) {
+    if (moved.isEmpty) return;
+    for (final e in moved.entries) {
+      if (selectedPhotos.remove(e.key)) selectedPhotos.add(e.value);
+      final ti = trayPhotos.indexOf(e.key);
+      if (ti >= 0) trayPhotos[ti] = e.value;
+      if (activePhotoId == e.key) activePhotoId = e.value;
+      if (lightboxPhotoId == e.key) lightboxPhotoId = e.value;
+    }
+    notifyListeners();
+  }
 
   // Search
   String searchText = '';

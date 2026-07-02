@@ -21,6 +21,9 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pablo/data/move_service.dart';
+import 'package:pablo/data/undo_stack.dart';
+import 'package:pablo/utils/asset_id.dart';
 import 'package:photo_native/photo_native.dart';
 
 /// Resolve once a [PhotoEvent] matching [pred] is drained by the pump.
@@ -266,5 +269,78 @@ void main() {
     expect(rescanned.importRemoved, 0);
     expect(rescanned.importSkipped, 2);
     expect(engine.listAssets().length, 2);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('MoveService end-to-end: disk + catalog + id maps stay convergent',
+      () async {
+    final sep = Platform.pathSeparator;
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_movesvc_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    final libDir = '${tmp.path}${sep}lib';
+    Directory('$libDir${sep}inbox').createSync(recursive: true);
+    final srcPath = '$libDir${sep}inbox${sep}a.jpg';
+    File(srcPath).writeAsBytesSync(List.filled(8, 1));
+    File('$srcPath.xmp').writeAsStringSync('<xmp/>');
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null (no catalog support in lib)');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final importReq = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
+    final asset = engine.listAssets().single;
+    engine.setStarred(asset.assetId, true);
+    // The app hydrates this map after import (library_import.dart); mirror it.
+    hydrateCatalogIds({asset.path: asset.assetId});
+
+    final destDir = '$libDir${sep}sorted';
+    final undo = UndoStack();
+    final out =
+        MoveService.moveInto([srcPath], destDir, engine: engine, undo: undo);
+    expect(out.movedCount, 1);
+    final newPath = '$destDir${sep}a.jpg';
+    expect(File(newPath).existsSync(), isTrue);
+    expect(File('$newPath.xmp').existsSync(), isTrue, reason: 'sidecar moved');
+
+    // Catalog followed: same id at the new path; star intact; id map remapped.
+    final row = engine.listAssets().single;
+    expect(row.assetId, asset.assetId);
+    expect(row.path, newPath);
+    expect(engine.starredAssets(), contains(asset.assetId));
+    expect(assetIdFor(newPath), asset.assetId);
+    expect(pathForAssetId(asset.assetId), newPath);
+
+    // Rescan is churn-free after the coordinated move.
+    final rescanReq = engine.rescan();
+    final rescanned = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
+    expect(rescanned.importAdded, 0);
+    expect(rescanned.importRemoved, 0);
+
+    // Undo restores everything, including the catalog row and the id map.
+    MoveService.undoOp(undo.pop()!, engine: engine);
+    expect(File(srcPath).existsSync(), isTrue);
+    expect(File('$srcPath.xmp').existsSync(), isTrue);
+    expect(engine.listAssets().single.path, srcPath);
+    expect(engine.listAssets().single.assetId, asset.assetId);
+    expect(pathForAssetId(asset.assetId), srcPath);
   }, timeout: const Timeout(Duration(seconds: 90)));
 }
