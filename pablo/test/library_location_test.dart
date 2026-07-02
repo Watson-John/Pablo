@@ -7,6 +7,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pablo/data/app_config.dart';
 import 'package:pablo/data/library_location.dart';
 
 void main() {
@@ -60,5 +61,29 @@ void main() {
     Directory(src).createSync();
     await expectLater(
         LibraryLocation.copyCatalog(src, p('dest')), throwsStateError);
+  });
+
+  test('relocate preserves the other persisted settings (regression)', () {
+    // The bug: relocate wrote `AppConfig(catalogDir: dest).save()` — a FRESH
+    // config — silently resetting editSaveMode/export prefs. It must copyWith.
+    final cfgDir = p('cfg');
+    Directory(cfgDir).createSync();
+    AppConfig.configDirOverride = cfgDir;
+    addTearDown(() => AppConfig.configDirOverride = null);
+
+    AppConfig(
+      catalogDir: p('old_catalog'),
+      editSaveMode: EditSaveMode.layeredTiff,
+      exportQuality: 77,
+      exportWatermarkText: 'wm',
+    ).save();
+
+    LibraryLocation.persistCatalogDir(p('new_catalog'));
+
+    final after = AppConfig.load();
+    expect(after.catalogDir, p('new_catalog'));
+    expect(after.editSaveMode, EditSaveMode.layeredTiff);
+    expect(after.exportQuality, 77);
+    expect(after.exportWatermarkText, 'wm');
   });
 }

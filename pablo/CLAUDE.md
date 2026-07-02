@@ -1,19 +1,19 @@
 # Pablo — Implementation Reference
 
-This file is the working reference for implementing the Pablo v3 desktop application in Flutter. It mirrors the approved plan at `/Users/johnwatson/.claude/plans/you-are-implementing-a-fuzzy-robin.md`.
+This file is the working reference for the Pablo desktop application in Flutter.
 
-> **For coding agents working in this repo:** read this top-to-bottom before editing anything. Then check the chunk status table at the bottom to see what's been completed and where to pick up.
+> **For coding agents working in this repo:** read this top-to-bottom before editing anything. The app is REAL now — real photo library on disk, C++ native backend (`native/core`) reached over FFI (`packages/photo_native`), SQLite catalog, ONNX face + semantic-search models. Design-parity notes below still govern look and feel; the "mock data" era is over.
 
 ## What we're building
 
-Pablo is a Picasa-successor photo management desktop app. The source-of-truth design lives in `/tmp/pablo_design/pablo-warm/project/` (8 React/JSX modules + `Pablo v3.html`). We are recreating the visual output faithfully in Flutter, using a strict centralized theme system.
+Pablo is a Picasa-successor photo management desktop app. The original visual design source (React/JSX mockups) may not exist on disk anymore; `lib/theme/tokens.dart` and the shipped widgets ARE the design source of truth now, enforced by a strict centralized theme system.
 
 ## Strict rules
 
 1. **Theme tokens are mandatory.** No raw `Color(0xFF…)`, no raw `EdgeInsets.all(7)`, no `BorderRadius.circular(8)` outside `lib/theme/` and `lib/data/`. All colors / spacing / radii / shadows / typography go through `PabloColors`, `PabloSpacing`, `PabloRadius`, `PabloShadows`, `PabloTypography`.
 2. **Modular.** Each feature lives in its own folder under `lib/features/`. Shared primitives live in `lib/components/`. No monolithic files (target ≤ 250 lines).
 3. **Two distinct accents.** Copper `#C17A3A` is the *action* accent (Import button, sliders). Blue `#2563EB` is the *selection* accent (sidebar selected, photo selection ring). They are not interchangeable.
-4. **Verbatim data port.** People/Folders/Albums/Timeline/Map data + the `_h()` hash + EXIF/tag generators are ported byte-for-byte from `pablo3-foundation.jsx` / `pablo3-map.jsx`.
+4. **Real data only.** People/Folders/Albums/Timeline/Map all derive from the imported library + native catalog (`data/library.dart`, FFI repositories). No mock/generated data paths remain.
 5. **No new pub deps** beyond what's already in `pubspec.yaml`, except the approved exceptions: `google_fonts: ^6.2.1` (DM Sans / Lora / JetBrains Mono at runtime), `file_selector: ^1.0.3` (native folder picker for Relocate/Export), `crypto` (model-download SHA-256), added in §10 Stage V2 — `share_plus` (OS share sheet / NSSharingServicePicker), `printing` (native print dialog), and `pdf` (pure-Dart print-layout builder); and §11 Stage V3 — `video_player` (AVFoundation playback on macOS).
 
 ## Design tokens (see `lib/theme/tokens.dart`)
@@ -97,66 +97,42 @@ pablo/lib/
 ├── main.dart
 ├── app/                          # PabloApp, AppState, AppScope
 ├── theme/                        # tokens.dart, theme.dart
-├── data/                         # models.dart, mock_data.dart, photo_factory.dart
-├── components/                   # design-system primitives
-├── layouts/                      # title_bar, menu_bar, search_header, status_bar, shell
+├── data/                         # library, catalog stores, config, move/rename services
+├── backend/                      # native_backend.dart (FFI engine bootstrap), prefetch
+├── components/                   # design-system primitives (buttons, menus, inputs)
+├── layouts/                      # title_bar, menu_bar, search_header, shell
 ├── features/
-│   ├── sidebar/
-│   ├── gallery/
-│   ├── editor/
-│   ├── info_panel/
-│   ├── controls_bar/
-│   ├── photo_tray/
-│   ├── search/
-│   ├── menu/
-│   └── map/
-└── utils/                        # hash.dart, window_setup.dart
+│   ├── sidebar/                  # nav tree, albums, folders, timeline, pins
+│   ├── gallery/                  # main grid, lightbox (+video), thumbs, context menu
+│   ├── editor/                   # edit panel, overlays (crop/curves/retouch), sessions
+│   ├── info_panel/               # People / Tags / Info tabs
+│   ├── controls_bar/  photo_tray/
+│   ├── search/                   # search controller/service, advanced modal, indexing
+│   ├── people/                   # faces: suggestions, naming, unnamed page
+│   ├── organize/                 # storage schemes, move palette, batch rename, folder ops
+│   ├── find_duplicates/          # dedup flow (exact + similar)
+│   ├── export/  share/  print/  slideshow/  collage/
+│   └── map/                      # world map, geotagging, KML export
+└── utils/                        # asset_id, exif (fallback parser), reveal, sidecars, …
 ```
-
-## Source files for parity
-
-When implementing a feature, open the matching JSX file and treat it as ground truth for layout, spacing, and behavior:
-
-| Feature                                | JSX file (`/tmp/pablo_design/pablo-warm/project/`)  |
-| -------------------------------------- | --------------------------------------------------- |
-| Tokens, base components, icons, mock data | `pablo3-foundation.jsx`                          |
-| Title/menu/search/status, app state    | `pablo3-app.jsx`                                    |
-| Sidebar (all sections)                 | `pablo3-sidebar.jsx`                                |
-| Gallery, lightbox, tray, controls bar  | `pablo3-gallery.jsx`                                |
-| Unnamed faces, advanced search, info panel | `pablo3-panels.jsx`                             |
-| Photo edit panel                       | `pablo3-editor.jsx`                                 |
-| Map page                               | `pablo3-map.jsx`                                    |
 
 ## Verification gates
 
-After each chunk:
+After each stage:
 
 1. `cd pablo && flutter analyze` — must be clean.
 2. Theme-gate grep — `grep -rnE 'Color\(0x|EdgeInsets\.(?:all|symmetric|fromLTRB)\([0-9]' lib/features lib/layouts lib/components` returns no matches.
-3. Run the app — `flutter run -d windows` (or `-d macos` for cross-platform smoke). Exercise the chunk's acceptance criteria.
+3. `flutter test` — all green (FFI tests under `test/ffi/` need `PHOTO_CORE_LIB=<abs path to libphoto_core.dylib>` from the standalone CMake build; they self-skip without it).
+4. Native: `cmake -S . -B build/macos-dev -G Ninja -DCMAKE_PREFIX_PATH=$(brew --prefix) && cmake --build build/macos-dev && ctest --test-dir build/macos-dev`.
+5. `flutter build macos --debug` (fresh worktree first needs `bash tools/setup-plugin-symlinks.sh` + `flutter clean`).
+6. GUI smoke: `flutter run -d macos --dart-define=PABLO_AUTOSCAN=false` (autoscan off avoids the face-scan hang when driving the built app).
 
-## Assumptions
+## Facts that replace the old assumptions
 
-1. The macOS-style traffic lights in the title bar are decorative (matching the mockup). Windows chrome is provided by the OS.
-2. Photos are gradient placeholders, not real images.
-3. Map is the simplified USA outline; no real geo.
-4. Slideshow/Print/Share/Export are visual-only (no-op handlers).
-5. State is in-memory only.
+1. The macOS-style traffic lights in the title bar are decorative. Windows chrome is provided by the OS.
+2. Photos and videos are REAL files imported into the native SQLite catalog; thumbnails render through the native texture seam.
+3. Map is a real equirectangular world map fed by EXIF GPS + manual geotags (offline reverse geocoding, KML export).
+4. Slideshow/Print/Share/Export/Collage are fully functional (§10–11).
+5. State persists: catalog.db (native), config.json, folder_prefs.json, scheme/saved-search stores.
 6. Modifier keys: Ctrl on Windows / Linux, Cmd on macOS.
-
-## Chunk status
-
-| #   | Chunk                                          | Status   | Notes                              |
-| --- | ---------------------------------------------- | -------- | ---------------------------------- |
-| 0   | Reference doc (this file)                      | ✅ done  | -                                  |
-| 1   | Theme + base components                        | ✅ done  | tokens, icons, button, slider, etc |
-| 2   | Data layer                                     | ✅ done  | models + mock_data + photo_factory |
-| 3   | App shell + layout                             | ✅ done  | title/menu/search/status bars      |
-| 4   | Sidebar                                        | ✅ done  | nav + sections + folders/timeline  |
-| 5   | Gallery + photo thumb + tray                   | ✅ done  | section_scroll_view + tray         |
-| 6   | People scroll view + Unnamed Faces page        | ✅ done  | suggestions accept/reject + 3 tabs |
-| 7   | Controls bar + Photo Info Panel                | ✅ done  | thumb slider + 3 info tabs         |
-| 8   | Lightbox + Photo Edit Panel                    | ✅ done  | filters + tools + sliders          |
-| 9   | Advanced Search + Activity + Context Menu      | ✅ done  | 2-col criteria modal + right-click |
-| 10  | Map page                                       | ✅ done  | USA heat map + per-location grid   |
-| 11  | Polish + final QA                              | ✅ done  | flutter analyze + theme-gate clean |
+7. Non-destructive edits live in the catalog (D1); layered-TIFF save is opt-in (`EditSaveMode`).

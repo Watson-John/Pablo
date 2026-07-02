@@ -9,6 +9,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 /// How "Save Edits" persists a non-destructive edit (Settings → Edit save).
 /// `catalog` (default) keeps the parametric spec in the app catalog and never
 /// touches the file. `layeredTiff` additionally writes a self-contained layered
@@ -66,6 +68,11 @@ class AppConfig {
 
   static const _fileName = 'config.json';
 
+  /// Test seam: when set, config reads/writes here instead of the user config
+  /// dir (mirrors FolderPrefs.configDirOverride).
+  @visibleForTesting
+  static String? configDirOverride;
+
   /// The default catalog directory (the pre-AppConfig hardcoded location).
   static String get defaultCatalogDir =>
       '${Directory.systemTemp.path}${Platform.pathSeparator}pablo_native_backend';
@@ -117,6 +124,7 @@ class AppConfig {
   /// Pablo's per-user config dir, resolved without path_provider (mirrors
   /// scheme_store.dart so both stores live side by side).
   static String _configDir() {
+    if (configDirOverride != null) return configDirOverride!;
     final env = Platform.environment;
     final sep = Platform.pathSeparator;
     final fallback = Directory.systemTemp.path;

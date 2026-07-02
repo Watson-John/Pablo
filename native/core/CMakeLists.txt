@@ -415,14 +415,10 @@ if(PHOTO_BUILD_SEMANTIC_ORT)
 endif()
 
 # ------------------------------------------------------------------
-# Tests + benchmarks
+# Tests
 # ------------------------------------------------------------------
 
 if(PHOTO_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
-endif()
-
-if(PHOTO_BUILD_BENCHMARKS)
-    add_subdirectory(benchmarks)
 endif()

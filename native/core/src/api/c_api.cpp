@@ -1183,11 +1183,6 @@ PHOTO_API size_t photo_asset_detect_redeye(photo_engine_t* engine,
 // ML — M6 implements.
 // ---------------------------------------------------------------------------
 
-PHOTO_API int32_t photo_provider_probe(photo_engine_t* /*engine*/,
-                                       int32_t /*provider*/) {
-    return PHOTO_STATUS_UNSUPPORTED;
-}
-
 PHOTO_API uint64_t photo_face_scan(photo_engine_t* engine,
                                    uint64_t asset_id, uint32_t flags) {
 #if defined(PHOTO_HAVE_FACES) && defined(PHOTO_HAVE_SQLITE)

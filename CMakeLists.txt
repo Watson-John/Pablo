@@ -31,8 +31,7 @@ option(PHOTO_ENABLE_ASAN  "Enable AddressSanitizer"   OFF)
 option(PHOTO_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(PHOTO_ENABLE_TSAN  "Enable ThreadSanitizer"    OFF)
 
-option(PHOTO_BUILD_TESTS      "Build native unit tests" ON)
-option(PHOTO_BUILD_BENCHMARKS "Build native benchmarks" ON)
+option(PHOTO_BUILD_TESTS "Build native unit tests" ON)
 
 # Enable testing at the top level so the root CTestTestfile.cmake recurses into
 # native/core and `ctest` from the build root discovers the gtest targets.

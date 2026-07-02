@@ -116,7 +116,7 @@ typedef enum {
     PHOTO_EVT_IMPORT_COMPLETE  = 4,
     PHOTO_EVT_SCAN_PROGRESS    = 5,
     PHOTO_EVT_CLUSTER_UPDATED  = 6,
-    PHOTO_EVT_PROVIDER_PROBED  = 7,
+    /* 7 reserved — was PROVIDER_PROBED (removed; never emitted) */
     PHOTO_EVT_LOG              = 8,
     /* Async catalog maintenance (compaction) finished. status is the result. */
     PHOTO_EVT_MAINTENANCE_COMPLETE = 9,
@@ -130,15 +130,6 @@ typedef enum {
      * (11, not 10: Stage 9 landed EMBED_PROGRESS=10 on main first.) */
     PHOTO_EVT_EXPORT_COMPLETE      = 11
 } photo_event_kind_t;
-
-typedef enum {
-    PHOTO_PROVIDER_CPU      = 0,
-    PHOTO_PROVIDER_WINML    = 1,
-    PHOTO_PROVIDER_DML      = 2,
-    PHOTO_PROVIDER_COREML   = 3,
-    PHOTO_PROVIDER_CUDA     = 4,
-    PHOTO_PROVIDER_OPENVINO = 5
-} photo_provider_t;
 
 typedef enum {
     PHOTO_LOG_TRACE = 0,
@@ -735,7 +726,7 @@ PHOTO_API uint64_t photo_create_collage(photo_engine_t* engine,
 
 /*
  * §11 video trim (non-destructive, catalog-only). set(0,0) clears. get fills
- * *start_ms/*end_ms (end 0 = to the end; both 0 = no trim); returns
+ * *start_ms / *end_ms (end 0 = to the end; both 0 = no trim); returns
  * photo_status_t. export_trimmed stream-copies [start,end) of `src` to `dst`
  * (no re-encode) on the idle lane, sharing the export event stream.
  */
@@ -821,14 +812,6 @@ PHOTO_API int32_t photo_redeye_auto_supported(void);
 /* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */
-
-/*
- * Probe whether a provider is usable on this machine. Results are cached
- * per (provider, driver_version, gpu_uuid, ort_version). Synchronous; bounded
- * to ~2s per probe. Returns photo_status_t.
- */
-PHOTO_API int32_t photo_provider_probe(photo_engine_t* engine,
-                                       int32_t provider);
 
 /*
  * Schedule a face scan for an asset. Detection -> alignment -> embedding,

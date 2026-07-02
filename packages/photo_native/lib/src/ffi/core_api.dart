@@ -42,17 +42,6 @@ abstract final class Priority {
   static const int idle = 2;
 }
 
-/// photo_provider_t mirror (for [Engine.probeProvider]). Values MUST match the
-/// C enum order in photo_core.h (CPU, WINML, DML, COREML, CUDA, OPENVINO).
-abstract final class Provider {
-  static const int cpu = 0;
-  static const int winml = 1;
-  static const int directml = 2;
-  static const int coreml = 3;
-  static const int cuda = 4;
-  static const int openvino = 5;
-}
-
 // ---------------------------------------------------------------------------
 // photo_config_t mirror — kept POD-compatible with the C struct
 // ---------------------------------------------------------------------------
@@ -542,8 +531,6 @@ typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
 typedef _ClusterRebuildC = Uint64 Function(Pointer<Void>, Uint32);
 typedef _ClusterRebuildDart = int Function(Pointer<Void>, int);
 
-typedef _ProviderProbeC = Int32 Function(Pointer<Void>, Int32);
-typedef _ProviderProbeDart = int Function(Pointer<Void>, int);
 
 // Face read-back: fill up to `cap` rows, return total count available.
 typedef _ListPeopleC =
@@ -1620,11 +1607,6 @@ final class Engine {
   int rebuildClusters({int flags = 0}) =>
       _Bindings.clusterRebuild(_handle, flags);
 
-  /// Probe whether an ML [Provider] is usable. Synchronous; returns a
-  /// photo_status_t (0 == OK/usable).
-  int probeProvider(int provider) =>
-      _Bindings.providerProbe(_handle, provider);
-
   // -------------------------------------------------------------------------
   // Face read-back (UI queries). Synchronous; metadata only — no image bytes
   // cross the boundary. A returned [FaceRow] carries its asset id + source
@@ -2259,11 +2241,6 @@ final class _Bindings {
   static final _ClusterRebuildDart clusterRebuild = _dylib
       .lookupFunction<_ClusterRebuildC, _ClusterRebuildDart>(
         'photo_cluster_rebuild',
-      );
-
-  static final _ProviderProbeDart providerProbe = _dylib
-      .lookupFunction<_ProviderProbeC, _ProviderProbeDart>(
-        'photo_provider_probe',
       );
 
   static final _ListPeopleDart listPeople = _dylib

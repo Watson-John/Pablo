@@ -26,7 +26,6 @@ import 'aspect_store.dart';
 import 'models.dart';
 import '../utils/asset_id.dart';
 import '../utils/exif.dart';
-import '../utils/hash.dart';
 import '../utils/image_dims.dart';
 
 /// Bumped when [Library.instance] is replaced (e.g. when the background boot
@@ -715,7 +714,17 @@ Photo? photoById(String id) => Library.instance.byId[id];
 double aspectFor(Photo p) =>
     AspectStore.instance.aspectOf(p.filePath) ??
     p.aspect ??
-    _kAspects[pabloHash(p.id) % _kAspects.length];
+    _kAspects[_stableHash(p.id) % _kAspects.length];
+
+/// djb2 over the id: a stable positive hash so the aspect fallback doesn't
+/// reshuffle across runs (unlike String.hashCode, which isn't guaranteed).
+int _stableHash(String s) {
+  int h = 5381;
+  for (int i = 0; i < s.length; i++) {
+    h = (((h << 5) + h) ^ s.codeUnitAt(i)) & 0xFFFFFFFF;
+  }
+  return h;
+}
 
 /// Best-effort EXIF + file metadata for the info panel.
 ExifData getPhotoExif(String id) => Library.instance.exifFor(id);
