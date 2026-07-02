@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../components/hover_surface.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
@@ -24,39 +25,33 @@ class TimelineTreeNode extends StatefulWidget {
 
 class _TimelineTreeNodeState extends State<TimelineTreeNode> {
   bool _open = false;
-  bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
     final hasChildren = widget.node.children.isNotEmpty;
     final selected = widget.selectedId == widget.node.id;
 
-    Color bg;
-    if (selected) {
-      bg = PabloColors.selectionBackground;
-    } else if (_hover) {
-      bg = PabloColors.backgroundSidebarHover;
-    } else {
-      bg = Colors.transparent;
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() => _hover = false),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              if (hasChildren) {
-                setState(() => _open = !_open);
-              } else {
-                widget.onSelect(widget.node.id);
-              }
-            },
-            child: AnimatedContainer(
+        HoverSurface(
+          onTap: () {
+            if (hasChildren) {
+              setState(() => _open = !_open);
+            } else {
+              widget.onSelect(widget.node.id);
+            }
+          },
+          builder: (context, hovered) {
+            Color bg;
+            if (selected) {
+              bg = PabloColors.selectionBackground;
+            } else if (hovered) {
+              bg = PabloColors.backgroundSidebarHover;
+            } else {
+              bg = Colors.transparent;
+            }
+            return AnimatedContainer(
               duration: PabloDurations.hover,
               margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),
               padding: EdgeInsets.only(
@@ -107,8 +102,8 @@ class _TimelineTreeNodeState extends State<TimelineTreeNode> {
                     ),
                 ],
               ),
-            ),
-          ),
+            );
+          },
         ),
         if (_open && hasChildren)
           ...widget.node.children.map(

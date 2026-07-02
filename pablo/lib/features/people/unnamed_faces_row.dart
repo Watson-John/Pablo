@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../components/hover_surface.dart';
 import '../../components/pablo_badge.dart';
 import '../../theme/tokens.dart';
 
-class UnnamedFacesRow extends StatefulWidget {
+class UnnamedFacesRow extends StatelessWidget {
   const UnnamedFacesRow({
     required this.count,
     required this.selected,
@@ -16,26 +17,16 @@ class UnnamedFacesRow extends StatefulWidget {
   final VoidCallback onSelect;
 
   @override
-  State<UnnamedFacesRow> createState() => _UnnamedFacesRowState();
-}
-
-class _UnnamedFacesRowState extends State<UnnamedFacesRow> {
-  bool _hover = false;
-  @override
   Widget build(BuildContext context) {
-    final bg = widget.selected
-        ? PabloColors.selectionBackground
-        : _hover
-            ? PabloColors.backgroundSidebarHover
-            : Colors.transparent;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onSelect,
-        child: AnimatedContainer(
+    return HoverSurface(
+      onTap: onSelect,
+      builder: (context, hovered) {
+        final bg = selected
+            ? PabloColors.selectionBackground
+            : hovered
+                ? PabloColors.backgroundSidebarHover
+                : Colors.transparent;
+        return AnimatedContainer(
           duration: PabloDurations.hover,
           margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),
           padding: const EdgeInsets.only(
@@ -101,11 +92,11 @@ class _UnnamedFacesRowState extends State<UnnamedFacesRow> {
                   ),
                 ),
               ),
-              PabloBadge.count('${widget.count}'),
+              PabloBadge.count('$count'),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

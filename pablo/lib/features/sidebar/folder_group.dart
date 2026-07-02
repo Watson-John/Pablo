@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../components/hover_surface.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
@@ -34,7 +35,6 @@ class FolderGroup extends StatefulWidget {
 
 class _FolderGroupState extends State<FolderGroup> {
   late bool _open = widget.defaultOpen;
-  bool _hover = false;
 
   bool get _hasSelectedChild =>
       widget.folder.children.any((c) => c.id == widget.selectedId);
@@ -81,67 +81,61 @@ class _FolderGroupState extends State<FolderGroup> {
   }
 
   Widget _header(bool dropHot) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _open = !_open),
-        onSecondaryTapDown: widget.onContextMenu == null
-            ? null
-            : (d) => widget.onContextMenu!(widget.folder.id, d.globalPosition),
-        child: AnimatedContainer(
-          duration: PabloDurations.hover,
-          margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),
-          padding: const EdgeInsets.only(
-            left: PabloSpacing.xxl,
-            right: PabloSpacing.xl,
-          ),
-          height: 28,
-          decoration: BoxDecoration(
-            color: dropHot
-                ? PabloColors.accentBackground
-                : _hover
-                    ? PabloColors.backgroundSidebarHover
-                    : Colors.transparent,
-            borderRadius: PabloRadius.mdAll,
-            border:
-                dropHot ? Border.all(color: PabloColors.accentPrimary) : null,
-          ),
-          child: Row(
-                children: [
-                  AnimatedRotation(
-                    turns: _open ? 0.25 : 0,
-                    duration: PabloDurations.expand,
-                    child: const PabloIcon(
-                      PabloIconName.chevRight,
-                      size: 12,
-                      strokeWidth: 2.5,
-                      color: PabloColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: PabloSpacing.md),
-                  PabloIcon(
-                    _open ? PabloIconName.folderOpen : PabloIconName.folder,
-                    size: 14,
-                    color: PabloColors.textMuted,
-                  ),
-                  const SizedBox(width: PabloSpacing.md),
-                  Expanded(
-                    child: Text(
-                      widget.folder.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: PabloTypography.sans(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
+    return HoverSurface(
+      onTap: () => setState(() => _open = !_open),
+      onSecondaryTapDown: widget.onContextMenu == null
+          ? null
+          : (pos) => widget.onContextMenu!(widget.folder.id, pos),
+      builder: (context, hovered) => AnimatedContainer(
+        duration: PabloDurations.hover,
+        margin: const EdgeInsets.symmetric(horizontal: PabloSpacing.base),
+        padding: const EdgeInsets.only(
+          left: PabloSpacing.xxl,
+          right: PabloSpacing.xl,
+        ),
+        height: 28,
+        decoration: BoxDecoration(
+          color: dropHot
+              ? PabloColors.accentBackground
+              : hovered
+                  ? PabloColors.backgroundSidebarHover
+                  : Colors.transparent,
+          borderRadius: PabloRadius.mdAll,
+          border:
+              dropHot ? Border.all(color: PabloColors.accentPrimary) : null,
+        ),
+        child: Row(
+          children: [
+            AnimatedRotation(
+              turns: _open ? 0.25 : 0,
+              duration: PabloDurations.expand,
+              child: const PabloIcon(
+                PabloIconName.chevRight,
+                size: 12,
+                strokeWidth: 2.5,
+                color: PabloColors.textPrimary,
               ),
             ),
-          ),
-        );
+            const SizedBox(width: PabloSpacing.md),
+            PabloIcon(
+              _open ? PabloIconName.folderOpen : PabloIconName.folder,
+              size: 14,
+              color: PabloColors.textMuted,
+            ),
+            const SizedBox(width: PabloSpacing.md),
+            Expanded(
+              child: Text(
+                widget.folder.name,
+                overflow: TextOverflow.ellipsis,
+                style: PabloTypography.sans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

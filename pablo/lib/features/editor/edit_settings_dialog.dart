@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../components/dialog_option.dart';
 import '../../data/app_config.dart';
 import '../../theme/tokens.dart';
 
@@ -48,7 +49,7 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
                 fontSize: 11.5, color: PabloColors.textSecondary),
           ),
           const SizedBox(height: PabloSpacing.lg),
-          _ModeOption(
+          DialogOptionTile(
             label: 'Catalog only (recommended)',
             detail:
                 'Edits live in the app database; the original file is never '
@@ -57,7 +58,7 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
             onTap: () => _set(EditSaveMode.catalog),
           ),
           const SizedBox(height: PabloSpacing.base),
-          _ModeOption(
+          DialogOptionTile(
             label: 'Layered TIFF beside the photo',
             detail:
                 'Also writes a self-contained .pablo.tif (edited render + the '
@@ -74,95 +75,6 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
           child: const Text('Done'),
         ),
       ],
-    );
-  }
-}
-
-class _ModeOption extends StatelessWidget {
-  const _ModeOption({
-    required this.label,
-    required this.detail,
-    required this.selected,
-    required this.onTap,
-  });
-  final String label;
-  final String detail;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: 360,
-          padding: const EdgeInsets.all(PabloSpacing.lg),
-          decoration: BoxDecoration(
-            color: selected
-                ? PabloColors.accentBackground
-                : PabloColors.backgroundSurfaceAlt,
-            border: Border.all(
-              color:
-                  selected ? PabloColors.accentPrimary : PabloColors.borderStrong,
-            ),
-            borderRadius: PabloRadius.mdAll,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              PabloIconRadio(selected: selected),
-              const SizedBox(width: PabloSpacing.lg),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label,
-                        style: PabloTypography.sans(
-                            fontSize: 12.5, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text(detail,
-                        style: PabloTypography.sans(
-                            fontSize: 11, color: PabloColors.textSecondary)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A simple radio dot (avoids pulling in Material Radio's group plumbing).
-class PabloIconRadio extends StatelessWidget {
-  const PabloIconRadio({required this.selected, super.key});
-  final bool selected;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 16,
-      height: 16,
-      margin: const EdgeInsets.only(top: PabloSpacing.xs),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: selected ? PabloColors.accentPrimary : PabloColors.borderStrong,
-          width: 2,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: selected
-          ? Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                  shape: BoxShape.circle, color: PabloColors.accentPrimary),
-            )
-          : null,
     );
   }
 }
