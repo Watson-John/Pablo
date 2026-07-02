@@ -8,11 +8,14 @@ import '../app/app_scope.dart';
 import '../app/app_state.dart';
 import '../backend/native_backend.dart';
 import '../data/catalog_maintenance.dart';
-import '../data/library.dart' show PhotoSort;
+import '../data/library.dart' show PhotoSort, photosFor;
 import '../data/library_location.dart';
 import '../features/editor/edit_settings_dialog.dart';
 import '../features/export/export_runner.dart';
 import '../features/organize/storage_scheme_modal.dart';
+import '../features/print/print_service.dart';
+import '../features/share/share_service.dart';
+import '../features/slideshow/slideshow_view.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_scope.dart';
 import '../theme/tokens.dart';
@@ -59,7 +62,14 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
             onTap: () => runExportToFolder(context),
           ),
           const _MenuEntry(label: 'Export as Web Page…'),
-          const _MenuEntry(label: 'Print…'),
+          _MenuEntry(
+            label: 'Share…',
+            onTap: () => _shareCurrent(context, st),
+          ),
+          _MenuEntry(
+            label: 'Print…',
+            onTap: () => _printCurrent(context, st),
+          ),
           _MenuEntry.sep(),
           const _MenuEntry(label: 'Exit'),
         ],
@@ -106,6 +116,11 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
             label: 'Reverse Order',
             checked: st.sortReversed,
             onTap: () => st.setSortReversed(!st.sortReversed),
+          ),
+          _MenuEntry.sep(),
+          _MenuEntry(
+            label: 'Slideshow',
+            onTap: () => _startSlideshow(context, st),
           ),
           _MenuEntry.sep(),
           const _MenuEntry(label: 'Thumbnail Size: Small'),
@@ -193,6 +208,40 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
       if (!context.mounted) return;
       await _info(context, 'Could not relocate', '$e');
     }
+  }
+
+  // File → Share…/Print…: act on the tray/selection/active photo (Picasa's
+  // "current selection"), reusing the export resolver.
+  void _shareCurrent(BuildContext context, PabloAppState st) {
+    final photos = resolveExportPhotos(st);
+    if (photos.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('Select photos or add them to the tray to share.')));
+      return;
+    }
+    sharePhotos(context, photos: photos, origin: shareOriginFrom(context));
+  }
+
+  void _printCurrent(BuildContext context, PabloAppState st) {
+    final photos = resolveExportPhotos(st);
+    if (photos.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('Select photos or add them to the tray to print.')));
+      return;
+    }
+    runPrint(context, photos: photos);
+  }
+
+  // View → Slideshow: run a fullscreen show over the current view's photos.
+  void _startSlideshow(BuildContext context, PabloAppState st) {
+    final photos = photosFor(st.selectedItem);
+    if (photos.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('No photos to show here.')),
+      );
+      return;
+    }
+    showSlideshow(context, photos: photos);
   }
 
   Future<void> _info(BuildContext context, String title, String body) {

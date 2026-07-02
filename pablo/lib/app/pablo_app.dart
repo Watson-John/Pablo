@@ -22,6 +22,8 @@ import '../features/controls_bar/controls_bar.dart';
 import '../features/editor/edit_session.dart';
 import '../features/editor/photo_edit_panel.dart';
 import '../features/export/export_runner.dart';
+import '../features/print/print_service.dart';
+import '../features/share/share_service.dart';
 import '../features/find_duplicates/dedup_scope.dart';
 import '../features/find_duplicates/find_duplicates_flow.dart';
 import '../features/gallery/compare_view.dart';
@@ -665,13 +667,32 @@ class _BodyState extends State<_Body> {
                                                     _toggleHidden(id),
                                               ),
                                               ContextMenuItem(
-                                                label: 'Share',
+                                                label: 'Share…',
                                                 iconCharacter: '📤',
+                                                onPressed: () {
+                                                  final p =
+                                                      _resolvePhotoById(id);
+                                                  if (p != null) {
+                                                    sharePhotos(context,
+                                                        photos: [p],
+                                                        origin:
+                                                            shareOriginFrom(
+                                                                context));
+                                                  }
+                                                },
                                               ),
                                               ContextMenuItem.separator(),
                                               ContextMenuItem(
-                                                label: 'Print',
+                                                label: 'Print…',
                                                 iconCharacter: '🖨',
+                                                onPressed: () {
+                                                  final p =
+                                                      _resolvePhotoById(id);
+                                                  if (p != null) {
+                                                    runPrint(context,
+                                                        photos: [p]);
+                                                  }
+                                                },
                                               ),
                                               ContextMenuItem(
                                                 label: 'Rotate Left',

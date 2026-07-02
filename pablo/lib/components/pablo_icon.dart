@@ -60,6 +60,7 @@ enum PabloIconName {
   settings,
   play,
   playFill,
+  pause,
   check,
   lock,
   unlock,
@@ -133,6 +134,7 @@ const Map<PabloIconName, _Glyph> _symbols = {
   PabloIconName.settings: _Glyph(0xe8b8), // settings
   PabloIconName.play: _Glyph(0xe037), // play_arrow
   PabloIconName.playFill: _Glyph(0xe037, true), // play_arrow (filled)
+  PabloIconName.pause: _Glyph(0xe034), // pause
   PabloIconName.check: _Glyph(0xe668), // check
   PabloIconName.lock: _Glyph(0xe899), // lock
   PabloIconName.unlock: _Glyph(0xe898), // lock_open

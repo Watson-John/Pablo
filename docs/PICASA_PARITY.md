@@ -185,9 +185,9 @@ _Last verified against the tree: 2026-06-16 (`pablo-v4`)._ Treat this as a livin
 ## 10. Create / output (core)
 
 - [x] **Export (resize / quality / watermark to folder)** — ✅ P0 (Stage V1) — batch export of the tray/selection through the native render pipeline: long-edge resize, JPEG quality, and a text watermark (`photo_asset_export2` + `photo_export_options_t`). File → Export to Folder…, gallery context menu, Options persisted in AppConfig.
-- [ ] **Slideshow** — ❌ P1 (Picasa: `CDXSlideshowFilter`)
-- [ ] **Print (layouts / contact sheet / poster)** — ❌ P1 (Picasa: `CPrintDlg`, `Layout3x4 … Wallet`, `CPosterDlg`)
-- [ ] **Share sheet (OS share / generic targets)** — ❌ P1 — modern replacement for Picasa email/upload
+- [x] **Slideshow** — ✅ P1 (Stage V2) — fullscreen auto-advancing show (crossfade, seeded shuffle, loop, auto-hide chrome, Space/←/→/Esc) via a pure `SlideshowController`; View → Slideshow + a lightbox launcher button.
+- [x] **Print (layouts / contact sheet)** — ✅ P1 (Stage V2) — `printing`+`pdf`: full-page / 2-up / 4-up / contact-sheet layouts (pure `print_layouts` math) rendered from full-res temp exports into a PDF → the OS print dialog. File → Print…, context-menu Print…. (Poster/tiling still ❌.)
+- [x] **Share sheet (OS share / generic targets)** — ✅ P1 (Stage V2) — `share_plus` (NSSharingServicePicker on macOS); unedited JPEGs share the original, edited assets share a rendered temp copy. File → Share…, context-menu Share….
 - [ ] **Collage / picture pile** — ❌ P2 (Picasa: `CCollageUI`)
 - [ ] **Movie / video creation** — ❌ P2 (Picasa: `MakeMoviePanel`)
 

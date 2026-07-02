@@ -53,6 +53,15 @@ dependencies:
   # of google_fonts.
   crypto: ^3.0.3
 
+  # §10 Create/output (Stage V2). Approved exceptions to the "no new deps" rule
+  # for the OS share sheet and native print dialog:
+  #   share_plus — NSSharingServicePicker on macOS (share a rendered copy).
+  #   printing   — NSPrintOperation dialog + preview; embeds a PDF we build.
+  #   pdf        — pure-Dart PDF document builder (print layouts / contact sheet).
+  share_plus: ^10.1.4
+  printing: ^5.13.4
+  pdf: ^3.11.1
+
   # Pablo native backend (FFI + texture registrar). Path dependency on the
   # in-repo plugin under packages/photo_native.
   photo_native:
@@ -61,6 +70,10 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  # Deterministic timer control for slideshow-controller tests (already in the
+  # graph transitively via flutter_test; declared directly for the lint).
+  fake_async: ^1.3.1
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
