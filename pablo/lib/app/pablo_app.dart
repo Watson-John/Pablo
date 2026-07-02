@@ -39,6 +39,7 @@ import '../layouts/shell.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import '../utils/asset_id.dart';
+import '../utils/reveal_in_file_manager.dart';
 import 'app_scope.dart';
 import 'app_state.dart';
 import 'key_actions.dart';
@@ -656,6 +657,20 @@ class _BodyState extends State<_Body> {
                                                 onPressed: () =>
                                                     _toggleHidden(id),
                                               ),
+                                              ContextMenuItem.separator(),
+                                              ContextMenuItem(
+                                                label: revealActionLabel(),
+                                                iconCharacter: '📂',
+                                                onPressed: () =>
+                                                    revealInFileManager(id),
+                                              ),
+                                              ContextMenuItem(
+                                                label: 'Copy Path',
+                                                iconCharacter: '📋',
+                                                onPressed: () =>
+                                                    copyPathsToClipboard([id]),
+                                              ),
+                                              ContextMenuItem.separator(),
                                               ContextMenuItem(
                                                 label: 'Share',
                                                 iconCharacter: '📤',

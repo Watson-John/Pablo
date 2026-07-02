@@ -14,6 +14,7 @@ import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
+import '../../utils/reveal_in_file_manager.dart';
 import '../gallery/native_asset_texture.dart';
 import '../organize/reorganize_controller.dart';
 import '../people/people_scope.dart';
@@ -311,26 +312,33 @@ class Sidebar extends StatelessWidget {
     ];
   }
 
-  // Right-click a folder → Hide/Show. Hiding persists the rule natively and
-  // sweeps the folder's photos out of the gallery (re-hydrate the hide set).
+  // Right-click a folder. Filesystem actions (Reveal) work with or without
+  // the native backend; Hide/Show needs it (the rule persists in the catalog)
+  // and is simply omitted when it's absent.
   void _folderContextMenu(BuildContext context, String folderId, Offset pos) {
     final backend = NativeBackendScope.maybeOf(context);
-    if (backend == null) return;
     final st = AppScope.of(context);
-    final hidden = backend.engine.hiddenFolders().contains(folderId);
+    final hidden =
+        backend?.engine.hiddenFolders().contains(folderId) ?? false;
     PabloContextMenu.show(
       context,
       position: pos,
       items: [
         ContextMenuItem(
-          label: hidden ? 'Show folder' : 'Hide folder',
-          iconCharacter: hidden ? '◉' : '⊘',
-          onPressed: () {
-            backend.engine.setFolderHidden(folderId, !hidden);
-            hydrateHidden(backend.engine.hiddenAssets().toSet());
-            st.libraryChanged();
-          },
+          label: revealActionLabel(),
+          iconCharacter: '📂',
+          onPressed: () => revealInFileManager(folderId, isDirectory: true),
         ),
+        if (backend != null)
+          ContextMenuItem(
+            label: hidden ? 'Show folder' : 'Hide folder',
+            iconCharacter: hidden ? '◉' : '⊘',
+            onPressed: () {
+              backend.engine.setFolderHidden(folderId, !hidden);
+              hydrateHidden(backend.engine.hiddenAssets().toSet());
+              st.libraryChanged();
+            },
+          ),
       ],
     );
   }
