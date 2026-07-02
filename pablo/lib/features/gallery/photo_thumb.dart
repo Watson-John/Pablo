@@ -27,6 +27,7 @@ class PhotoThumb extends StatefulWidget {
     this.onToggleSelect,
     this.onSecondaryTap,
     this.dragPaths,
+    this.flash = false,
     super.key,
   });
 
@@ -34,6 +35,10 @@ class PhotoThumb extends StatefulWidget {
   final double size;
   final bool selected;
   final bool inTray;
+
+  /// Transient post-navigation highlight (Show in Pablo). Draws a strong
+  /// selection-accent ring + glow for ~1s regardless of selection state.
+  final bool flash;
 
   /// Image aspect ratio (width / height). When null the thumb uses the fixed
   /// 0.72 footprint (uniform grid). The masonry view passes a per-photo ratio
@@ -73,11 +78,22 @@ class _PhotoThumbState extends State<PhotoThumb> {
     // small thumbnails (and stays at the standard radius for large ones).
     final tileRadius =
         BorderRadius.circular((h * 0.09).clamp(4.0, PabloRadius.lg).toDouble());
-    final borderColor = (widget.selected || widget.inTray)
-        ? PabloColors.selectionPrimary.withValues(alpha: 0.4)
-        : PabloColors.borderSubtle;
+    final borderColor = widget.flash
+        ? PabloColors.selectionPrimary
+        : (widget.selected || widget.inTray)
+            ? PabloColors.selectionPrimary.withValues(alpha: 0.4)
+            : PabloColors.borderSubtle;
     final shadows = <BoxShadow>[
-      if (widget.selected) ...[
+      if (widget.flash) ...[
+        BoxShadow(
+          color: PabloColors.selectionPrimary.withValues(alpha: 0.35),
+          spreadRadius: 4,
+        ),
+        BoxShadow(
+          color: PabloColors.selectionPrimary.withValues(alpha: 0.45),
+          blurRadius: 24,
+        ),
+      ] else if (widget.selected) ...[
         BoxShadow(
           color: PabloColors.selectionPrimary.withValues(alpha: 0.18),
           spreadRadius: 3,

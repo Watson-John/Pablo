@@ -1,7 +1,7 @@
 // Root MaterialApp providing the AppScope and the WindowShell.
 
 import 'dart:async';
-import 'dart:io' show Directory;
+import 'dart:io' show Directory, File;
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
@@ -10,7 +10,6 @@ import 'package:photo_native/photo_native.dart'
 
 import '../backend/native_backend.dart';
 import '../data/indexing/indexing_controller.dart';
-import '../components/context_menu.dart';
 import '../components/resize_handle.dart';
 import '../data/boot.dart';
 import '../data/model_fetcher.dart';
@@ -29,7 +28,13 @@ import '../features/find_duplicates/find_duplicates_flow.dart';
 import '../features/gallery/compare_view.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
+import '../features/gallery/photo_context_menu.dart';
+import '../data/move_service.dart' show PlannedMove;
+import '../data/scheme_engine.dart' show hardenComponent;
+import '../features/organize/batch_rename_modal.dart';
+import '../features/organize/folder_ops.dart';
 import '../features/info_panel/info_panel.dart';
+import '../features/organize/reorganize_controller.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_controller.dart';
 import '../features/people/people_scope.dart';
@@ -43,6 +48,7 @@ import '../theme/tokens.dart';
 import '../utils/asset_id.dart';
 import 'app_scope.dart';
 import 'app_state.dart';
+import 'key_actions.dart';
 
 class PabloApp extends StatefulWidget {
   const PabloApp({super.key});
@@ -388,9 +394,14 @@ class _Home extends StatelessWidget {
     final photos = photosFor(st.selectedItem);
     return Scaffold(
       backgroundColor: PabloColors.backgroundShell,
-      body: WindowShell(
-        statusPhotoCount: photos.length,
-        body: st.dedupOpen ? const FindDuplicatesFlow() : _Body(),
+      body: KeyActions(
+        onUndo: () => undoLastFileOp(context, st),
+        onMoveSelection: () =>
+            promptMoveToFolder(context, st, st.selectedPhotos.toList()),
+        child: WindowShell(
+          statusPhotoCount: photos.length,
+          body: st.dedupOpen ? const FindDuplicatesFlow() : _Body(),
+        ),
       ),
     );
   }
@@ -409,31 +420,156 @@ Photo? _resolveActivePhoto(PabloAppState st) {
 class _BodyState extends State<_Body> {
   double _sidebarStart = 260;
 
-  // Toggle the photo's star (catalog-persisted) and refresh the gallery.
-  void _toggleStar(String photoId) {
+  // The action bundle handed to the photo context menu. Multi-capable actions
+  // take the selection-aware target list; Reveal/Cover stay single (the menu
+  // anchors them to the clicked photo).
+  PhotoMenuActions _photoMenuActions() => PhotoMenuActions(
+        onView: (id) => AppScope.of(context).openLightbox(id),
+        onToggleStar: _toggleStar,
+        onToggleHidden: _toggleHidden,
+        onAddToAlbum: _addToAlbum,
+        onMoveToFolder: _moveToFolder,
+        onSetAlbumCover: _setAlbumCover,
+        onRemoveFromAlbum: _removeFromCurrentAlbum,
+        onShowInPablo: _showInPablo,
+        onSplitFolder: _splitFolderHere,
+        onRename: _rename,
+        onExport: _exportPhotos,
+        onShare: _sharePhotos,
+        onPrint: _printPhotos,
+        isStarred: (id) => isStarredAsset(assetIdFor(id)),
+        isHidden: isHiddenPhoto,
+      );
+
+  // §10 create/output — resolve target ids to Photos and run the flows. The
+  // menu passes the whole selection when the clicked photo is part of one.
+  List<Photo> _photosFromIds(List<String> ids) => [
+        for (final id in ids)
+          if (photoById(id) case final p?) p,
+      ];
+
+  void _exportPhotos(List<String> ids) {
+    final photos = _photosFromIds(ids);
+    if (photos.isEmpty) return;
+    runExportToFolder(context, photos: photos);
+  }
+
+  void _sharePhotos(List<String> ids) {
+    final photos = _photosFromIds(ids);
+    if (photos.isEmpty) return;
+    sharePhotos(context, photos: photos, origin: shareOriginFrom(context));
+  }
+
+  void _printPhotos(List<String> ids) {
+    final photos = _photosFromIds(ids);
+    if (photos.isEmpty) return;
+    runPrint(context, photos: photos);
+  }
+
+  // Rename: a single photo gets a quick name dialog; a multi-selection opens
+  // the token-based batch modal. Both apply through the shared rename path.
+  Future<void> _rename(List<String> ids) async {
+    final st = AppScope.of(context);
+    if (ids.length > 1) {
+      await showBatchRenameModal(context, st, ids);
+      return;
+    }
+    final path = ids.first;
+    final dot = path.lastIndexOf('.');
+    final ext = dot > 0 ? path.substring(dot) : '';
+    final cut = path.lastIndexOf(RegExp(r'[/\\]'));
+    final currentStem =
+        (cut < 0 ? path : path.substring(cut + 1)).replaceAll(ext, '');
+    final newStem = await _promptRename(currentStem);
+    if (newStem == null || newStem.trim().isEmpty || !mounted) return;
+    final hardened = hardenComponent(newStem.trim());
+    if (hardened.isEmpty || hardened == currentStem) return;
+    final prefix = cut < 0 ? '' : path.substring(0, cut + 1);
+    await reorganizeRename(
+      context,
+      st,
+      [PlannedMove(path, '$prefix$hardened$ext')],
+      label: 'Rename photo',
+    );
+  }
+
+  Future<String?> _promptRename(String initial) {
+    final ctl = TextEditingController(text: initial);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename photo'),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'File name (no extension)'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(ctl.text),
+              child: const Text('Rename')),
+        ],
+      ),
+    );
+  }
+
+  // Split the current folder at the clicked photo into a new sibling folder.
+  void _splitFolderHere(String clickedId) {
+    final st = AppScope.of(context);
+    splitFolderAt(context, st, st.selectedItem, clickedId);
+  }
+
+  // Jump from a virtual view (search/album/smart/people/timeline) to the
+  // photo's home folder in the Folders view: select the folder, scroll it into
+  // view with the photo, select + flash the photo.
+  void _showInPablo(String id) {
+    final st = AppScope.of(context);
+    final folder = File(id).parent.path;
+    st.setSelectedItem(folder, NavSection.folders);
+    st.requestGalleryScroll(folder, photoId: id);
+    st.selectPhoto(id,
+        contextPhotoIds: photosFor(folder).map((p) => p.id).toList());
+    st.flashPhoto(id);
+  }
+
+  // Star/unstar the whole target set: if any is unstarred, star all; else
+  // unstar all (matches the menu's verb). Catalog-persisted.
+  void _toggleStar(List<String> ids) {
     final engine = NativeBackendScope.maybeOf(context)?.engine;
-    if (engine == null) return;
-    final aid = assetIdFor(photoId);
-    final v = !isStarredAsset(aid);
-    engine.setStarred(aid, v);
-    setStarredLocal(aid, v);
+    if (engine == null || ids.isEmpty) return;
+    final v = ids.any((id) => !isStarredAsset(assetIdFor(id)));
+    for (final id in ids) {
+      final aid = assetIdFor(id);
+      engine.setStarred(aid, v);
+      setStarredLocal(aid, v);
+    }
     final st = AppScope.of(context);
     st.reloadSmartCollections(engine); // Starred collection changed
     st.notifyStar();
   }
 
-  // Toggle the photo's hidden flag (catalog-persisted). Rebuilds the gallery so
-  // a hidden photo vanishes (unless "Show hidden" is on).
-  void _toggleHidden(String photoId) {
+  // Hide/unhide the whole target set; rebuilds the gallery.
+  void _toggleHidden(List<String> ids) {
     final engine = NativeBackendScope.maybeOf(context)?.engine;
-    if (engine == null) return;
-    final v = !isHiddenPhoto(photoId);
-    engine.setHidden(assetIdFor(photoId), v);
-    setHiddenLocal(photoId, v);
+    if (engine == null || ids.isEmpty) return;
+    final v = ids.any((id) => !isHiddenPhoto(id));
+    for (final id in ids) {
+      engine.setHidden(assetIdFor(id), v);
+      setHiddenLocal(id, v);
+    }
     final st = AppScope.of(context);
     st.reloadSmartCollections(engine); // hidden affects All/Recent/Starred
     st.libraryChanged();
   }
+
+  // Move the target set into a folder chosen from the palette (existing or
+  // newly created). Delegates to the shared reorganize path.
+  Future<void> _moveToFolder(List<String> ids) =>
+      promptMoveToFolder(context, AppScope.of(context), ids);
 
   // The album currently being viewed (album:ID), or null if not in one.
   int? _currentAlbumId(PabloAppState st) {
@@ -452,25 +588,29 @@ class _BodyState extends State<_Body> {
     st.reloadAlbums(backend.engine);
   }
 
-  // Remove the right-clicked photo from the current album, then reload.
-  void _removeFromCurrentAlbum(String photoId) {
+  // Remove the target photos from the current album, then reload.
+  void _removeFromCurrentAlbum(List<String> ids) {
     final backend = NativeBackendScope.maybeOf(context);
     final st = AppScope.of(context);
     final albumId = _currentAlbumId(st);
     if (backend == null || albumId == null) return;
-    backend.engine.removeFromAlbum(albumId, assetIdFor(photoId));
+    for (final id in ids) {
+      backend.engine.removeFromAlbum(albumId, assetIdFor(id));
+    }
     st.reloadAlbums(backend.engine);
   }
 
-  // Add a photo to an album the user picks (or a new one), then reload.
-  Future<void> _addToAlbum(String photoId) async {
+  // Add the target photos to an album the user picks (or a new one), reload.
+  Future<void> _addToAlbum(List<String> ids) async {
     final backend = NativeBackendScope.maybeOf(context);
-    if (backend == null) return;
+    if (backend == null || ids.isEmpty) return;
     final st = AppScope.of(context);
     final albumId = await _pickAlbum(st);
     if (!mounted) return;
     if (albumId == null || albumId == 0) return;
-    backend.engine.addToAlbum(albumId, assetIdFor(photoId));
+    for (final id in ids) {
+      backend.engine.addToAlbum(albumId, assetIdFor(id));
+    }
     st.reloadAlbums(backend.engine);
   }
 
@@ -589,130 +729,18 @@ class _BodyState extends State<_Body> {
                                   children: [
                                     Expanded(
                                       child: MainGrid(
-                                        onPhotoSecondary: (pos, id) {
-                                          final photo = _resolvePhotoById(id);
-                                          PabloContextMenu.show(
-                                            context,
-                                            position: pos,
-                                            items: [
-                                              ContextMenuItem(
-                                                label: 'View',
-                                                iconCharacter: '👁',
-                                                onPressed: () =>
-                                                    st.openLightbox(id),
-                                              ),
-                                              ContextMenuItem(
-                                                label: 'Edit',
-                                                iconCharacter: '✏️',
-                                                onPressed: () =>
-                                                    st.openLightbox(id),
-                                              ),
-                                              ContextMenuItem(
-                                                label: ((photo?.starred ??
-                                                            false) ||
-                                                        isStarredAsset(
-                                                            assetIdFor(id)))
-                                                    ? 'Unstar'
-                                                    : 'Star',
-                                                iconCharacter:
-                                                    ((photo?.starred ??
-                                                                false) ||
-                                                            isStarredAsset(
-                                                                assetIdFor(id)))
-                                                        ? '☆'
-                                                        : '★',
-                                                onPressed: () =>
-                                                    _toggleStar(id),
-                                              ),
-                                              ContextMenuItem(
-                                                label: 'Add to Album',
-                                                iconCharacter: '+',
-                                                onPressed: () =>
-                                                    _addToAlbum(id),
-                                              ),
-                                              ContextMenuItem(
-                                                label: 'Export…',
-                                                iconCharacter: '⤓',
-                                                onPressed: () {
-                                                  final p =
-                                                      _resolvePhotoById(id);
-                                                  if (p != null) {
-                                                    runExportToFolder(context,
-                                                        photos: [p]);
-                                                  }
-                                                },
-                                              ),
-                                              if (_currentAlbumId(st) !=
-                                                  null) ...[
-                                                ContextMenuItem(
-                                                  label: 'Set as Album Cover',
-                                                  iconCharacter: '🖼',
-                                                  onPressed: () =>
-                                                      _setAlbumCover(id),
-                                                ),
-                                                ContextMenuItem(
-                                                  label: 'Remove from Album',
-                                                  iconCharacter: '−',
-                                                  onPressed: () =>
-                                                      _removeFromCurrentAlbum(
-                                                          id),
-                                                ),
-                                              ],
-                                              ContextMenuItem(
-                                                label: isHiddenPhoto(id)
-                                                    ? 'Unhide'
-                                                    : 'Hide',
-                                                iconCharacter: isHiddenPhoto(id)
-                                                    ? '◉'
-                                                    : '⊘',
-                                                onPressed: () =>
-                                                    _toggleHidden(id),
-                                              ),
-                                              ContextMenuItem(
-                                                label: 'Share…',
-                                                iconCharacter: '📤',
-                                                onPressed: () {
-                                                  final p =
-                                                      _resolvePhotoById(id);
-                                                  if (p != null) {
-                                                    sharePhotos(context,
-                                                        photos: [p],
-                                                        origin:
-                                                            shareOriginFrom(
-                                                                context));
-                                                  }
-                                                },
-                                              ),
-                                              ContextMenuItem.separator(),
-                                              ContextMenuItem(
-                                                label: 'Print…',
-                                                iconCharacter: '🖨',
-                                                onPressed: () {
-                                                  final p =
-                                                      _resolvePhotoById(id);
-                                                  if (p != null) {
-                                                    runPrint(context,
-                                                        photos: [p]);
-                                                  }
-                                                },
-                                              ),
-                                              ContextMenuItem(
-                                                label: 'Rotate Left',
-                                                iconCharacter: '↺',
-                                              ),
-                                              ContextMenuItem(
-                                                label: 'Rotate Right',
-                                                iconCharacter: '↻',
-                                              ),
-                                              ContextMenuItem.separator(),
-                                              ContextMenuItem(
-                                                label: 'Delete',
-                                                iconCharacter: '🗑',
-                                                destructive: true,
-                                              ),
-                                            ],
-                                          );
-                                        },
+                                        // §10 export/share/print ride main's
+                                        // selection-aware menu via the
+                                        // PhotoMenuActions seam (multi-capable).
+                                        onPhotoSecondary: (pos, id) =>
+                                            showPhotoContextMenu(
+                                          context,
+                                          position: pos,
+                                          clickedId: id,
+                                          st: st,
+                                          albumId: _currentAlbumId(st),
+                                          actions: _photoMenuActions(),
+                                        ),
                                       ),
                                     ),
                                     if (st.infoPanelTab != null)

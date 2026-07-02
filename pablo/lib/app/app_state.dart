@@ -1,14 +1,18 @@
 // Single ChangeNotifier holding the whole app's UI state.
 // Per-feature state stays local in the relevant widget.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:photo_native/photo_native.dart' show Album, Engine;
 
+import '../data/folder_prefs.dart';
 import '../data/indexing/indexing_controller.dart';
 import '../data/library.dart';
 import '../data/models.dart';
 import '../data/scheme_store.dart';
 import '../data/storage_scheme.dart';
+import '../data/undo_stack.dart';
 import '../utils/asset_id.dart';
 
 class GridMode {
@@ -175,6 +179,62 @@ class PabloAppState extends ChangeNotifier {
   // Tray
   final List<String> trayPhotos = <String>[];
   bool trayLocked = false;
+
+  // Session-scoped undo for file operations (moves/splits/renames) — the
+  // Edit→Undo menu and Cmd/Ctrl+Z consume it; MoveService pushes onto it.
+  final UndoStack undoStack = UndoStack();
+
+  // Most-recent move destinations, newest first — surfaced at the top of the
+  // Move-to-Folder palette. Persisted via FolderPrefs (folder_prefs.json).
+  List<String> get recentMoveDests => FolderPrefs.instance.recents;
+
+  // A one-shot request for the gallery to scroll a section (and optionally a
+  // photo) into view. The SectionScrollView consumes and clears it.
+  ({String sectionId, String? photoId})? pendingGalleryScroll;
+
+  /// Ask the gallery to scroll [sectionId] (optionally centering [photoId])
+  /// into view on its next build.
+  void requestGalleryScroll(String sectionId, {String? photoId}) {
+    pendingGalleryScroll = (sectionId: sectionId, photoId: photoId);
+    notifyListeners();
+  }
+
+  /// Called by the view once it has consumed the pending scroll request.
+  void clearGalleryScroll() => pendingGalleryScroll = null;
+
+  // A photo id to flash briefly (post-navigation highlight). Cleared by a timer.
+  String? flashPhotoId;
+  Timer? _flashTimer;
+
+  /// Flash [id] for ~1.2s so the user's eye lands on it after a jump.
+  void flashPhoto(String id) {
+    flashPhotoId = id;
+    _flashTimer?.cancel();
+    _flashTimer = Timer(const Duration(milliseconds: 1200), () {
+      flashPhotoId = null;
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  /// Record [dir] as the newest move destination (deduped, capped, persisted).
+  void noteMoveDestination(String dir) =>
+      FolderPrefs.instance.noteRecent(dir);
+
+  /// Swap photo ids (== file paths) after files moved on disk, so selection,
+  /// tray, the shift-anchor, and an open lightbox all follow the moved files
+  /// instead of pointing at dead paths.
+  void remapPhotoIds(Map<String, String> moved) {
+    if (moved.isEmpty) return;
+    for (final e in moved.entries) {
+      if (selectedPhotos.remove(e.key)) selectedPhotos.add(e.value);
+      final ti = trayPhotos.indexOf(e.key);
+      if (ti >= 0) trayPhotos[ti] = e.value;
+      if (activePhotoId == e.key) activePhotoId = e.value;
+      if (lightboxPhotoId == e.key) lightboxPhotoId = e.value;
+    }
+    notifyListeners();
+  }
 
   // Search
   String searchText = '';

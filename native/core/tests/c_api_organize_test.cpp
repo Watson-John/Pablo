@@ -205,4 +205,59 @@ TEST_F(CApiOrganize, MetadataOkNotFoundAndInvalid) {
     EXPECT_EQ(photo_asset_metadata(h_, asset_, nullptr), PHOTO_STATUS_INVALID_ARG);
 }
 
+TEST_F(CApiOrganize, RelocateNulBufferAppliesAndReportsPerRow) {
+    // Seed two more assets so the batch mixes a clean move, a collision, and
+    // an unknown id — exercising the NUL-separated path buffer parse and the
+    // per-row ok array in one call.
+    AssetRecord r2;
+    r2.path = dir_ + "/b.jpg";
+    r2.filename = "b.jpg";
+    const int64_t b = eng_->catalog()->upsert_asset(r2);
+    ASSERT_GT(b, 0);
+
+    const std::string d1 = dir_ + "/sorted/a.jpg";   // clean move for asset_
+    const std::string d2 = dir_ + "/sorted/a.jpg";   // collides with d1 (same batch? no — with applied row)
+    const std::string d3 = dir_ + "/nowhere/x.jpg";  // unknown id
+
+    // Buffer: "d1\0d2\0d3\0" — d2 collides with d1 only AFTER d1 applies,
+    // which is exactly the in-transaction visibility we want pinned.
+    std::string paths;
+    paths += d1; paths.push_back('\0');
+    paths += d2; paths.push_back('\0');
+    paths += d3; paths.push_back('\0');
+
+    const uint64_t ids[3] = {static_cast<uint64_t>(asset_),
+                             static_cast<uint64_t>(b), 424242u};
+    uint8_t ok[3] = {9, 9, 9};
+    uint64_t applied = 0;
+    ASSERT_EQ(photo_assets_relocate(h_, ids, paths.data(), 3, ok, &applied),
+              PHOTO_STATUS_OK);
+    EXPECT_EQ(applied, 1u);
+    EXPECT_EQ(ok[0], 1);  // moved
+    EXPECT_EQ(ok[1], 0);  // destination now belongs to asset_
+    EXPECT_EQ(ok[2], 0);  // unknown id
+
+    EXPECT_EQ(eng_->catalog()->asset_by_id(asset_)->path, d1);
+    EXPECT_EQ(eng_->catalog()->asset_by_id(asset_)->filename, "a.jpg");
+    EXPECT_EQ(eng_->catalog()->asset_by_id(b)->path, dir_ + "/b.jpg");
+}
+
+TEST_F(CApiOrganize, RelocateNullArgsRejected) {
+    const uint64_t id = static_cast<uint64_t>(asset_);
+    const char* paths = "/x/a.jpg\0";
+    uint64_t applied = 0;
+    EXPECT_EQ(photo_assets_relocate(nullptr, &id, paths, 1, nullptr, &applied),
+              PHOTO_STATUS_INVALID_ARG);
+    EXPECT_EQ(photo_assets_relocate(h_, nullptr, paths, 1, nullptr, &applied),
+              PHOTO_STATUS_INVALID_ARG);
+    EXPECT_EQ(photo_assets_relocate(h_, &id, nullptr, 1, nullptr, &applied),
+              PHOTO_STATUS_INVALID_ARG);
+    EXPECT_EQ(photo_assets_relocate(h_, &id, paths, 0, nullptr, &applied),
+              PHOTO_STATUS_INVALID_ARG);
+    // out_ok / out_applied are both optional.
+    EXPECT_EQ(photo_assets_relocate(h_, &id, "/y/a.jpg\0", 1, nullptr, nullptr),
+              PHOTO_STATUS_OK);
+    EXPECT_EQ(eng_->catalog()->asset_by_id(asset_)->path, "/y/a.jpg");
+}
+
 #endif  // PHOTO_HAVE_SQLITE

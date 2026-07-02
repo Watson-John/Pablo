@@ -574,6 +574,23 @@ PHOTO_API int32_t photo_library_rebase(photo_engine_t* engine,
                                        const char* old_prefix_utf8,
                                        const char* new_prefix_utf8);
 
+/*
+ * Relocate individual assets after their files moved on disk, preserving
+ * asset ids (faces/albums/tags/edits/embeddings stay attached). `asset_ids`
+ * is `count` ids; `new_paths_utf8` is `count` NUL-terminated absolute paths
+ * back-to-back ("a\0b\0…"). A row is skipped (not fatal) when its id is
+ * unknown, its path is unchanged, or the destination collides with a
+ * different existing asset. `out_ok` (optional, `count` bytes) receives 1/0
+ * per row; `out_applied` (optional) the number updated. Synchronous +
+ * transactional. Returns photo_status_t.
+ */
+PHOTO_API int32_t photo_assets_relocate(photo_engine_t* engine,
+                                        const uint64_t* asset_ids,
+                                        const char* new_paths_utf8,
+                                        size_t count,
+                                        uint8_t* out_ok,
+                                        uint64_t* out_applied);
+
 /* Star / rating / caption for one asset. */
 typedef struct {
     int32_t starred;   /* 0/1                                                */

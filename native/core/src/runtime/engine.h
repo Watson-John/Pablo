@@ -130,6 +130,14 @@ public:
     int64_t rebase_paths(const std::string& old_prefix,
                          const std::string& new_prefix);
 
+    // Per-asset path updates after the caller moved files on disk (locked,
+    // transactional, id-preserving). Skip-and-report per row — see
+    // Catalog::relocate_assets. No FS validation here: the caller just
+    // performed the moves and is authoritative. Returns rows updated.
+    int64_t relocate_assets(
+        const std::vector<catalog::Catalog::RelocateEntry>& moves,
+        std::vector<uint8_t>* out_ok = nullptr);
+
     // ── Non-destructive edit stack ─────────────────────────────────────────
     // The serialized `key=value;` spec for an asset, "" if none. Locked read.
     std::string get_edits(int64_t asset_id) const;

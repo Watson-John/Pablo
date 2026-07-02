@@ -533,6 +533,53 @@ int64_t Catalog::rebase_paths(const std::string& old_prefix,
     return changed;
 }
 
+int64_t Catalog::relocate_assets(const std::vector<RelocateEntry>& moves,
+                                 std::vector<uint8_t>* out_ok) {
+    if (out_ok) out_ok->assign(moves.size(), 0);
+    if (moves.empty()) return 0;
+    // Leaf/parent split on either separator, mirroring path_under's
+    // dual-separator convention (catalog paths carry the platform's form).
+    auto split_at = [](const std::string& p) {
+        const auto cut = p.find_last_of("/\\");
+        return cut == std::string::npos ? std::string::npos : cut;
+    };
+
+    int64_t applied = 0;
+    exec(db_, "BEGIN");
+    try {
+        for (size_t i = 0; i < moves.size(); ++i) {
+            const auto& m = moves[i];
+            if (m.new_path.empty()) continue;
+            {
+                Stmt cur(db_, "SELECT path FROM asset WHERE id=?");
+                cur.bind(1, m.id);
+                if (!cur.step()) continue;                    // unknown id
+                if (cur.col_text(0) == m.new_path) continue;  // no-op
+            }
+            {
+                Stmt clash(db_, "SELECT id FROM asset WHERE path=?");
+                clash.bind(1, m.new_path);
+                if (clash.step() && clash.col_int(0) != m.id) continue;
+            }
+            const auto cut = split_at(m.new_path);
+            const std::string folder =
+                cut == std::string::npos ? "" : m.new_path.substr(0, cut);
+            const std::string filename =
+                cut == std::string::npos ? m.new_path : m.new_path.substr(cut + 1);
+            Stmt q(db_, "UPDATE asset SET path=?, folder=?, filename=? WHERE id=?");
+            q.bind(1, m.new_path).bind(2, folder).bind(3, filename).bind(4, m.id);
+            q.run();
+            if (out_ok) (*out_ok)[i] = 1;
+            ++applied;
+        }
+        exec(db_, "COMMIT");
+    } catch (...) {
+        exec(db_, "ROLLBACK");
+        throw;
+    }
+    return applied;
+}
+
 void Catalog::upsert_metadata(int64_t asset_id, const exif::AssetMetadata& m) {
     Stmt q(db_,
            "INSERT INTO asset_metadata(asset_id,camera,lens,aperture,shutter,"
@@ -1027,6 +1074,11 @@ void Catalog::set_rating(int64_t, int32_t) {}
 void Catalog::set_caption(int64_t, const std::string&) {}
 void Catalog::set_hidden(int64_t, bool) {}
 void Catalog::remove_asset(int64_t) {}
+int64_t Catalog::relocate_assets(const std::vector<RelocateEntry>& moves,
+                                 std::vector<uint8_t>* out_ok) {
+    if (out_ok) out_ok->assign(moves.size(), 0);
+    return 0;
+}
 void Catalog::add_import_root(const std::string&) {}
 std::vector<std::string> Catalog::import_roots() const { return {}; }
 void Catalog::upsert_metadata(int64_t, const exif::AssetMetadata&) {}

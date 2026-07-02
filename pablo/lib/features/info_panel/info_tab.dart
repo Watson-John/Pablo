@@ -12,6 +12,7 @@ import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
+import '../../utils/reveal_in_file_manager.dart';
 import '../gallery/photo_surface.dart';
 import '../map/reverse_geocode.dart';
 import '../map/set_location_dialog.dart';
@@ -104,7 +105,8 @@ class InfoTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     InspectorLink('Open folder location',
-                        fontSize: 11.5, onTap: () {}),
+                        fontSize: 11.5,
+                        onTap: () => revealInFileManager(photo.filePath)),
                   ],
                 ),
               ),

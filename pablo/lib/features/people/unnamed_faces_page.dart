@@ -682,7 +682,7 @@ class _UnclusteredTab extends StatelessWidget {
         if (active.isEmpty)
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.all(28),
+              padding: const EdgeInsets.all(PabloSpacing.xxxxl),
               child: Center(
                 child: Text(
                   'All unclustered faces have been assigned or ignored.',
@@ -852,7 +852,7 @@ class _IgnoredTab extends StatelessWidget {
         if (total == 0)
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.all(28),
+              padding: const EdgeInsets.all(PabloSpacing.xxxxl),
               child: Center(
                 child: Text(
                   'No ignored faces yet.',

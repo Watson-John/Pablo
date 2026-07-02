@@ -13,6 +13,7 @@ import '../data/library_location.dart';
 import '../features/collage/collage_controller.dart';
 import '../features/editor/edit_settings_dialog.dart';
 import '../features/export/export_runner.dart';
+import '../features/organize/reorganize_controller.dart';
 import '../features/organize/storage_scheme_modal.dart';
 import '../features/print/print_service.dart';
 import '../features/share/share_service.dart';
@@ -74,12 +75,23 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           _MenuEntry.sep(),
           const _MenuEntry(label: 'Exit'),
         ],
-        'Edit': const [
-          _MenuEntry(label: 'Undo', shortcut: 'Ctrl+Z'),
-          _MenuEntry(label: 'Redo', shortcut: 'Ctrl+Y'),
-          _MenuEntry(label: '', isSeparator: true),
-          _MenuEntry(label: 'Select All', shortcut: 'Ctrl+A'),
-          _MenuEntry(label: 'Deselect All'),
+        'Edit': [
+          // Live file-op undo (shares the UndoStack with Cmd/Ctrl+Z); label
+          // names the op it would reverse. Display-only when the stack is
+          // empty. Redo stays display-only (no redo by design).
+          _MenuEntry(
+            label: st.undoStack.top == null
+                ? 'Undo'
+                : 'Undo ${st.undoStack.top!.label}',
+            shortcut: 'Ctrl+Z',
+            onTap: st.undoStack.top == null
+                ? null
+                : () => undoLastFileOp(context, st),
+          ),
+          const _MenuEntry(label: 'Redo', shortcut: 'Ctrl+Y'),
+          _MenuEntry.sep(),
+          const _MenuEntry(label: 'Select All', shortcut: 'Ctrl+A'),
+          const _MenuEntry(label: 'Deselect All'),
         ],
         'View': [
           _MenuEntry(

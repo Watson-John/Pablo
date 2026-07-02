@@ -1049,6 +1049,17 @@ int64_t Engine::rebase_paths(const std::string& old_prefix,
     return catalog_->rebase_paths(old_prefix, new_prefix);
 }
 
+int64_t Engine::relocate_assets(
+    const std::vector<catalog::Catalog::RelocateEntry>& moves,
+    std::vector<uint8_t>* out_ok) {
+    if (!catalog_) {
+        if (out_ok) out_ok->assign(moves.size(), 0);
+        return 0;
+    }
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->relocate_assets(moves, out_ok);
+}
+
 void Engine::add_tag(int64_t asset_id, const std::string& tag) {
     if (!catalog_) return;
     std::lock_guard<std::mutex> lk(catalog_mu_);
