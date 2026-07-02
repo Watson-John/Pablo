@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'package:photo_native/photo_native.dart';
 
 import '../../data/app_config.dart';
+import '../../utils/sidecar_paths.dart';
 import 'edit_spec.dart';
 import 'edits_store.dart';
 
@@ -193,11 +194,9 @@ class EditSession extends ChangeNotifier {
   }
 
   /// The `<name>.pablo.tif` path beside a source file, for the layered save.
-  static String layeredDestFor(String src) {
-    final dot = src.lastIndexOf('.');
-    final base = dot > 0 ? src.substring(0, dot) : src;
-    return '$base.pablo.tif';
-  }
+  /// Delegates to the shared helper so the move service relocates the exact
+  /// same sidecar path when the photo itself moves.
+  static String layeredDestFor(String src) => layeredTiffPathFor(src);
 
   /// Revert to the original: clears the saved edit and the working spec.
   void revertToOriginal() {

@@ -26,6 +26,7 @@ export 'src/ffi/core_api.dart'
         Album,
         Organize,
         CatalogStats,
+        RelocateOutcome,
         EmbeddingCounts,
         SearchHit,
         SavedSearch;

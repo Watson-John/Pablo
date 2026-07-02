@@ -15,6 +15,7 @@ class ContextMenuItem {
     this.onPressed,
     this.destructive = false,
     this.checked,
+    this.enabled = true,
   });
 
   ContextMenuItem.separator()
@@ -25,6 +26,7 @@ class ContextMenuItem {
         onPressed = null,
         destructive = false,
         checked = null,
+        enabled = true,
         isSeparator = true;
 
   bool isSeparator = false;
@@ -35,6 +37,10 @@ class ContextMenuItem {
   final VoidCallback? onPressed;
   final bool destructive;
   final bool? checked;
+
+  /// A disabled row is greyed and ignores taps (e.g. Delete on a non-empty
+  /// folder).
+  final bool enabled;
 }
 
 class PabloContextMenu extends StatelessWidget {
@@ -154,15 +160,20 @@ class _MenuRowState extends State<_MenuRow> {
   bool _hover = false;
   @override
   Widget build(BuildContext context) {
-    final color =
+    final enabled = widget.item.enabled;
+    final baseColor =
         widget.item.destructive ? PabloColors.error : PabloColors.textPrimary;
+    final color = enabled
+        ? baseColor
+        : baseColor.withValues(alpha: 0.38); // greyed when disabled
     return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      onEnter: (_) => setState(() => _hover = enabled),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
+          if (!enabled) return;
           widget.item.onPressed?.call();
           widget.onDismiss?.call();
         },

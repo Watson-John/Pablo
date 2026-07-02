@@ -1,5 +1,7 @@
 // Sidebar — Map nav + People + Albums + Folders + Timeline + storage footer.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:photo_native/photo_native.dart' show Album;
 
@@ -10,11 +12,14 @@ import '../../components/context_menu.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/section_header.dart';
+import '../../data/folder_prefs.dart';
 import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
+import '../../utils/reveal_in_file_manager.dart';
 import '../gallery/native_asset_texture.dart';
+import '../organize/folder_ops.dart';
 import '../organize/reorganize_controller.dart';
 import '../people/people_scope.dart';
 import 'folder_group.dart';
@@ -26,9 +31,13 @@ import '../people/unnamed_faces_row.dart';
 class Sidebar extends StatelessWidget {
   const Sidebar({super.key});
 
+  static String _leafName(String path) =>
+      path.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
+
   @override
   Widget build(BuildContext context) {
     final st = AppScope.of(context);
+    FolderPrefs.instance.ensureLoaded();
     final pc = PeopleScope.of(context);
     final narrow = st.sidebarWidth < 210;
 
@@ -200,6 +209,43 @@ class Sidebar extends StatelessWidget {
                           ),
                   ),
 
+                  // Pinned — user-pinned folders, one drag-drop-target row
+                  // each. Reacts to FolderPrefs; hidden entirely when empty.
+                  ListenableBuilder(
+                    listenable: FolderPrefs.instance,
+                    builder: (context, _) {
+                      final pins = FolderPrefs.instance.pins;
+                      if (pins.isEmpty) return const SizedBox.shrink();
+                      return CollapsibleSection(
+                        label: 'Pinned',
+                        icon: PabloIconName.star,
+                        iconColor: PabloColors.amber,
+                        collapsedCount: '${pins.length}',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final path in pins)
+                              FolderLeaf(
+                                folder: FolderNode(
+                                    id: path, name: _leafName(path), path: path),
+                                selected: st.activeSection ==
+                                        NavSection.folders &&
+                                    st.selectedItem == path,
+                                onSelect: () {
+                                  st.setSelectedItem(path, NavSection.folders);
+                                  st.requestGalleryScroll(path);
+                                },
+                                onDropPaths: (paths) =>
+                                    reorganizeMove(context, st, paths, path),
+                                onContextMenu: (pos) =>
+                                    _folderContextMenu(context, path, pos),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+
                   // Folders — the real directory tree under the import root.
                   CollapsibleSection(
                     label: 'Folders',
@@ -225,8 +271,10 @@ class Sidebar extends StatelessWidget {
                                       st.activeSection == NavSection.folders
                                           ? st.selectedItem
                                           : null,
-                                  onSelect: (id) => st.setSelectedItem(
-                                      id, NavSection.folders),
+                                  onSelect: (id) {
+                                    st.setSelectedItem(id, NavSection.folders);
+                                    st.requestGalleryScroll(id);
+                                  },
                                   defaultOpen: i == 0,
                                   onDropPaths: (destDir, paths) =>
                                       reorganizeMove(context, st, paths, destDir),
@@ -304,33 +352,78 @@ class Sidebar extends StatelessWidget {
           folder: f,
           selected:
               st.activeSection == NavSection.folders && st.selectedItem == f.id,
-          onSelect: () => st.setSelectedItem(f.id, NavSection.folders),
+          onSelect: () {
+            st.setSelectedItem(f.id, NavSection.folders);
+            st.requestGalleryScroll(f.id);
+          },
           onDropPaths: (paths) => reorganizeMove(context, st, paths, f.id),
           onContextMenu: (pos) => _folderContextMenu(context, f.id, pos),
         ),
     ];
   }
 
-  // Right-click a folder → Hide/Show. Hiding persists the rule natively and
-  // sweeps the folder's photos out of the gallery (re-hydrate the hide set).
+  // Right-click a folder. Filesystem actions (Reveal / New / Rename / Delete)
+  // work with or without the native backend; Hide/Show needs it (the rule
+  // persists in the catalog) and is simply omitted when it's absent.
   void _folderContextMenu(BuildContext context, String folderId, Offset pos) {
     final backend = NativeBackendScope.maybeOf(context);
-    if (backend == null) return;
     final st = AppScope.of(context);
-    final hidden = backend.engine.hiddenFolders().contains(folderId);
+    final hidden =
+        backend?.engine.hiddenFolders().contains(folderId) ?? false;
+    // Non-recursive emptiness check → enables Delete only for empty folders.
+    var isEmpty = false;
+    try {
+      isEmpty = Directory(folderId).listSync(followLinks: false).isEmpty;
+    } catch (_) {}
     PabloContextMenu.show(
       context,
       position: pos,
       items: [
         ContextMenuItem(
-          label: hidden ? 'Show folder' : 'Hide folder',
-          iconCharacter: hidden ? '◉' : '⊘',
-          onPressed: () {
-            backend.engine.setFolderHidden(folderId, !hidden);
-            hydrateHidden(backend.engine.hiddenAssets().toSet());
-            st.libraryChanged();
-          },
+          label: revealActionLabel(),
+          iconCharacter: '📂',
+          onPressed: () => revealInFileManager(folderId, isDirectory: true),
         ),
+        ContextMenuItem.separator(),
+        ContextMenuItem(
+          label: 'New Folder…',
+          iconCharacter: '📁',
+          onPressed: () => newSubfolder(context, st, folderId),
+        ),
+        ContextMenuItem(
+          label: 'Rename Folder…',
+          iconCharacter: '✏️',
+          onPressed: () => renameFolder(context, st, folderId),
+        ),
+        ContextMenuItem(
+          label: 'Delete Folder',
+          iconCharacter: '🗑',
+          destructive: true,
+          enabled: isEmpty,
+          onPressed:
+              isEmpty ? () => deleteFolderIfEmpty(context, st, folderId) : null,
+        ),
+        ContextMenuItem.separator(),
+        ContextMenuItem(
+          label: FolderPrefs.instance.isPinned(folderId)
+              ? 'Unpin Folder'
+              : 'Pin Folder',
+          iconCharacter: '📌',
+          checked: FolderPrefs.instance.isPinned(folderId),
+          onPressed: () => FolderPrefs.instance.togglePin(folderId),
+        ),
+        if (backend != null) ...[
+          ContextMenuItem.separator(),
+          ContextMenuItem(
+            label: hidden ? 'Show folder' : 'Hide folder',
+            iconCharacter: hidden ? '◉' : '⊘',
+            onPressed: () {
+              backend.engine.setFolderHidden(folderId, !hidden);
+              hydrateHidden(backend.engine.hiddenAssets().toSet());
+              st.libraryChanged();
+            },
+          ),
+        ],
       ],
     );
   }

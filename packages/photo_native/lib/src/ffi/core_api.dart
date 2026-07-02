@@ -414,6 +414,10 @@ typedef _LibraryRebaseC =
     Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _LibraryRebaseDart =
     int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _AssetsRelocateC = Int32 Function(Pointer<Void>, Pointer<Uint64>,
+    Pointer<Utf8>, IntPtr, Pointer<Uint8>, Pointer<Uint64>);
+typedef _AssetsRelocateDart = int Function(Pointer<Void>, Pointer<Uint64>,
+    Pointer<Utf8>, int, Pointer<Uint8>, Pointer<Uint64>);
 
 // Organize (star/rating/caption/tags).
 typedef _AssetSetIntC = Int32 Function(Pointer<Void>, Uint64, Int32);
@@ -1158,6 +1162,48 @@ final class Engine {
     }
   }
 
+  /// Update stored catalog paths for assets whose files the app just moved on
+  /// disk, preserving ids (faces/albums/tags/edits/embeddings stay attached).
+  /// Entries are (assetId, absolute new path). A row is skipped — not fatal —
+  /// when its id is unknown, its path is unchanged, or the destination
+  /// collides with a different asset; see [RelocateOutcome.okByIndex].
+  /// Synchronous + transactional.
+  RelocateOutcome relocateAssets(List<(int, String)> moves) {
+    if (moves.isEmpty) {
+      return const RelocateOutcome(applied: 0, okByIndex: []);
+    }
+    final n = moves.length;
+    final ids = calloc<Uint64>(n);
+    // One buffer of NUL-terminated UTF-8 paths back-to-back ("a\0b\0…").
+    final bytes = <int>[];
+    for (var i = 0; i < n; i++) {
+      ids[i] = moves[i].$1;
+      bytes.addAll(utf8.encode(moves[i].$2));
+      bytes.add(0);
+    }
+    final paths = calloc<Uint8>(bytes.length);
+    paths.asTypedList(bytes.length).setAll(0, bytes);
+    final ok = calloc<Uint8>(n);
+    final applied = calloc<Uint64>(1);
+    try {
+      final rc = _Bindings.assetsRelocate(
+          _handle, ids, paths.cast<Utf8>(), n, ok, applied);
+      if (rc != 0) {
+        return RelocateOutcome(
+            applied: 0, okByIndex: List<bool>.filled(n, false));
+      }
+      return RelocateOutcome(
+        applied: applied.value,
+        okByIndex: [for (var i = 0; i < n; i++) ok[i] != 0],
+      );
+    } finally {
+      calloc.free(ids);
+      calloc.free(paths);
+      calloc.free(ok);
+      calloc.free(applied);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Semantic search & discovery (Stage 9).
   // -------------------------------------------------------------------------
@@ -1781,6 +1827,17 @@ final class CatalogStats {
   int get reclaimableBytes => freelistCount * pageSize;
 }
 
+/// Per-batch result of [Engine.relocateAssets].
+final class RelocateOutcome {
+  const RelocateOutcome({required this.applied, required this.okByIndex});
+
+  /// Number of catalog rows actually updated.
+  final int applied;
+
+  /// Parallel to the input list: true where that entry's path was rewritten.
+  final List<bool> okByIndex;
+}
+
 /// Decode a NUL-terminated UTF-8 name out of a fixed-size native char array.
 String _readCName(Array<Uint8> arr, int maxLen) {
   final bytes = <int>[];
@@ -1903,6 +1960,9 @@ final class _Bindings {
   static final _LibraryRebaseDart libraryRebase = _dylib
       .lookupFunction<_LibraryRebaseC, _LibraryRebaseDart>(
           'photo_library_rebase');
+  static final _AssetsRelocateDart assetsRelocate = _dylib
+      .lookupFunction<_AssetsRelocateC, _AssetsRelocateDart>(
+          'photo_assets_relocate');
 
   static final _AssetSetIntDart assetSetStarred = _dylib
       .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_starred');

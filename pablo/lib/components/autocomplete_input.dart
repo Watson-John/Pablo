@@ -97,7 +97,7 @@ class _AutocompleteInputState extends State<AutocompleteInput> {
               ),
               child: ListView(
                 shrinkWrap: true,
-                padding: const EdgeInsets.all(2),
+                padding: const EdgeInsets.all(PabloSpacing.xs),
                 children: matches.map((n) {
                   return _MatchItem(
                     label: n,
