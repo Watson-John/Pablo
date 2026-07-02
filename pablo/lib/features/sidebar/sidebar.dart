@@ -1,5 +1,7 @@
 // Sidebar — Map nav + People + Albums + Folders + Timeline + storage footer.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:photo_native/photo_native.dart' show Album;
 
@@ -16,6 +18,7 @@ import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
 import '../../utils/reveal_in_file_manager.dart';
 import '../gallery/native_asset_texture.dart';
+import '../organize/folder_ops.dart';
 import '../organize/reorganize_controller.dart';
 import '../people/people_scope.dart';
 import 'folder_group.dart';
@@ -317,14 +320,19 @@ class Sidebar extends StatelessWidget {
     ];
   }
 
-  // Right-click a folder. Filesystem actions (Reveal) work with or without
-  // the native backend; Hide/Show needs it (the rule persists in the catalog)
-  // and is simply omitted when it's absent.
+  // Right-click a folder. Filesystem actions (Reveal / New / Rename / Delete)
+  // work with or without the native backend; Hide/Show needs it (the rule
+  // persists in the catalog) and is simply omitted when it's absent.
   void _folderContextMenu(BuildContext context, String folderId, Offset pos) {
     final backend = NativeBackendScope.maybeOf(context);
     final st = AppScope.of(context);
     final hidden =
         backend?.engine.hiddenFolders().contains(folderId) ?? false;
+    // Non-recursive emptiness check → enables Delete only for empty folders.
+    var isEmpty = false;
+    try {
+      isEmpty = Directory(folderId).listSync(followLinks: false).isEmpty;
+    } catch (_) {}
     PabloContextMenu.show(
       context,
       position: pos,
@@ -334,7 +342,27 @@ class Sidebar extends StatelessWidget {
           iconCharacter: '📂',
           onPressed: () => revealInFileManager(folderId, isDirectory: true),
         ),
-        if (backend != null)
+        ContextMenuItem.separator(),
+        ContextMenuItem(
+          label: 'New Folder…',
+          iconCharacter: '📁',
+          onPressed: () => newSubfolder(context, st, folderId),
+        ),
+        ContextMenuItem(
+          label: 'Rename Folder…',
+          iconCharacter: '✏️',
+          onPressed: () => renameFolder(context, st, folderId),
+        ),
+        ContextMenuItem(
+          label: 'Delete Folder',
+          iconCharacter: '🗑',
+          destructive: true,
+          enabled: isEmpty,
+          onPressed:
+              isEmpty ? () => deleteFolderIfEmpty(context, st, folderId) : null,
+        ),
+        if (backend != null) ...[
+          ContextMenuItem.separator(),
           ContextMenuItem(
             label: hidden ? 'Show folder' : 'Hide folder',
             iconCharacter: hidden ? '◉' : '⊘',
@@ -344,6 +372,7 @@ class Sidebar extends StatelessWidget {
               st.libraryChanged();
             },
           ),
+        ],
       ],
     );
   }

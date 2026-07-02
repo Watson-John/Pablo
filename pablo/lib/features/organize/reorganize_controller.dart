@@ -15,6 +15,7 @@ import '../../data/boot.dart';
 import '../../data/library.dart';
 import '../../data/move_service.dart';
 import '../../data/undo_stack.dart';
+import 'folder_ops.dart';
 import 'move_palette.dart';
 
 /// Move [paths] into [destDir], then refresh the library and show a result
@@ -29,6 +30,7 @@ Future<void> reorganizeMove(
   String destDir, {
   Future<void> Function()? refresh,
   List<String> createdDirs = const [],
+  String? label,
 }) async {
   if (paths.isEmpty) return;
   final messenger = ScaffoldMessenger.maybeOf(context);
@@ -40,6 +42,7 @@ Future<void> reorganizeMove(
     engine: engine,
     undo: st.undoStack,
     createdDirs: createdDirs,
+    label: label,
   );
   if (!outcome.anyMoved) {
     messenger?.showSnackBar(const SnackBar(
@@ -59,6 +62,10 @@ Future<void> reorganizeMove(
                 undoFileOp(messenger, st, outcome.undoOp!, engine: engine, refresh: refresh),
           ),
   ));
+  // Offer to clean up any source folder the move emptied of photos.
+  if (context.mounted && outcome.emptiedSourceDirs.isNotEmpty) {
+    offerEmptyFolderCleanup(context, st, outcome.emptiedSourceDirs);
+  }
 }
 
 /// Open the Move-to-Folder palette for [ids] and, on a pick, create the folder
@@ -131,6 +138,14 @@ Future<void> _reverse(
   Engine? engine,
   Future<void> Function()? refresh,
 }) async {
+  // A non-move op (folder rename) reverses itself; otherwise move files back.
+  if (op.reverse != null) {
+    await op.reverse!();
+    await (refresh ?? _refreshLibrary)();
+    st.libraryChanged();
+    messenger?.showSnackBar(SnackBar(content: Text('Undid ${op.label}')));
+    return;
+  }
   final result = MoveService.undoOp(op, engine: engine);
   await _applyOutcome(st, result, refresh: refresh);
   messenger?.showSnackBar(SnackBar(

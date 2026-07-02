@@ -14,6 +14,7 @@ void main() {
         onSetAlbumCover: (_) {},
         onRemoveFromAlbum: (_) {},
         onShowInPablo: (_) {},
+        onSplitFolder: (_) {},
         isStarred: (_) => false,
         isHidden: (_) => false,
       );

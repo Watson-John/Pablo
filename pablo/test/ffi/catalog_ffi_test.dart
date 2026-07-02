@@ -343,4 +343,59 @@ void main() {
     expect(engine.listAssets().single.assetId, asset.assetId);
     expect(pathForAssetId(asset.assetId), srcPath);
   }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('folder rename via rebaseLibrary preserves ids for all descendants',
+      () async {
+    final sep = Platform.pathSeparator;
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_rename_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    final libDir = '${tmp.path}${sep}lib';
+    final oldFolder = '$libDir${sep}2024';
+    Directory(oldFolder).createSync(recursive: true);
+    File('$oldFolder${sep}a.jpg').writeAsBytesSync(List.filled(8, 1));
+    File('$oldFolder${sep}b.jpg').writeAsBytesSync(List.filled(8, 2));
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null (no catalog support in lib)');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final importReq = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
+    final before = {for (final a in engine.listAssets()) a.path: a.assetId};
+    expect(before.length, 2);
+
+    // Rename on disk, then rebase the catalog (what folder_ops.renameFolder does).
+    final newFolder = '$libDir${sep}Trip 2024';
+    Directory(oldFolder).renameSync(newFolder);
+    expect(engine.rebaseLibrary(oldFolder, newFolder), 0);
+
+    final after = {for (final a in engine.listAssets()) a.path: a.assetId};
+    expect(after['$newFolder${sep}a.jpg'], before['$oldFolder${sep}a.jpg']);
+    expect(after['$newFolder${sep}b.jpg'], before['$oldFolder${sep}b.jpg']);
+
+    // Rescan is churn-free: the rebased rows match the moved files.
+    final rescanReq = engine.rescan();
+    final rescanned = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
+    expect(rescanned.importAdded, 0);
+    expect(rescanned.importRemoved, 0);
+  }, timeout: const Timeout(Duration(seconds: 90)));
 }

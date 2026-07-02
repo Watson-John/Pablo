@@ -22,6 +22,11 @@ void main() {
     final a = File('${tmp.path}/A/p.jpg')
       ..createSync(recursive: true)
       ..writeAsBytesSync([1, 2, 3]);
+    // A sibling stays behind so /A isn't emptied — this test focuses on the
+    // move + undo snackbars, not the empty-folder cleanup offer.
+    File('${tmp.path}/A/keep.jpg')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync([9]);
     Directory('${tmp.path}/B').createSync();
 
     final st = PabloAppState()

@@ -42,6 +42,7 @@ class PhotoMenuActions {
     required this.onSetAlbumCover,
     required this.onRemoveFromAlbum,
     required this.onShowInPablo,
+    required this.onSplitFolder,
     required this.isStarred,
     required this.isHidden,
   });
@@ -56,9 +57,17 @@ class PhotoMenuActions {
 
   /// Jump to the clicked photo's home folder in the Folders view.
   final void Function(String clickedId) onShowInPablo;
+
+  /// Split the current folder at the clicked photo into a new sibling.
+  final void Function(String clickedId) onSplitFolder;
   final bool Function(String id) isStarred;
   final bool Function(String id) isHidden;
 }
+
+/// True when the gallery is showing a real on-disk folder (Folders nav on a
+/// folder-path section) — where Split Folder Here applies.
+bool isRealFolderView(PabloAppState st) =>
+    st.activeSection == NavSection.folders && !isVirtualView(st);
 
 /// True when [st] is showing a virtual view (search / album / smart / people /
 /// timeline) rather than the real folder tree — where "Show in Pablo" helps.
@@ -134,6 +143,12 @@ List<ContextMenuItem> buildPhotoMenuItems({
         iconCharacter: '📁',
         onPressed: () => actions.onMoveToFolder(targets),
       ),
+      if (isRealFolderView(st))
+        ContextMenuItem(
+          label: 'Split Folder Here…',
+          iconCharacter: '✂️',
+          onPressed: () => actions.onSplitFolder(clickedId),
+        ),
       ContextMenuItem(
         label: multi ? 'Add $n Photos to Album' : 'Add to Album',
         iconCharacter: '+',

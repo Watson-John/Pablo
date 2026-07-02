@@ -51,3 +51,22 @@ void remapCatalogPath(String oldPath, String newPath) {
   _catalogIds[newPath] = id;
   _catalogPaths[id] = newPath;
 }
+
+/// Rewrite every hydrated path at or under [oldPrefix] to sit under
+/// [newPrefix] instead, after a folder rename (the catalog rows were rebased
+/// natively). Separator-aware so /a/old never catches /a/older.
+void remapCatalogPrefix(String oldPrefix, String newPrefix) {
+  bool under(String p) =>
+      p == oldPrefix ||
+      p.startsWith('$oldPrefix/') ||
+      p.startsWith('$oldPrefix\\');
+  final moved = [
+    for (final e in _catalogIds.entries)
+      if (under(e.key)) (e.key, newPrefix + e.key.substring(oldPrefix.length), e.value),
+  ];
+  for (final (oldPath, newPath, id) in moved) {
+    _catalogIds.remove(oldPath);
+    _catalogIds[newPath] = id;
+    _catalogPaths[id] = newPath;
+  }
+}

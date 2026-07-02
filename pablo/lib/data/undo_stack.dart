@@ -18,6 +18,7 @@ class UndoableFileOp {
     required this.label,
     required this.applied,
     this.createdDirs = const [],
+    this.reverse,
   });
 
   /// Human-readable, e.g. 'Move 3 photos' — shown as 'Undo Move 3 photos'.
@@ -30,6 +31,11 @@ class UndoableFileOp {
   /// Directories the op created (deepest last); undo removes them again if
   /// they are empty.
   final List<String> createdDirs;
+
+  /// An op that isn't a plain set of file moves (e.g. a folder rename)
+  /// supplies its own reversal here; when set, the undo path runs this
+  /// instead of moving [applied] back.
+  final Future<void> Function()? reverse;
 }
 
 class UndoStack extends ChangeNotifier {

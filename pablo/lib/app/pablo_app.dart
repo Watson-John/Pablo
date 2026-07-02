@@ -26,6 +26,7 @@ import '../features/gallery/compare_view.dart';
 import '../features/gallery/lightbox_view.dart';
 import '../features/gallery/main_grid.dart';
 import '../features/gallery/photo_context_menu.dart';
+import '../features/organize/folder_ops.dart';
 import '../features/info_panel/info_panel.dart';
 import '../features/organize/reorganize_controller.dart';
 import '../features/people/face_ingestion.dart';
@@ -425,9 +426,16 @@ class _BodyState extends State<_Body> {
         onSetAlbumCover: _setAlbumCover,
         onRemoveFromAlbum: _removeFromCurrentAlbum,
         onShowInPablo: _showInPablo,
+        onSplitFolder: _splitFolderHere,
         isStarred: (id) => isStarredAsset(assetIdFor(id)),
         isHidden: isHiddenPhoto,
       );
+
+  // Split the current folder at the clicked photo into a new sibling folder.
+  void _splitFolderHere(String clickedId) {
+    final st = AppScope.of(context);
+    splitFolderAt(context, st, st.selectedItem, clickedId);
+  }
 
   // Jump from a virtual view (search/album/smart/people/timeline) to the
   // photo's home folder in the Folders view: select the folder, scroll it into
