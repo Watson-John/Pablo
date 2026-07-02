@@ -202,4 +202,50 @@ TEST(Import, AssetIdStableAcrossRestart) {
     }
 }
 
+TEST(Import, RescanAfterRelocateIsChurnFree) {
+    // The acceptance test for in-app file moves: move a file on disk, tell the
+    // catalog via relocate_assets, and a rescan must see NOTHING to do — same
+    // id, no add/remove churn, user state (star) intact. Without relocate this
+    // sequence orphans every id-keyed row (the pre-relocate status quo).
+    auto dir = make_tree("reloc_churn");
+    write_file(dir / "a" / "one.jpg");
+    write_file(dir / "a" / "two.jpg");
+
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    ASSERT_TRUE(wait_for_import(*eng, eng->import_path(dir.string())));
+
+    auto assets = eng->list_assets();
+    ASSERT_EQ(assets.size(), 2u);
+    int64_t moved_id = 0;
+    for (const auto& a : assets)
+        if (a.path == (dir / "a" / "one.jpg").string()) moved_id = a.id;
+    ASSERT_NE(moved_id, 0);
+    eng->set_starred(moved_id, true);
+
+    // Move on disk first (what the app's move service does), then relocate.
+    const auto dest = dir / "b" / "one.jpg";
+    fs::create_directories(dest.parent_path());
+    fs::rename(dir / "a" / "one.jpg", dest);
+    EXPECT_EQ(eng->relocate_assets({{moved_id, dest.string()}}, nullptr), 1);
+
+    auto ev = wait_for_import_event(*eng, eng->rescan());
+    ASSERT_EQ(ev.status, PHOTO_STATUS_OK);
+    EXPECT_EQ(ev.aux64, 0u);            // added
+    EXPECT_EQ(ev.aux64_b, 0u);          // updated
+    EXPECT_EQ(ev._reserved[0], 2u);     // both files skipped (unchanged)
+    EXPECT_EQ(ev._reserved[1], 0u);     // removed
+
+    auto after = eng->list_assets();
+    ASSERT_EQ(after.size(), 2u);
+    bool found = false;
+    for (const auto& a : after) {
+        if (a.id != moved_id) continue;
+        found = true;
+        EXPECT_EQ(a.path, dest.string());
+        EXPECT_TRUE(a.starred);
+    }
+    EXPECT_TRUE(found);
+}
+
 #endif  // PHOTO_HAVE_SQLITE

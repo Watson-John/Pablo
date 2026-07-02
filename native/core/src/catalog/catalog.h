@@ -145,6 +145,22 @@ public:
     int64_t rebase_paths(const std::string& old_prefix,
                          const std::string& new_prefix);
 
+    // One asset's path move for relocate_assets. `new_path` is absolute.
+    struct RelocateEntry {
+        int64_t     id;
+        std::string new_path;
+    };
+    // Rewrite asset.path/folder/filename in place for files the caller already
+    // moved on disk — ids are preserved, so faces/albums/tags/edits/embeddings
+    // stay attached. One transaction; a row is SKIPPED (not fatal) when its id
+    // is unknown, its new_path is empty or unchanged, or new_path collides with
+    // a DIFFERENT asset (path is UNIQUE) — the disk has already changed, so
+    // applying the clean rows and reporting the residue keeps catalog and disk
+    // convergent. `out_ok` (optional) is resized parallel to `moves` with 1/0
+    // per row. Returns the number of rows actually updated.
+    int64_t relocate_assets(const std::vector<RelocateEntry>& moves,
+                            std::vector<uint8_t>* out_ok = nullptr);
+
     // Per-asset EXIF metadata (asset_metadata table), populated on import.
     void upsert_metadata(int64_t asset_id, const exif::AssetMetadata& m);
     std::optional<exif::AssetMetadata> get_metadata(int64_t asset_id) const;

@@ -761,6 +761,41 @@ PHOTO_API int32_t photo_library_rebase(photo_engine_t* engine,
 #endif
 }
 
+PHOTO_API int32_t photo_assets_relocate(photo_engine_t* engine,
+                                        const uint64_t* asset_ids,
+                                        const char* new_paths_utf8,
+                                        size_t count,
+                                        uint8_t* out_ok,
+                                        uint64_t* out_applied) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine || !asset_ids || !new_paths_utf8 || count == 0)
+        return PHOTO_STATUS_INVALID_ARG;
+    try {
+        std::vector<photo::catalog::Catalog::RelocateEntry> moves;
+        moves.reserve(count);
+        const char* p = new_paths_utf8;
+        for (size_t i = 0; i < count; ++i) {
+            std::string path(p);
+            p += path.size() + 1;
+            moves.push_back({static_cast<int64_t>(asset_ids[i]), std::move(path)});
+        }
+        std::vector<uint8_t> ok;
+        const int64_t applied =
+            cast(engine)->relocate_assets(moves, out_ok ? &ok : nullptr);
+        if (out_ok) std::memcpy(out_ok, ok.data(), count);
+        if (out_applied) *out_applied = static_cast<uint64_t>(applied);
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_assets_relocate: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)asset_ids; (void)new_paths_utf8; (void)count;
+    (void)out_ok; (void)out_applied;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
 PHOTO_API int32_t photo_asset_organize(photo_engine_t* engine, uint64_t asset_id,
                                        photo_organize_t* out) {
 #ifdef PHOTO_HAVE_SQLITE

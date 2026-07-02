@@ -198,4 +198,73 @@ void main() {
     // Saved searches persist across the reopen (catalog v7).
     expect(reopened.listSavedSearches().any((s) => s.name == 'persist'), isTrue);
   }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('relocateAssets keeps ids attached and rescan is churn-free', () async {
+    final sep = Platform.pathSeparator;
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_reloc_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    final libDir = '${tmp.path}${sep}lib';
+    Directory('$libDir${sep}inbox').createSync(recursive: true);
+    File('$libDir${sep}inbox${sep}one.jpg').writeAsBytesSync(List.filled(8, 1));
+    File('$libDir${sep}inbox${sep}two.jpg').writeAsBytesSync(List.filled(8, 2));
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null (no catalog support in lib)');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final importReq = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
+    final assets = engine.listAssets();
+    expect(assets.length, 2);
+    final oneId = assets.firstWhere((a) => a.path.endsWith('one.jpg')).assetId;
+    final twoPath = assets.firstWhere((a) => a.path.endsWith('two.jpg')).path;
+    engine.setStarred(oneId, true);
+
+    // Move the file on disk (what MoveService will do), then relocate the row.
+    final destDir = '$libDir${sep}sorted';
+    Directory(destDir).createSync(recursive: true);
+    final dest = '$destDir${sep}one.jpg';
+    File('$libDir${sep}inbox${sep}one.jpg').renameSync(dest);
+
+    // Mixed batch: one clean move, one collision (onto two.jpg's path).
+    final outcome = engine.relocateAssets([
+      (oneId, dest),
+      (oneId, twoPath), // collides with a different asset — must be skipped
+    ]);
+    expect(outcome.applied, 1);
+    expect(outcome.okByIndex, [true, false]);
+
+    // The catalog row followed the file: same id, new path, star intact.
+    final after = engine.listAssets();
+    final moved = after.firstWhere((a) => a.assetId == oneId);
+    expect(moved.path, dest);
+    expect(engine.starredAssets(), contains(oneId));
+
+    // Rescan sees nothing to do — no add/remove churn for the moved file.
+    final rescanReq = engine.rescan();
+    final rescanned = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
+    expect(rescanned.importAdded, 0);
+    expect(rescanned.importRemoved, 0);
+    expect(rescanned.importSkipped, 2);
+    expect(engine.listAssets().length, 2);
+  }, timeout: const Timeout(Duration(seconds: 90)));
 }
