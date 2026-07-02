@@ -363,5 +363,75 @@ void main() {
       expect(clip.width, 64);
       expect(clip.height, 48);
     }
+
+    // §11 trim round-trips through the catalog FFI (catalog-only, no FFmpeg).
+    expect(engine.videoSetTrim(clip.assetId, 500, 1500), isTrue);
+    var t = engine.videoGetTrim(clip.assetId);
+    expect(t.startMs, 500);
+    expect(t.endMs, 1500);
+    engine.videoSetTrim(clip.assetId, 0, 0); // clear
+    t = engine.videoGetTrim(clip.assetId);
+    expect(t.startMs, 0);
+    expect(t.endMs, 0);
+  }, timeout: const Timeout(Duration(seconds: 60)));
+
+  // ── Stage V4: collage compositor through the FFI (needs libvips) ──
+  test('createCollage composites and emits an export event', () async {
+    final sep = Platform.pathSeparator;
+    final fixture = File(
+        '..${sep}native${sep}core${sep}tests${sep}fixtures${sep}exif_full.jpg');
+    if (!fixture.existsSync()) {
+      markTestSkipped('collage fixture missing');
+      return;
+    }
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_collage_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+    final a = '${tmp.path}${sep}a.jpg';
+    final b = '${tmp.path}${sep}b.jpg';
+    fixture.copySync(a);
+    fixture.copySync(b);
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final out = '${tmp.path}${sep}collage.jpg';
+    final req = engine.createCollage(
+      cells: [
+        CollageCell(x: 0.0, y: 0.0, w: 0.5, h: 1.0, src: a),
+        CollageCell(x: 0.5, y: 0.0, w: 0.5, h: 1.0, src: b),
+      ],
+      dstPath: out,
+      canvasW: 128,
+      canvasH: 64,
+    );
+    if (req == 0) {
+      markTestSkipped('collage unsupported (no libvips)');
+      return;
+    }
+    final done = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.exportComplete && e.requestId == req);
+    expect(done.status, 0);
+    expect(File(out).existsSync(), isTrue);
+    final dims = readImageDimensions(out);
+    expect(dims, isNotNull);
+    expect(dims!.width, 128);
+    expect(dims.height, 64);
   }, timeout: const Timeout(Duration(seconds: 60)));
 }

@@ -6,14 +6,20 @@
 // player surface sits on the same dark canvas as _LightboxImage, with a
 // play/pause + scrubber + mute bar that shares the lightbox's auto-hide chrome.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart' show Engine;
 import 'package:video_player/video_player.dart';
 
+import '../../backend/native_backend.dart';
+import '../../components/pablo_button.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
+import '../../utils/asset_id.dart';
+import '../video/trim_controller.dart';
 import 'photo_surface.dart';
 
 class LightboxVideo extends StatefulWidget {
@@ -28,8 +34,11 @@ class _LightboxVideoState extends State<LightboxVideo> {
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _failed = false;
+  TrimController? _trim;
 
   bool get _supported => Platform.isMacOS;
+
+  Engine? get _engine => NativeBackendScope.maybeOf(context)?.engine;
 
   @override
   void initState() {
@@ -42,8 +51,20 @@ class _LightboxVideoState extends State<LightboxVideo> {
     _controller = c;
     try {
       await c.initialize();
-      await c.setLooping(true);
       if (!mounted) return;
+      final durMs = c.value.duration.inMilliseconds;
+      // Load any saved trim (catalog) and start playback inside the window.
+      final saved = _engine?.videoGetTrim(assetIdFor(widget.photo.id));
+      _trim = TrimController(
+        durationMs: durMs,
+        range: saved == null
+            ? const TrimRange()
+            : TrimRange(startMs: saved.startMs, endMs: saved.endMs),
+      );
+      await c.setLooping(!_trim!.range.isSet); // we loop manually when trimmed
+      if (_trim!.range.isSet) {
+        await c.seekTo(Duration(milliseconds: _trim!.startMs));
+      }
       setState(() => _ready = true);
       await c.play();
       c.addListener(_tick);
@@ -53,7 +74,72 @@ class _LightboxVideoState extends State<LightboxVideo> {
   }
 
   void _tick() {
+    final c = _controller;
+    final t = _trim;
+    // Enforce the trim window: loop back to start when we pass the end.
+    if (c != null && t != null && t.range.isSet && c.value.isInitialized) {
+      final pos = c.value.position.inMilliseconds;
+      final r = t.onTick(pos, loop: true);
+      if (r.posMs != pos) c.seekTo(Duration(milliseconds: r.posMs));
+    }
     if (mounted) setState(() {}); // repaint the scrubber
+  }
+
+  void _setTrimStart() {
+    final c = _controller, t = _trim;
+    if (c == null || t == null) return;
+    t.setStart(c.value.position.inMilliseconds);
+    _saveTrim();
+    setState(() {});
+  }
+
+  void _setTrimEnd() {
+    final c = _controller, t = _trim;
+    if (c == null || t == null) return;
+    t.setEnd(c.value.position.inMilliseconds);
+    _saveTrim();
+    setState(() {});
+  }
+
+  void _clearTrim() {
+    final t = _trim;
+    if (t == null) return;
+    t.range = const TrimRange();
+    _saveTrim();
+    _controller?.setLooping(true);
+    setState(() {});
+  }
+
+  void _saveTrim() {
+    final t = _trim;
+    if (t == null) return;
+    _engine?.videoSetTrim(assetIdFor(widget.photo.id), t.range.startMs,
+        t.range.endMs);
+    _controller?.setLooping(!t.range.isSet);
+  }
+
+  Future<void> _exportClip() async {
+    final t = _trim;
+    final eng = _engine;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (t == null || eng == null || !t.range.isSet) return;
+    final sep = Platform.pathSeparator;
+    final src = widget.photo.filePath;
+    final dot = src.lastIndexOf('.');
+    final ext = dot >= 0 ? src.substring(dot) : '.mp4';
+    final stem = dot >= 0 ? src.substring(0, dot) : src;
+    final dst = '$stem-clip$ext';
+    final req = eng.videoExportTrimmed(
+      srcPath: src,
+      dstPath: dst,
+      startMs: t.startMs,
+      endMs: t.range.endMs,
+    );
+    messenger?.showSnackBar(SnackBar(
+      content: Text(req == 0
+          ? 'Trimmed export is unavailable on this build.'
+          : 'Exporting clip to ${dst.split(sep).last}…'),
+    ));
   }
 
   @override
@@ -66,6 +152,7 @@ class _LightboxVideoState extends State<LightboxVideo> {
       _controller = null;
       _ready = false;
       _failed = false;
+      _trim = null;
       if (_supported) _init();
     }
   }
@@ -122,9 +209,86 @@ class _LightboxVideoState extends State<LightboxVideo> {
           ),
           const SizedBox(height: PabloSpacing.lg),
           _Controls(controller: c, onToggle: _togglePlay),
+          if (_trim != null) ...[
+            const SizedBox(height: PabloSpacing.base),
+            _TrimBar(
+              trim: _trim!,
+              onSetStart: _setTrimStart,
+              onSetEnd: _setTrimEnd,
+              onClear: _clearTrim,
+              onExport: _exportClip,
+            ),
+          ],
         ],
       ),
     );
+  }
+}
+
+/// Trim controls: mark the current position as start/end (Picasa
+/// moviestart/movieend), clear, and export the clip. Start snaps to a keyframe
+/// on export (noted in the copy).
+class _TrimBar extends StatelessWidget {
+  const _TrimBar({
+    required this.trim,
+    required this.onSetStart,
+    required this.onSetEnd,
+    required this.onClear,
+    required this.onExport,
+  });
+  final TrimController trim;
+  final VoidCallback onSetStart;
+  final VoidCallback onSetEnd;
+  final VoidCallback onClear;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    final set = trim.range.isSet;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 640),
+      child: Row(
+        children: [
+          PabloButton(
+            label: 'Set start',
+            variant: PabloButtonVariant.secondary,
+            onPressed: onSetStart,
+          ),
+          const SizedBox(width: PabloSpacing.base),
+          PabloButton(
+            label: 'Set end',
+            variant: PabloButtonVariant.secondary,
+            onPressed: onSetEnd,
+          ),
+          const SizedBox(width: PabloSpacing.base),
+          if (set)
+            Text(
+              'Trim ${_fmt(trim.startMs)}–${_fmt(trim.endMs)}',
+              style: PabloTypography.mono(
+                  fontSize: 10.5, color: PabloColors.selectionPrimary),
+            )
+          else
+            Text('No trim',
+                style: PabloTypography.sans(
+                    fontSize: 11, color: Colors.white.withValues(alpha: 0.5))),
+          const Spacer(),
+          if (set) ...[
+            PabloButton(
+              label: 'Clear',
+              variant: PabloButtonVariant.ghost,
+              onPressed: onClear,
+            ),
+            const SizedBox(width: PabloSpacing.base),
+            PabloButton(label: 'Export clip…', onPressed: onExport),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _fmt(int ms) {
+    final s = (ms / 1000).round();
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
   }
 }
 

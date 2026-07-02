@@ -776,6 +776,37 @@ std::vector<std::pair<int64_t, Catalog::EditRow>> Catalog::all_edits() const {
     return out;
 }
 
+// ── Video trim ────────────────────────────────────────────────────────────────
+
+std::optional<Catalog::TrimRow> Catalog::trim_for(int64_t asset_id) const {
+    Stmt q(db_,
+           "SELECT trim_start_ms, trim_end_ms FROM video_edit WHERE asset_id=?");
+    q.bind(1, asset_id);
+    if (!q.step()) return std::nullopt;
+    return TrimRow{q.col_int(0), q.col_int(1)};
+}
+
+void Catalog::set_trim(int64_t asset_id, int64_t start_ms, int64_t end_ms,
+                       int64_t now_ns) {
+    // (0,0) means "no trim" — drop the row so trim_for reports none.
+    if (start_ms <= 0 && end_ms <= 0) {
+        Stmt d(db_, "DELETE FROM video_edit WHERE asset_id=?");
+        d.bind(1, asset_id);
+        d.run();
+        return;
+    }
+    Stmt q(db_,
+           "INSERT INTO video_edit(asset_id,trim_start_ms,trim_end_ms,updated_ns)"
+           " VALUES(?,?,?,?)"
+           " ON CONFLICT(asset_id) DO UPDATE SET"
+           "  trim_start_ms=excluded.trim_start_ms,"
+           "  trim_end_ms=excluded.trim_end_ms,"
+           "  updated_ns=excluded.updated_ns");
+    q.bind(1, asset_id).bind(2, start_ms < 0 ? 0 : start_ms)
+     .bind(3, end_ms < 0 ? 0 : end_ms).bind(4, now_ns);
+    q.run();
+}
+
 // ── Embeddings ───────────────────────────────────────────────────────────────
 
 void Catalog::upsert_embedding(const EmbeddingRecord& r) {
@@ -1023,6 +1054,8 @@ std::optional<Catalog::EditRow> Catalog::edit_for(int64_t) const { return std::n
 int64_t Catalog::set_edit(int64_t, const std::string&, int64_t) { return 0; }
 void Catalog::clear_edit(int64_t) {}
 std::vector<std::pair<int64_t, Catalog::EditRow>> Catalog::all_edits() const { return {}; }
+std::optional<Catalog::TrimRow> Catalog::trim_for(int64_t) const { return std::nullopt; }
+void Catalog::set_trim(int64_t, int64_t, int64_t, int64_t) {}
 void Catalog::upsert_embedding(const EmbeddingRecord&) {}
 void Catalog::set_embedding_status(int64_t, int32_t, const std::string&) {}
 std::optional<Catalog::EmbeddingRecord> Catalog::get_embedding(int64_t) const { return std::nullopt; }

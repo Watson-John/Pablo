@@ -10,6 +10,7 @@ import '../backend/native_backend.dart';
 import '../data/catalog_maintenance.dart';
 import '../data/library.dart' show PhotoSort, photosFor;
 import '../data/library_location.dart';
+import '../features/collage/collage_controller.dart';
 import '../features/editor/edit_settings_dialog.dart';
 import '../features/export/export_runner.dart';
 import '../features/organize/storage_scheme_modal.dart';
@@ -158,6 +159,12 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
           ),
           _MenuEntry.sep(),
           const _MenuEntry(label: 'Batch Edit…'),
+          _MenuEntry(
+            label: st.trayPhotos.length >= 2
+                ? 'Create Collage… (${st.trayPhotos.length})'
+                : 'Create Collage…',
+            onTap: () => runCollage(context),
+          ),
           _MenuEntry(
             label: 'Organization Scheme…',
             onTap: () => openStorageSchemeBuilder(context, st),

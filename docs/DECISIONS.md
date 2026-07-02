@@ -343,6 +343,28 @@ x264/x265). For a shippable LGPL binary, rebuild FFmpeg `--disable-gpl`
 
 ---
 
+## D14. Collage + trim (§10/§11 P2) — native compositor, catalog-only trim
+
+**Status:** Locked (2026-07-02, Stage V4).
+
+Collage is a native libvips compositor (`photo_create_collage`): Dart computes
+normalized cell rects (pure `collage_layouts`, unit-tested), native renders each
+source through the full edit stack (`render_full_image`, so saved edits show),
+cover-fits into cells, and writes a JPEG on the idle lane (shares
+`PHOTO_EVT_EXPORT_COMPLETE`). The result is imported back into the library — a
+collage becomes a first-class asset (Picasa parity). Chosen over a Dart-canvas
+render for full-res output + testability + edit reuse.
+
+Trim is non-destructive per [D1]: the trim window lives in catalog `video_edit`
+(`photo_video_set_trim`/`get_trim`), playback is clamped/looped in Dart
+(`TrimController`), and "Export clip…" runs a **stream-copy** remux
+(`video_io.remux_trim`, `photo_video_export_trimmed`) — no re-encode, so the
+original is untouched and the clip is fast + lossless. The start point snaps to
+the nearest preceding keyframe (stream copy can't cut mid-GOP); the UI says so.
+All additions are append-only C-ABI (version unchanged).
+
+---
+
 ## Decision queue (open)
 
 | Item | Owed by | Notes |

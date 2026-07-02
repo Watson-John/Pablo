@@ -215,6 +215,14 @@ public:
     // Every (asset_id → EditRow), for hydrating the Engine's in-memory map at
     // boot so the render workers never touch SQLite on the hot path.
     std::vector<std::pair<int64_t, EditRow>> all_edits() const;
+
+    // ── Video trim (video_edit table, §11) ───────────────────────────────────
+    // Non-destructive trim points (ms). end_ms 0 means "to the end". (0,0)
+    // clears the row (no trim). D1-compliant: the original file is untouched.
+    struct TrimRow { int64_t start_ms = 0; int64_t end_ms = 0; };
+    std::optional<TrimRow> trim_for(int64_t asset_id) const;
+    void set_trim(int64_t asset_id, int64_t start_ms, int64_t end_ms,
+                  int64_t now_ns);
     // ── Embeddings — semantic retrieval index (embedding table, Stage 9) ─────
     // One row per asset holds its model embedding vector, a model-free dominant
     // colour (for colour search), a processing status, optional generated tags,

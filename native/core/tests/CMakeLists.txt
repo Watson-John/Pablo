@@ -39,8 +39,9 @@ set(PHOTO_CORE_TEST_SOURCES
     edit_integration_test.cpp
     edit_c_api_test.cpp
     export_options_test.cpp    # Stage V1: resize / quality / watermark options
-    video_io_test.cpp          # Stage V3: FFmpeg probe / poster (§11 video)
-    catalog_v9_test.cpp        # Stage V3: v8→v9 migration + video columns
+    video_io_test.cpp          # Stage V3: FFmpeg probe / poster + V4 trim remux
+    catalog_v9_test.cpp        # Stage V3: v8→v9 migration + V4 trim round-trip
+    collage_test.cpp           # Stage V4: collage compositor (§10 P2)
     semantic_test.cpp
     semantic_onnx_test.cpp
     xmp_test.cpp

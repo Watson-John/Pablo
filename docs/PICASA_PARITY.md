@@ -188,14 +188,14 @@ _Last verified against the tree: 2026-06-16 (`pablo-v4`)._ Treat this as a livin
 - [x] **Slideshow** — ✅ P1 (Stage V2) — fullscreen auto-advancing show (crossfade, seeded shuffle, loop, auto-hide chrome, Space/←/→/Esc) via a pure `SlideshowController`; View → Slideshow + a lightbox launcher button.
 - [x] **Print (layouts / contact sheet)** — ✅ P1 (Stage V2) — `printing`+`pdf`: full-page / 2-up / 4-up / contact-sheet layouts (pure `print_layouts` math) rendered from full-res temp exports into a PDF → the OS print dialog. File → Print…, context-menu Print…. (Poster/tiling still ❌.)
 - [x] **Share sheet (OS share / generic targets)** — ✅ P1 (Stage V2) — `share_plus` (NSSharingServicePicker on macOS); unedited JPEGs share the original, edited assets share a rendered temp copy. File → Share…, context-menu Share….
-- [ ] **Collage / picture pile** — ❌ P2 (Picasa: `CCollageUI`)
+- [x] **Collage / picture pile** — ✅ P2 (Stage V4) — grid / feature-column templates (pure `collage_layouts` math) composited full-res by a native libvips compositor (`photo_create_collage`, honours each source's saved edit, cover-fit cells), imported back into the library. Tools → Create Collage… from the tray.
 - [ ] **Movie / video creation** — ❌ P2 (Picasa: `MakeMoviePanel`)
 
 ## 11. Video / movies
 
 - [x] **Video files in the library** — ✅ P1 (Stage V3) — mp4/mov/m4v/avi/mkv/webm import (catalog v9 `kind`/`duration_ms`), FFmpeg-probed dims/duration, poster-frame thumbnails through the existing thumb pipeline, grid play-circle + duration badge.
 - [x] **In-app video playback** — ✅ P1 (Stage V3) — the lightbox opens a `video_player` surface (AVFoundation on macOS) with play/pause/scrubber/mute; poster-only fallback off macOS.
-- [ ] **Trim (start / end points)** — ❌ P2 (Stage V4) (Picasa: `moviestart=` / `movieend=`) — the catalog `video_edit` table + `video_io.remux_trim` hook already exist; wiring lands in V4.
+- [x] **Trim (start / end points)** — ✅ P2 (Stage V4) — non-destructive trim (catalog `video_edit`, D1): set-start/set-end/clear on the lightbox player (clamped/looped playback via a pure `TrimController`), plus "Export clip…" via a stream-copy `remux_trim` (no re-encode; start snaps to the nearest keyframe).
 
 ## 12. App shell & UX
 

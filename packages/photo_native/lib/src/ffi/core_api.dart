@@ -309,6 +309,21 @@ final class _NativeExportOptions extends Struct {
   external Array<Uint8> wmText;
 }
 
+/// photo_collage_cell_t mirror (§10/collage). The char* fields are set to
+/// caller-allocated UTF-8 buffers freed after the call returns.
+final class _NativeCollageCell extends Struct {
+  @Float()
+  external double x;
+  @Float()
+  external double y;
+  @Float()
+  external double w;
+  @Float()
+  external double h;
+  external Pointer<Utf8> src;
+  external Pointer<Utf8> spec;
+}
+
 /// PHOTO_EXPORT_ANCHOR_* mirror — watermark corner placement.
 abstract final class ExportAnchor {
   static const int bottomRight = 0;
@@ -494,6 +509,20 @@ typedef _Export2C = Uint64 Function(Pointer<Void>, Pointer<Utf8>,
     Pointer<Utf8>, Pointer<Utf8>, Pointer<_NativeExportOptions>);
 typedef _Export2Dart = int Function(Pointer<Void>, Pointer<Utf8>,
     Pointer<Utf8>, Pointer<Utf8>, Pointer<_NativeExportOptions>);
+typedef _CollageC = Uint64 Function(Pointer<Void>, Pointer<_NativeCollageCell>,
+    IntPtr, Pointer<Utf8>, Uint32, Uint32, Uint32, Int32);
+typedef _CollageDart = int Function(Pointer<Void>, Pointer<_NativeCollageCell>,
+    int, Pointer<Utf8>, int, int, int, int);
+typedef _VideoSetTrimC = Int32 Function(Pointer<Void>, Uint64, Int64, Int64);
+typedef _VideoSetTrimDart = int Function(Pointer<Void>, int, int, int);
+typedef _VideoGetTrimC = Int32 Function(
+    Pointer<Void>, Uint64, Pointer<Int64>, Pointer<Int64>);
+typedef _VideoGetTrimDart = int Function(
+    Pointer<Void>, int, Pointer<Int64>, Pointer<Int64>);
+typedef _VideoExportTrimmedC = Uint64 Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Int64, Int64);
+typedef _VideoExportTrimmedDart = int Function(
+    Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, int, int);
 
 // Hide (folder set-hidden + hidden-folders NUL-buffer). Per-asset set-hidden
 // reuses _AssetSetIntC/Dart (photo_asset_set_hidden).
@@ -1163,6 +1192,84 @@ final class Engine {
     }
   }
 
+  /// §10/collage: composite [cells] (each a normalized rect + source path +
+  /// edit spec) onto a [canvasW]×[canvasH] canvas filled with [bgRgb]
+  /// (0xRRGGBB) and write a JPEG to [dstPath]. Async: returns a request id; a
+  /// [PhotoEventKind.exportComplete] event fires. 0 on rejection / no libvips.
+  int createCollage({
+    required List<CollageCell> cells,
+    required String dstPath,
+    required int canvasW,
+    required int canvasH,
+    int bgRgb = 0xFFFFFF,
+    int quality = 92,
+  }) {
+    if (cells.isEmpty) return 0;
+    final arr = calloc<_NativeCollageCell>(cells.length);
+    final d = dstPath.toNativeUtf8();
+    final strs = <Pointer<Utf8>>[];
+    try {
+      for (var i = 0; i < cells.length; i++) {
+        final s = cells[i].src.toNativeUtf8();
+        final sp = cells[i].spec.toNativeUtf8();
+        strs.add(s);
+        strs.add(sp);
+        arr[i]
+          ..x = cells[i].x
+          ..y = cells[i].y
+          ..w = cells[i].w
+          ..h = cells[i].h
+          ..src = s
+          ..spec = sp;
+      }
+      return _Bindings.createCollage(
+          _handle, arr, cells.length, d, canvasW, canvasH, bgRgb, quality);
+    } finally {
+      for (final p in strs) {
+        calloc.free(p);
+      }
+      calloc.free(arr);
+      calloc.free(d);
+    }
+  }
+
+  /// §11 video trim (catalog-only). (0, 0) clears. Returns true on success.
+  bool videoSetTrim(int assetId, int startMs, int endMs) =>
+      _Bindings.videoSetTrim(_handle, assetId, startMs, endMs) == 0;
+
+  /// Read an asset's saved trim as (startMs, endMs); endMs 0 = to the end,
+  /// both 0 = no trim.
+  ({int startMs, int endMs}) videoGetTrim(int assetId) {
+    final s = calloc<Int64>();
+    final e = calloc<Int64>();
+    try {
+      _Bindings.videoGetTrim(_handle, assetId, s, e);
+      return (startMs: s.value, endMs: e.value);
+    } finally {
+      calloc.free(s);
+      calloc.free(e);
+    }
+  }
+
+  /// Export a stream-copied trimmed clip [startMs, endMs) of [srcPath] to
+  /// [dstPath] (no re-encode). Async: returns a request id + exportComplete
+  /// event; 0 on rejection / no FFmpeg.
+  int videoExportTrimmed({
+    required String srcPath,
+    required String dstPath,
+    required int startMs,
+    required int endMs,
+  }) {
+    final s = srcPath.toNativeUtf8();
+    final d = dstPath.toNativeUtf8();
+    try {
+      return _Bindings.videoExportTrimmed(_handle, s, d, startMs, endMs);
+    } finally {
+      calloc.free(s);
+      calloc.free(d);
+    }
+  }
+
   /// Current content_rev for an asset (0 = unedited / no saved edit).
   int assetContentRev(int assetId) =>
       _Bindings.assetContentRev(_handle, assetId);
@@ -1763,6 +1870,26 @@ final class AssetRow {
   final int durationMs;
 }
 
+/// One collage cell for [Engine.createCollage]: a normalized rect [0,1] on the
+/// canvas, the source image path, and its edit spec ('' = none).
+class CollageCell {
+  const CollageCell({
+    required this.x,
+    required this.y,
+    required this.w,
+    required this.h,
+    required this.src,
+    this.spec = '',
+  });
+
+  final double x;
+  final double y;
+  final double w;
+  final double h;
+  final String src;
+  final String spec;
+}
+
 /// A geotagged asset: id + decimal-degree coordinates. Immutable projection of
 /// photo_geopoint_t.
 final class GeoPoint {
@@ -2040,6 +2167,17 @@ final class _Bindings {
           'photo_asset_save_layered');
   static final _Export2Dart exportAsset2 =
       _dylib.lookupFunction<_Export2C, _Export2Dart>('photo_asset_export2');
+  static final _CollageDart createCollage =
+      _dylib.lookupFunction<_CollageC, _CollageDart>('photo_create_collage');
+  static final _VideoSetTrimDart videoSetTrim =
+      _dylib.lookupFunction<_VideoSetTrimC, _VideoSetTrimDart>(
+          'photo_video_set_trim');
+  static final _VideoGetTrimDart videoGetTrim =
+      _dylib.lookupFunction<_VideoGetTrimC, _VideoGetTrimDart>(
+          'photo_video_get_trim');
+  static final _VideoExportTrimmedDart videoExportTrimmed =
+      _dylib.lookupFunction<_VideoExportTrimmedC, _VideoExportTrimmedDart>(
+          'photo_video_export_trimmed');
   static final _AssetSetIntDart assetSetHidden = _dylib
       .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_hidden');
   static final _FolderSetHiddenDart folderSetHidden =

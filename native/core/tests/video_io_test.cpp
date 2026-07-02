@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <numeric>
 #include <string>
 
@@ -81,6 +82,38 @@ TEST(VideoPoster, IsDeterministicAcrossCalls) {
 
 TEST(VideoPoster, GarbageFileReturnsNull) {
     EXPECT_EQ(photo::video::poster_frame(fixture("nope.mp4"), 32), nullptr);
+}
+
+TEST(VideoRemuxTrim, ProducesShorterClipSameCodec) {
+    const std::string src = fixture("tiny.mp4");
+    const auto probe0 = photo::video::probe(src);
+    ASSERT_TRUE(probe0.ok);  // ~2000 ms source
+
+    const std::string dst =
+        (std::filesystem::temp_directory_path() / "pablo_trim_out.mp4").string();
+    std::filesystem::remove(dst);
+    // Keep [500, 1500) ≈ 1 s. Start snaps to a keyframe (GOP=5 @ 10fps = 0.5s),
+    // so the exact duration can wobble by up to one GOP.
+    ASSERT_TRUE(photo::video::remux_trim(src, dst, 500, 1500));
+    ASSERT_TRUE(std::filesystem::exists(dst));
+
+    const auto probe1 = photo::video::probe(dst);
+    ASSERT_TRUE(probe1.ok);
+    EXPECT_EQ(probe1.codec, probe0.codec);          // stream copy — no transcode
+    EXPECT_LT(probe1.duration_ms, probe0.duration_ms);  // genuinely shorter
+    EXPECT_NEAR(probe1.duration_ms, 1000, 600);     // ~1s ± a GOP
+    // Stream copy shouldn't inflate the file.
+    EXPECT_LE(std::filesystem::file_size(dst),
+              std::filesystem::file_size(src) + 4096);
+    std::filesystem::remove(dst);
+}
+
+TEST(VideoRemuxTrim, RejectsBadRange) {
+    const std::string src = fixture("tiny.mp4");
+    const std::string dst =
+        (std::filesystem::temp_directory_path() / "pablo_trim_bad.mp4").string();
+    EXPECT_FALSE(photo::video::remux_trim(src, dst, 1500, 500));  // end<start
+    EXPECT_FALSE(photo::video::remux_trim("/nope.mp4", dst, 0, 100));
 }
 
 #else

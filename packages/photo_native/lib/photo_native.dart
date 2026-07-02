@@ -29,7 +29,8 @@ export 'src/ffi/core_api.dart'
         EmbeddingCounts,
         SearchHit,
         SavedSearch,
-        ExportAnchor;
+        ExportAnchor,
+        CollageCell;
 export 'src/ffi/event_pump.dart' show EventPump, PhotoEvent, PhotoEventKind;
 export 'src/render/texture_slot.dart' show TextureSlot;
 export 'src/render/texture_registry.dart'

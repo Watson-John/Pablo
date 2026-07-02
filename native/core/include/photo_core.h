@@ -694,6 +694,46 @@ PHOTO_API uint64_t photo_asset_export2(photo_engine_t* engine,
                                        const photo_export_options_t* opts);
 
 /*
+ * §11/collage: one cell — a normalized rect on the canvas [0,1] plus the source
+ * to render into it. `spec_utf8` may be NULL/"" (no edit). Pointers are only
+ * borrowed for the duration of the photo_create_collage call.
+ */
+typedef struct {
+    float x, y, w, h;        /* fractions of the canvas                       */
+    const char* src_utf8;    /* source image path                            */
+    const char* spec_utf8;   /* edit spec ("" / NULL = none)                  */
+} photo_collage_cell_t;
+
+/*
+ * Composite `cells` onto a `canvas_w × canvas_h` canvas filled with `bg_rgb`
+ * (0xRRGGBB) and write a JPEG to `dst_path` (jpg `quality`). Each source is
+ * rendered full-res and cover-fit into its cell. Async on the idle lane: returns
+ * a request id + emits PHOTO_EVT_EXPORT_COMPLETE. 0 on rejection / no libvips.
+ */
+PHOTO_API uint64_t photo_create_collage(photo_engine_t* engine,
+                                        const photo_collage_cell_t* cells,
+                                        size_t count, const char* dst_path_utf8,
+                                        uint32_t canvas_w, uint32_t canvas_h,
+                                        uint32_t bg_rgb, int32_t quality);
+
+/*
+ * §11 video trim (non-destructive, catalog-only). set(0,0) clears. get fills
+ * *start_ms/*end_ms (end 0 = to the end; both 0 = no trim); returns
+ * photo_status_t. export_trimmed stream-copies [start,end) of `src` to `dst`
+ * (no re-encode) on the idle lane, sharing the export event stream.
+ */
+PHOTO_API int32_t photo_video_set_trim(photo_engine_t* engine,
+                                       uint64_t asset_id, int64_t start_ms,
+                                       int64_t end_ms);
+PHOTO_API int32_t photo_video_get_trim(photo_engine_t* engine,
+                                       uint64_t asset_id, int64_t* start_ms,
+                                       int64_t* end_ms);
+PHOTO_API uint64_t photo_video_export_trimmed(photo_engine_t* engine,
+                                              const char* src_path_utf8,
+                                              const char* dst_path_utf8,
+                                              int64_t start_ms, int64_t end_ms);
+
+/*
  * Save mode `layeredTiff`: write a self-contained multi-page TIFF to `dst_path`
  * — page 0 = the edited render, page 1 = the UNTOUCHED original, with the
  * parametric spec embedded as XMP. Reversible from the file itself (drop the

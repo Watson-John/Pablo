@@ -557,6 +557,81 @@ bool ThumbService::save_layered_tiff(const std::string& src,
 #endif
 }
 
+bool ThumbService::create_collage(const std::vector<CollageCell>& cells,
+                                  const std::string& dst, uint32_t canvas_w,
+                                  uint32_t canvas_h, uint32_t bg_rgb,
+                                  int quality) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!ensure_vips() || canvas_w == 0 || canvas_h == 0) return false;
+    const int CW = static_cast<int>(canvas_w), CH = static_cast<int>(canvas_h);
+    // Solid-background canvas: black(0) then out = 1*x + bg == bg per band.
+    double ones[3] = {1.0, 1.0, 1.0};
+    double bg[3] = {static_cast<double>((bg_rgb >> 16) & 0xFF),
+                    static_cast<double>((bg_rgb >> 8) & 0xFF),
+                    static_cast<double>(bg_rgb & 0xFF)};
+    VipsImage* black = nullptr;
+    if (vips_black(&black, CW, CH, "bands", 3, nullptr) != 0) {
+        vips_error_clear();
+        return false;
+    }
+    VipsImage* canvas = nullptr;
+    if (vips_linear(black, &canvas, ones, bg, 3, nullptr) != 0) {
+        vips_error_clear();
+        g_object_unref(black);
+        return false;
+    }
+    g_object_unref(black);
+    // vips_linear promotes to float; bring it back to 8-bit for compositing.
+    {
+        VipsImage* u8 = nullptr;
+        if (vips_cast(canvas, &u8, VIPS_FORMAT_UCHAR, nullptr) == 0) {
+            g_object_unref(canvas);
+            canvas = u8;
+        } else {
+            vips_error_clear();
+        }
+    }
+
+    // Composite each cell: render the source (honouring its edit spec), cover-
+    // fit into the cell's pixel rect, and insert at the cell origin.
+    for (const CollageCell& c : cells) {
+        const int cw = std::max(1, static_cast<int>(std::lround(c.w * CW)));
+        const int ch = std::max(1, static_cast<int>(std::lround(c.h * CH)));
+        const int cx = static_cast<int>(std::lround(c.x * CW));
+        const int cy = static_cast<int>(std::lround(c.y * CH));
+        edit::EditSpec spec = edit::parse_edit_spec(c.spec);
+        VipsImage* rendered = render_full_image(c.src, spec);
+        if (rendered == nullptr) continue;  // skip an undecodable source
+        // Cover-fit to the cell (crop to fill, centre) via vips_thumbnail_image.
+        VipsImage* fitted = nullptr;
+        if (vips_thumbnail_image(rendered, &fitted, cw, "height", ch, "size",
+                                 VIPS_SIZE_BOTH, "crop", VIPS_INTERESTING_CENTRE,
+                                 nullptr) != 0) {
+            vips_error_clear();
+            g_object_unref(rendered);
+            continue;
+        }
+        g_object_unref(rendered);
+        VipsImage* placed = nullptr;
+        if (vips_insert(canvas, fitted, &placed, cx, cy, nullptr) == 0) {
+            g_object_unref(canvas);
+            canvas = placed;
+        } else {
+            vips_error_clear();
+        }
+        g_object_unref(fitted);
+    }
+
+    const bool ok = write_vips(canvas, dst, quality);
+    g_object_unref(canvas);
+    return ok;
+#else
+    (void)cells; (void)dst; (void)canvas_w; (void)canvas_h;
+    (void)bg_rgb; (void)quality;
+    return false;
+#endif
+}
+
 void ThumbService::run_synthetic(uint64_t request_id,
                                  uint64_t asset_id,
                                  uint64_t slot_id,

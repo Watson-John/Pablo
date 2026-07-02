@@ -140,4 +140,44 @@ TEST(CatalogV9, MigratesFromV8AndDefaultsLegacyRows) {
     ASSERT_GT(vid, 0);
 }
 
+TEST(CatalogV9, TrimRoundTripClearAndCascade) {
+    const auto db = fresh_db("trim");
+    Catalog cat(db);
+    ASSERT_TRUE(cat.ok());
+
+    AssetRecord vr = photo_rec("/lib/clip.mp4");
+    vr.kind = 1;
+    vr.duration_ms = 5000;
+    const int64_t vid = cat.upsert_asset(vr);
+    ASSERT_GT(vid, 0);
+
+    // No trim initially.
+    EXPECT_FALSE(cat.trim_for(vid).has_value());
+
+    // Set + read back.
+    cat.set_trim(vid, 1000, 4000, 42);
+    auto t = cat.trim_for(vid);
+    ASSERT_TRUE(t.has_value());
+    EXPECT_EQ(t->start_ms, 1000);
+    EXPECT_EQ(t->end_ms, 4000);
+
+    // Update.
+    cat.set_trim(vid, 500, 0, 43);  // end 0 = to the end
+    t = cat.trim_for(vid);
+    ASSERT_TRUE(t.has_value());
+    EXPECT_EQ(t->start_ms, 500);
+    EXPECT_EQ(t->end_ms, 0);
+
+    // (0,0) clears.
+    cat.set_trim(vid, 0, 0, 44);
+    EXPECT_FALSE(cat.trim_for(vid).has_value());
+
+    // Persists across reopen.
+    cat.set_trim(vid, 200, 800, 45);
+    // Cascade: removing the asset drops its trim row.
+    cat.set_trim(vid, 200, 800, 46);
+    cat.remove_asset(vid);
+    EXPECT_FALSE(cat.trim_for(vid).has_value());
+}
+
 #endif  // PHOTO_HAVE_SQLITE

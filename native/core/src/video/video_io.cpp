@@ -169,9 +169,100 @@ FramePtr poster_frame(const std::string& path, int max_dim) {
     return fb;
 }
 
-bool remux_trim(const std::string&, const std::string&, int64_t, int64_t) {
-    // Implemented in Stage V4 (lossless stream-copy remux).
-    return false;
+bool remux_trim(const std::string& src, const std::string& dst,
+                int64_t start_ms, int64_t end_ms) {
+    if (src.empty() || dst.empty() || start_ms < 0) return false;
+    if (end_ms > 0 && end_ms <= start_ms) return false;
+
+    FmtCtx in;
+    if (avformat_open_input(&in.p, src.c_str(), nullptr, nullptr) != 0)
+        return false;
+    if (avformat_find_stream_info(in.p, nullptr) < 0) return false;
+
+    AVFormatContext* out = nullptr;
+    if (avformat_alloc_output_context2(&out, nullptr, nullptr, dst.c_str()) <
+            0 ||
+        out == nullptr)
+        return false;
+
+    // Map every stream 1:1 with codec params copied (stream copy — no decode).
+    const unsigned n = in.p->nb_streams;
+    std::vector<int> out_index(n, -1);
+    for (unsigned i = 0; i < n; ++i) {
+        AVStream* is = in.p->streams[i];
+        const AVMediaType t = is->codecpar->codec_type;
+        if (t != AVMEDIA_TYPE_VIDEO && t != AVMEDIA_TYPE_AUDIO &&
+            t != AVMEDIA_TYPE_SUBTITLE)
+            continue;
+        AVStream* os = avformat_new_stream(out, nullptr);
+        if (os == nullptr) { avformat_free_context(out); return false; }
+        if (avcodec_parameters_copy(os->codecpar, is->codecpar) < 0) {
+            avformat_free_context(out);
+            return false;
+        }
+        os->codecpar->codec_tag = 0;
+        out_index[i] = os->index;
+    }
+
+    if (!(out->oformat->flags & AVFMT_NOFILE)) {
+        if (avio_open(&out->pb, dst.c_str(), AVIO_FLAG_WRITE) < 0) {
+            avformat_free_context(out);
+            return false;
+        }
+    }
+    if (avformat_write_header(out, nullptr) < 0) {
+        if (out->pb) avio_closep(&out->pb);
+        avformat_free_context(out);
+        return false;
+    }
+
+    // Seek to the nearest keyframe at//before start (stream copy can only cut
+    // on keyframes for the start point — the caller's UI notes the snap).
+    const int64_t start_us = start_ms * 1000;
+    const int64_t end_us = end_ms > 0 ? end_ms * 1000 : 0;
+    av_seek_frame(in.p, -1, start_us, AVSEEK_FLAG_BACKWARD);
+
+    std::unique_ptr<AVPacket, void (*)(AVPacket*)> pkt(
+        av_packet_alloc(), [](AVPacket* p) { av_packet_free(&p); });
+    if (!pkt) {
+        if (out->pb) avio_closep(&out->pb);
+        avformat_free_context(out);
+        return false;
+    }
+
+    bool ok = true;
+    while (av_read_frame(in.p, pkt.get()) >= 0) {
+        const int si = pkt->stream_index;
+        if (si < 0 || static_cast<unsigned>(si) >= n || out_index[si] < 0) {
+            av_packet_unref(pkt.get());
+            continue;
+        }
+        AVStream* is = in.p->streams[si];
+        const int64_t pkt_us =
+            av_rescale_q(pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts,
+                         is->time_base, AVRational{1, 1000000});
+        if (end_us > 0 && pkt_us >= end_us) {
+            av_packet_unref(pkt.get());
+            break;  // packets are read in ~dts order; past the end → done
+        }
+        AVStream* os = out->streams[out_index[si]];
+        // Rebase timestamps so the clip starts at ~0.
+        const int64_t shift = av_rescale_q(start_us, AVRational{1, 1000000},
+                                           is->time_base);
+        if (pkt->pts != AV_NOPTS_VALUE) pkt->pts -= shift;
+        if (pkt->dts != AV_NOPTS_VALUE) pkt->dts -= shift;
+        if (pkt->pts != AV_NOPTS_VALUE && pkt->pts < 0) { av_packet_unref(pkt.get()); continue; }
+        av_packet_rescale_ts(pkt.get(), is->time_base, os->time_base);
+        pkt->stream_index = out_index[si];
+        pkt->pos = -1;
+        if (av_interleaved_write_frame(out, pkt.get()) < 0) { ok = false; break; }
+        av_packet_unref(pkt.get());
+    }
+
+    av_write_trailer(out);
+    if (out->pb) avio_closep(&out->pb);
+    avformat_free_context(out);
+    return ok;
 }
 
 #else  // !PHOTO_HAVE_FFMPEG

@@ -798,6 +798,67 @@ std::optional<catalog::Catalog::SavedSearchRecord> Engine::get_saved_search(
     return catalog_->get_saved_search(id);
 }
 
+uint64_t Engine::create_collage(std::vector<ThumbService::CollageCell> cells,
+                                const std::string& dst, uint32_t canvas_w,
+                                uint32_t canvas_h, uint32_t bg_rgb,
+                                int quality) {
+    if (dst.empty() || cells.empty() || canvas_w == 0 || canvas_h == 0)
+        return 0;
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE,
+                 [this, req, cells = std::move(cells), dst, canvas_w, canvas_h,
+                  bg_rgb, quality]() mutable {
+                     const bool ok = thumbs_.create_collage(
+                         cells, dst, canvas_w, canvas_h, bg_rgb, quality);
+                     photo_event_t ev{};
+                     ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+                     ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+                     ev.request_id = req;
+                     events_.push(ev);
+                 });
+    return req;
+}
+
+void Engine::video_set_trim(int64_t asset_id, int64_t start_ms,
+                            int64_t end_ms) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (catalog_ == nullptr) return;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    catalog_->set_trim(asset_id, start_ms, end_ms, now_ns());
+#else
+    (void)asset_id; (void)start_ms; (void)end_ms;
+#endif
+}
+
+std::pair<int64_t, int64_t> Engine::video_get_trim(int64_t asset_id) const {
+#ifdef PHOTO_HAVE_SQLITE
+    if (catalog_ != nullptr) {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        if (auto t = catalog_->trim_for(asset_id))
+            return {t->start_ms, t->end_ms};
+    }
+#else
+    (void)asset_id;
+#endif
+    return {0, 0};
+}
+
+uint64_t Engine::video_export_trimmed(const std::string& src,
+                                      const std::string& dst, int64_t start_ms,
+                                      int64_t end_ms) {
+    if (src.empty() || dst.empty()) return 0;
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, src, dst, start_ms, end_ms] {
+        const bool ok = video::remux_trim(src, dst, start_ms, end_ms);
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+        ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+        ev.request_id = req;
+        events_.push(ev);
+    });
+    return req;
+}
+
 std::vector<catalog::AssetRecord> Engine::list_assets() const {
     if (!catalog_) return {};
     std::lock_guard<std::mutex> lk(catalog_mu_);
