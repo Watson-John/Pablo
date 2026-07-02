@@ -443,14 +443,47 @@ void ThumbService::preview(uint64_t slot_id, uint64_t generation,
 
 bool ThumbService::export_to_file(const std::string& src, const std::string& dst,
                                   const edit::EditSpec& spec, int quality) {
+    ExportOptions opts;
+    opts.quality = quality;
+    return export_to_file2(src, dst, spec, opts);
+}
+
+bool ThumbService::export_to_file2(const std::string& src,
+                                   const std::string& dst,
+                                   const edit::EditSpec& spec,
+                                   const ExportOptions& opts) {
 #ifdef PHOTO_HAVE_VIPS
     VipsImage* out = render_full_image(src, spec);
     if (out == nullptr) return false;
-    const bool ok = write_vips(out, dst, quality);
+    if (opts.max_dim > 0) {
+        // Long-edge bound on the RENDERED image (post-geometry), downscale only.
+        VipsImage* sized = nullptr;
+        if (vips_thumbnail_image(out, &sized, static_cast<int>(opts.max_dim),
+                                 "size", VIPS_SIZE_DOWN, nullptr) != 0) {
+            vips_error_clear();
+            g_object_unref(out);
+            return false;
+        }
+        g_object_unref(out);
+        out = sized;
+    }
+    if (!opts.wm.text.empty()) {
+        // Watermark blends over a raster frame; round-trip through FrameBuffer
+        // at the (already final) output size, mirroring render_full_image.
+        const int W = vips_image_get_width(out);
+        const int H = vips_image_get_height(out);
+        FramePtr frame = frame_from_base(out, std::max(W, H));
+        g_object_unref(out);
+        if (frame == nullptr) return false;
+        edit::draw_watermark(const_cast<FrameBuffer&>(*frame), opts.wm);
+        out = frame_to_rgb_vips(*frame);
+        if (out == nullptr) return false;
+    }
+    const bool ok = write_vips(out, dst, opts.quality);
     g_object_unref(out);
     return ok;
 #else
-    (void)src; (void)dst; (void)spec; (void)quality;
+    (void)src; (void)dst; (void)spec; (void)opts;
     return false;
 #endif
 }

@@ -286,6 +286,37 @@ final class _NativeSavedSearch extends Struct {
   external Array<Uint8> name;
 }
 
+/// photo_export_options_t mirror (Stage V1 export: resize/quality/watermark).
+final class _NativeExportOptions extends Struct {
+  @Uint32()
+  external int maxDim;
+  @Int32()
+  external int quality;
+  @Uint32()
+  external int wmArgb;
+  @Float()
+  external double wmSize;
+  @Float()
+  external double wmMargin;
+  @Uint32()
+  external int wmAnchor;
+  @Uint32()
+  external int flags;
+  @Array(4)
+  external Array<Uint32> reserved;
+  @Array(256)
+  external Array<Uint8> wmText;
+}
+
+/// PHOTO_EXPORT_ANCHOR_* mirror — watermark corner placement.
+abstract final class ExportAnchor {
+  static const int bottomRight = 0;
+  static const int bottomLeft = 1;
+  static const int topRight = 2;
+  static const int topLeft = 3;
+  static const int center = 4;
+}
+
 // ---------------------------------------------------------------------------
 // FFI function typedefs
 // ---------------------------------------------------------------------------
@@ -458,6 +489,10 @@ typedef _SaveLayeredC = Uint64 Function(
     Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
 typedef _SaveLayeredDart = int Function(
     Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _Export2C = Uint64 Function(Pointer<Void>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Utf8>, Pointer<_NativeExportOptions>);
+typedef _Export2Dart = int Function(Pointer<Void>, Pointer<Utf8>,
+    Pointer<Utf8>, Pointer<Utf8>, Pointer<_NativeExportOptions>);
 
 // Hide (folder set-hidden + hidden-folders NUL-buffer). Per-asset set-hidden
 // reuses _AssetSetIntC/Dart (photo_asset_set_hidden).
@@ -1053,6 +1088,55 @@ final class Engine {
     try {
       return _Bindings.exportAsset(_handle, s, d, sp, quality);
     } finally {
+      calloc.free(s);
+      calloc.free(d);
+      calloc.free(sp);
+    }
+  }
+
+  /// [exportAsset] with output options: [maxDim] bounds the long edge of the
+  /// written file (0 = original size, never upscales) and a text watermark
+  /// draws when [watermarkText] is non-empty ([watermarkArgb] carries opacity
+  /// in the top byte; size/margin are fractions of the OUTPUT short edge).
+  /// Same async request-id + exportComplete contract as [exportAsset].
+  int exportAsset2({
+    required String srcPath,
+    required String dstPath,
+    String spec = '',
+    int maxDim = 0,
+    int quality = 92,
+    String watermarkText = '',
+    int watermarkArgb = 0x80FFFFFF,
+    double watermarkSize = 0.04,
+    double watermarkMargin = 0.02,
+    int watermarkAnchor = ExportAnchor.bottomRight,
+  }) {
+    final s = srcPath.toNativeUtf8();
+    final d = dstPath.toNativeUtf8();
+    final sp = spec.toNativeUtf8();
+    final opts = calloc<_NativeExportOptions>();
+    try {
+      opts.ref
+        ..maxDim = maxDim
+        ..quality = quality
+        ..wmArgb = watermarkArgb
+        ..wmSize = watermarkSize
+        ..wmMargin = watermarkMargin
+        ..wmAnchor = watermarkAnchor;
+      final bytes = utf8.encode(watermarkText);
+      var n = bytes.length < 255 ? bytes.length : 255;
+      // Don't split a multi-byte sequence at the truncation point (Pango
+      // rejects invalid UTF-8 and the watermark would silently vanish).
+      while (n > 0 && n < bytes.length && (bytes[n] & 0xC0) == 0x80) {
+        n--;
+      }
+      for (var i = 0; i < n; i++) {
+        opts.ref.wmText[i] = bytes[i];
+      }
+      opts.ref.wmText[n] = 0;
+      return _Bindings.exportAsset2(_handle, s, d, sp, opts);
+    } finally {
+      calloc.free(opts);
       calloc.free(s);
       calloc.free(d);
       calloc.free(sp);
@@ -1946,6 +2030,8 @@ final class _Bindings {
   static final _SaveLayeredDart saveLayered =
       _dylib.lookupFunction<_SaveLayeredC, _SaveLayeredDart>(
           'photo_asset_save_layered');
+  static final _Export2Dart exportAsset2 =
+      _dylib.lookupFunction<_Export2C, _Export2Dart>('photo_asset_export2');
   static final _AssetSetIntDart assetSetHidden = _dylib
       .lookupFunction<_AssetSetIntC, _AssetSetIntDart>('photo_asset_set_hidden');
   static final _FolderSetHiddenDart folderSetHidden =

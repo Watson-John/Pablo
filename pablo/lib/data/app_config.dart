@@ -19,7 +19,15 @@ abstract final class EditSaveMode {
 }
 
 class AppConfig {
-  AppConfig({required this.catalogDir, this.editSaveMode = EditSaveMode.catalog});
+  AppConfig({
+    required this.catalogDir,
+    this.editSaveMode = EditSaveMode.catalog,
+    this.exportFolder = '',
+    this.exportMaxDim = 0,
+    this.exportQuality = 92,
+    this.exportWatermarkText = '',
+    this.exportWatermarkOpacity = 50,
+  });
 
   /// Directory holding `catalog.db` (and the thumbnail cache).
   final String catalogDir;
@@ -27,9 +35,33 @@ class AppConfig {
   /// How "Save Edits" persists edits (see [EditSaveMode]).
   final String editSaveMode;
 
-  AppConfig copyWith({String? catalogDir, String? editSaveMode}) => AppConfig(
+  /// Export-to-Folder dialog defaults, remembered from the last run.
+  /// [exportMaxDim] 0 = original size; [exportWatermarkText] empty = none;
+  /// opacity is a 0..100 percentage.
+  final String exportFolder;
+  final int exportMaxDim;
+  final int exportQuality;
+  final String exportWatermarkText;
+  final int exportWatermarkOpacity;
+
+  AppConfig copyWith({
+    String? catalogDir,
+    String? editSaveMode,
+    String? exportFolder,
+    int? exportMaxDim,
+    int? exportQuality,
+    String? exportWatermarkText,
+    int? exportWatermarkOpacity,
+  }) =>
+      AppConfig(
         catalogDir: catalogDir ?? this.catalogDir,
         editSaveMode: editSaveMode ?? this.editSaveMode,
+        exportFolder: exportFolder ?? this.exportFolder,
+        exportMaxDim: exportMaxDim ?? this.exportMaxDim,
+        exportQuality: exportQuality ?? this.exportQuality,
+        exportWatermarkText: exportWatermarkText ?? this.exportWatermarkText,
+        exportWatermarkOpacity:
+            exportWatermarkOpacity ?? this.exportWatermarkOpacity,
       );
 
   static const _fileName = 'config.json';
@@ -51,6 +83,12 @@ class AppConfig {
           editSaveMode: mode == EditSaveMode.layeredTiff
               ? EditSaveMode.layeredTiff
               : EditSaveMode.catalog,
+          exportFolder: (j['exportFolder'] as String?) ?? '',
+          exportMaxDim: (j['exportMaxDim'] as num?)?.toInt() ?? 0,
+          exportQuality: ((j['exportQuality'] as num?)?.toInt() ?? 92).clamp(1, 100),
+          exportWatermarkText: (j['exportWatermarkText'] as String?) ?? '',
+          exportWatermarkOpacity:
+              ((j['exportWatermarkOpacity'] as num?)?.toInt() ?? 50).clamp(0, 100),
         );
       }
     } catch (_) {
@@ -65,6 +103,11 @@ class AppConfig {
     f.writeAsStringSync(const JsonEncoder.withIndent('  ').convert({
       'catalogDir': catalogDir,
       'editSaveMode': editSaveMode,
+      'exportFolder': exportFolder,
+      'exportMaxDim': exportMaxDim,
+      'exportQuality': exportQuality,
+      'exportWatermarkText': exportWatermarkText,
+      'exportWatermarkOpacity': exportWatermarkOpacity,
     }));
   }
 

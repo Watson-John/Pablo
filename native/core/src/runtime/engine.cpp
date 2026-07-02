@@ -264,6 +264,23 @@ uint64_t Engine::export_path(const std::string& src, const std::string& dst,
     return req;
 }
 
+uint64_t Engine::export_path2(const std::string& src, const std::string& dst,
+                              const std::string& spec_str,
+                              const ThumbService::ExportOptions& opts) {
+    if (src.empty() || dst.empty()) return 0;
+    edit::EditSpec spec = edit::parse_edit_spec(spec_str);
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, src, dst, spec, opts] {
+        const bool ok = thumbs_.export_to_file2(src, dst, spec, opts);
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+        ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+        ev.request_id = req;
+        events_.push(ev);
+    });
+    return req;
+}
+
 uint64_t Engine::save_layered(const std::string& src, const std::string& dst,
                               const std::string& spec_str) {
     if (src.empty() || dst.empty()) return 0;

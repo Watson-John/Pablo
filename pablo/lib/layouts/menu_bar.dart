@@ -11,6 +11,7 @@ import '../data/catalog_maintenance.dart';
 import '../data/library.dart' show PhotoSort;
 import '../data/library_location.dart';
 import '../features/editor/edit_settings_dialog.dart';
+import '../features/export/export_runner.dart';
 import '../features/organize/storage_scheme_modal.dart';
 import '../features/people/face_ingestion.dart';
 import '../features/people/people_scope.dart';
@@ -49,14 +50,18 @@ class _PabloMenuBarState extends State<PabloMenuBar> {
     VoidCallback? onScanFaces,
   ) =>
       {
-        'File': const [
-          _MenuEntry(label: 'Add Folder to Pablo…'),
-          _MenuEntry(label: 'Import From…'),
-          _MenuEntry(label: '', isSeparator: true),
-          _MenuEntry(label: 'Export as Web Page…'),
-          _MenuEntry(label: 'Print…'),
-          _MenuEntry(label: '', isSeparator: true),
-          _MenuEntry(label: 'Exit'),
+        'File': [
+          const _MenuEntry(label: 'Add Folder to Pablo…'),
+          const _MenuEntry(label: 'Import From…'),
+          _MenuEntry.sep(),
+          _MenuEntry(
+            label: 'Export to Folder…',
+            onTap: () => runExportToFolder(context),
+          ),
+          const _MenuEntry(label: 'Export as Web Page…'),
+          const _MenuEntry(label: 'Print…'),
+          _MenuEntry.sep(),
+          const _MenuEntry(label: 'Exit'),
         ],
         'Edit': const [
           _MenuEntry(label: 'Undo', shortcut: 'Ctrl+Z'),

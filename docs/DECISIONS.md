@@ -298,6 +298,26 @@ Linux/Windows. Skipped: per-dab confidence scores, Auto-origin fallback flags
 
 ---
 
+## D12. Export options — dedicated ABI POD, watermark stays out of the edit spec
+
+**Status:** Locked (2026-07-02, Stage V1).
+
+Export resize + quality + text watermark ship as a new append-only C-ABI call
+`photo_asset_export2(engine, src, dst, spec, const photo_export_options_t*)`
+(ABI version unchanged; `opts == NULL` reproduces `photo_asset_export` at
+quality 92). The watermark is a RENDER-TIME option (`photo_export_options_t`),
+deliberately NOT an `EditSpec` `text=` entry: that grammar is positional with
+the free text LAST, so it cannot grow an opacity field backward-compatibly, and
+its (x,y) is a box centre while a watermark needs corner anchoring against the
+rasterized text metrics. The watermark is drawn on the POST-resize frame so
+`wm_size`/`wm_margin` (fractions of the output short edge) are exact on disk.
+Batch export is Dart-side (one idle-lane request per file, tracked against the
+shared `PHOTO_EVT_EXPORT_COMPLETE` stream) — no native batch job. Any future
+spec-level text opacity must be a NEW key, never a positional insert into
+`text=`. Amends nothing in [D1] (originals untouched; export writes new files).
+
+---
+
 ## Decision queue (open)
 
 | Item | Owed by | Notes |

@@ -197,6 +197,12 @@ public:
     // needed, so these sit outside the SQLite guard. 0 on immediate rejection.
     uint64_t export_path(const std::string& src, const std::string& dst,
                          const std::string& spec_str, int quality);
+    // export_path with output options (long-edge resize + text watermark). All
+    // export flavours share next_export_id_ so callers can await any of them
+    // through the one PHOTO_EVT_EXPORT_COMPLETE stream.
+    uint64_t export_path2(const std::string& src, const std::string& dst,
+                          const std::string& spec_str,
+                          const ThumbService::ExportOptions& opts);
     uint64_t save_layered(const std::string& src, const std::string& dst,
                           const std::string& spec_str);
 

@@ -38,6 +38,7 @@ set(PHOTO_CORE_TEST_SOURCES
     edit_test.cpp
     edit_integration_test.cpp
     edit_c_api_test.cpp
+    export_options_test.cpp    # Stage V1: resize / quality / watermark options
     semantic_test.cpp
     semantic_onnx_test.cpp
     xmp_test.cpp

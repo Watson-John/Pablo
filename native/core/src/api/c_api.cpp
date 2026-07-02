@@ -932,6 +932,39 @@ PHOTO_API uint64_t photo_asset_export(photo_engine_t* engine,
 #endif
 }
 
+PHOTO_API uint64_t photo_asset_export2(photo_engine_t* engine,
+                                       const char* src_path_utf8,
+                                       const char* dst_path_utf8,
+                                       const char* spec_utf8,
+                                       const photo_export_options_t* opts) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!engine || !src_path_utf8 || !dst_path_utf8) return 0;
+    try {
+        photo::ThumbService::ExportOptions o;
+        if (opts != nullptr) {
+            o.max_dim = opts->max_dim;
+            o.quality = opts->quality > 0 ? opts->quality : 92;
+            // NUL-termination is the caller's contract; clamp defensively.
+            const size_t n = strnlen(opts->wm_text, sizeof(opts->wm_text));
+            o.wm.text.assign(opts->wm_text, n);
+            o.wm.argb = opts->wm_argb;
+            o.wm.size = opts->wm_size;
+            o.wm.margin = opts->wm_margin;
+            o.wm.anchor = static_cast<int>(opts->wm_anchor);
+        }
+        return cast(engine)->export_path2(src_path_utf8, dst_path_utf8,
+                                          spec_utf8 ? spec_utf8 : "", o);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_export2: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)src_path_utf8; (void)dst_path_utf8;
+    (void)spec_utf8; (void)opts;
+    return 0;
+#endif
+}
+
 PHOTO_API uint64_t photo_asset_save_layered(photo_engine_t* engine,
                                             const char* src_path_utf8,
                                             const char* dst_path_utf8,

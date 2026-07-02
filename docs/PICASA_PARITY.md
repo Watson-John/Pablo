@@ -184,7 +184,7 @@ _Last verified against the tree: 2026-06-16 (`pablo-v4`)._ Treat this as a livin
 
 ## 10. Create / output (core)
 
-- [ ] **Export (resize / quality / watermark to folder)** — ❌ P0 (Picasa: `CExportPrefsDialog`)
+- [x] **Export (resize / quality / watermark to folder)** — ✅ P0 (Stage V1) — batch export of the tray/selection through the native render pipeline: long-edge resize, JPEG quality, and a text watermark (`photo_asset_export2` + `photo_export_options_t`). File → Export to Folder…, gallery context menu, Options persisted in AppConfig.
 - [ ] **Slideshow** — ❌ P1 (Picasa: `CDXSlideshowFilter`)
 - [ ] **Print (layouts / contact sheet / poster)** — ❌ P1 (Picasa: `CPrintDlg`, `Layout3x4 … Wallet`, `CPosterDlg`)
 - [ ] **Share sheet (OS share / generic targets)** — ❌ P1 — modern replacement for Picasa email/upload
