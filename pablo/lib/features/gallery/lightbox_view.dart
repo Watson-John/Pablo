@@ -20,6 +20,7 @@ import '../editor/edit_session.dart';
 import '../people/face_naming.dart';
 import '../people/people_scope.dart';
 import '../slideshow/slideshow_view.dart';
+import 'lightbox_video.dart';
 import 'photo_surface.dart';
 
 class LightboxView extends StatefulWidget {
@@ -374,12 +375,17 @@ class _LightboxViewState extends State<LightboxView> {
                             horizontal: 40,
                             vertical: PabloSpacing.xxxxl,
                           ),
-                          child: _LightboxImage(
-                            photo: photo,
-                            faces: faces,
-                            imgW: exif.width,
-                            imgH: exif.height,
-                          ),
+                          child: photo.isVideo
+                              ? LightboxVideo(
+                                  key: ValueKey('vid-${photo.id}'),
+                                  photo: photo,
+                                )
+                              : _LightboxImage(
+                                  photo: photo,
+                                  faces: faces,
+                                  imgW: exif.width,
+                                  imgH: exif.height,
+                                ),
                         ),
                         if (hasPrev)
                           _navArrow(

@@ -60,6 +60,11 @@ class LibraryImport {
     final assets = backend.engine.listAssets();
     hydrateCatalogIds({for (final a in assets) a.path: a.assetId});
     hydrateStarred({for (final a in assets) a.assetId: a.starred});
+    // §11: seed video durations (ms) by path so the grid can badge clips.
+    hydrateVideoDurations({
+      for (final a in assets)
+        if (a.isVideo) a.path: a.durationMs,
+    });
     // listAssets excludes hidden, so hidden paths come from a dedicated call.
     hydrateHidden(backend.engine.hiddenAssets().toSet());
     appState?.updateTaskPercent(_taskId, 100); // tickTasks() retires it

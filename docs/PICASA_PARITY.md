@@ -193,9 +193,9 @@ _Last verified against the tree: 2026-06-16 (`pablo-v4`)._ Treat this as a livin
 
 ## 11. Video / movies
 
-- [ ] **Video files in the library** — ❌ P1 (Picasa: AVI/MOV/MP4/MKV/WMV/… filter)
-- [ ] **In-app video playback** — ❌ P1 (Picasa: `ytDSMovie` DirectShow)
-- [ ] **Trim (start / end points)** — ❌ P2 (Picasa: `moviestart=` / `movieend=`)
+- [x] **Video files in the library** — ✅ P1 (Stage V3) — mp4/mov/m4v/avi/mkv/webm import (catalog v9 `kind`/`duration_ms`), FFmpeg-probed dims/duration, poster-frame thumbnails through the existing thumb pipeline, grid play-circle + duration badge.
+- [x] **In-app video playback** — ✅ P1 (Stage V3) — the lightbox opens a `video_player` surface (AVFoundation on macOS) with play/pause/scrubber/mute; poster-only fallback off macOS.
+- [ ] **Trim (start / end points)** — ❌ P2 (Stage V4) (Picasa: `moviestart=` / `movieend=`) — the catalog `video_edit` table + `video_io.remux_trim` hook already exist; wiring lands in V4.
 
 ## 12. App shell & UX
 

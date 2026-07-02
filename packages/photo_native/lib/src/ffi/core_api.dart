@@ -206,6 +206,7 @@ final class _NativeAsset extends Struct {
 
 /// PHOTO_ASSET_FLAG_HIDDEN.
 const int _kAssetFlagHidden = 1 << 0;
+const int _kAssetFlagVideo = 1 << 1;
 
 /// photo_geopoint_t mirror.
 final class _NativeGeoPoint extends Struct {
@@ -1741,6 +1742,9 @@ final class AssetRow {
       starred = a.starred != 0,
       rating = a.rating,
       hidden = (a.flags & _kAssetFlagHidden) != 0,
+      isVideo = (a.flags & _kAssetFlagVideo) != 0,
+      // §11: video duration (ms) rides in _reserved[0] — see photo_core.h.
+      durationMs = a.reserved[0],
       path = _readCName(a.path, 4096);
 
   final int assetId;
@@ -1753,6 +1757,10 @@ final class AssetRow {
   final bool starred;
   final int rating;
   final bool hidden;
+
+  /// True when this asset is a video (§11); [durationMs] then holds its length.
+  final bool isVideo;
+  final int durationMs;
 }
 
 /// A geotagged asset: id + decimal-degree coordinates. Immutable projection of

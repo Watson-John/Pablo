@@ -382,12 +382,14 @@ typedef struct {
     uint32_t orientation;   /* EXIF orientation 1..8                          */
     int32_t  starred;       /* 0/1                                            */
     int32_t  rating;        /* 0..5                                           */
-    uint32_t flags;         /* bit0: hidden                                   */
+    uint32_t flags;         /* bit0: hidden; bit1: video (§11)                */
+    /* _reserved[0] = video duration in ms (0 for photos, §11); [1..2] unused */
     uint32_t _reserved[3];
     char     path[4096];
 } photo_asset_t;
 
 #define PHOTO_ASSET_FLAG_HIDDEN (1u << 0)
+#define PHOTO_ASSET_FLAG_VIDEO  (1u << 1)
 
 /*
  * List catalog assets (hidden excluded), ordered by path. Fills up to `cap`

@@ -16,6 +16,7 @@
 #include "edit/render.h"
 #include "thumb/slot.h"
 #include "thumb/thumb_cache.h"
+#include "video/video_io.h"
 
 #ifdef PHOTO_HAVE_VIPS
 #include <vips/vips.h>
@@ -642,6 +643,29 @@ void ThumbService::run_synthetic(uint64_t request_id,
         }
     }
     if (max_miss_dim == 0) return;  // fully served from cache — no file decode
+
+    // 1b) Video: extract a poster frame (FFmpeg) instead of decoding a still.
+    //     Videos aren't editable, so this skips the geometry/edit pipeline; the
+    //     poster flows through the same slot/cache path as a photo thumbnail.
+    if (video::is_video_path(path)) {
+        for (size_t i = 0; i < 3; ++i) {
+            if (!reqs[i].wanted || reqs[i].served) continue;
+            if (slot->current_generation() != generation) break;  // stale
+            FramePtr frame = video::poster_frame(path, reqs[i].dim);
+            if (frame == nullptr) {
+                emit_stage_failed(request_id, asset_id, slot_id, generation,
+                                  reqs[i].stage, PHOTO_STATUS_DECODE_ERROR);
+                continue;
+            }
+            if (use_cache) cache_->put(reqs[i].key, *frame);
+            const uint32_t fw = frame->width;
+            const uint32_t fh = frame->height;
+            slot->publish_frame(std::move(frame));
+            emit_stage_ready(request_id, asset_id, slot_id, generation,
+                             reqs[i].stage, fw, fh);
+        }
+        return;
+    }
 
     // 2) Decode the source once — inflating the box for any geometry crop /
     //    straighten so the visible region stays sharp — apply geometry, then

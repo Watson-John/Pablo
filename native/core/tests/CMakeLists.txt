@@ -39,6 +39,8 @@ set(PHOTO_CORE_TEST_SOURCES
     edit_integration_test.cpp
     edit_c_api_test.cpp
     export_options_test.cpp    # Stage V1: resize / quality / watermark options
+    video_io_test.cpp          # Stage V3: FFmpeg probe / poster (§11 video)
+    catalog_v9_test.cpp        # Stage V3: v8→v9 migration + video columns
     semantic_test.cpp
     semantic_onnx_test.cpp
     xmp_test.cpp
@@ -56,9 +58,11 @@ set(PHOTO_CORE_TEST_SOURCES
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})
 
 # exif_extract_test loads a committed fixture baked by exiftool; hand it the
-# absolute fixtures dir so the test is run-location independent.
+# absolute fixtures dir so the test is run-location independent. video_io_test
+# reads the committed tiny.mp4 under data/.
 target_compile_definitions(photo_core_tests PRIVATE
-    PHOTO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    PHOTO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    PHOTO_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
 
 # Link the OBJECT library, not the SHARED dylib: tests do white-box checks on
 # internal classes (ThumbCache, Catalog, …) whose symbols the dylib hides.

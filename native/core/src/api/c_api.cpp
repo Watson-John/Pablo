@@ -241,7 +241,12 @@ PHOTO_API size_t photo_list_assets(photo_engine_t* engine,
                 d.orientation = static_cast<uint32_t>(a.orientation);
                 d.starred     = a.starred ? 1 : 0;
                 d.rating      = a.rating;
-                d.flags       = a.hidden ? PHOTO_ASSET_FLAG_HIDDEN : 0u;
+                d.flags       = (a.hidden ? PHOTO_ASSET_FLAG_HIDDEN : 0u) |
+                                (a.kind == 1 ? PHOTO_ASSET_FLAG_VIDEO : 0u);
+                // §11: video duration rides in _reserved[0] (ms) — no struct
+                // growth, so the ABI stays fixed. 0 for photos.
+                d._reserved[0] = static_cast<uint32_t>(
+                    a.duration_ms < 0 ? 0 : a.duration_ms);
                 std::snprintf(d.path, sizeof(d.path), "%s", a.path.c_str());
             }
         }

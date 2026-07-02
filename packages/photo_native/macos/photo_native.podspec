@@ -138,6 +138,26 @@ Pod::Spec.new do |s|
     end
   end
 
+  # ---- §11 video I/O (FFmpeg, Homebrew; LGPL dynamically linked) ----
+  # Mirrors the vips probe. video_io.cpp always compiles (is_video_path() is
+  # dependency-free; probe/poster self-stub); FFmpeg just lights up the real
+  # decode path (PHOTO_HAVE_FFMPEG).
+  ffmpeg_defs   = ''
+  ffmpeg_cflags = ''
+  ffmpeg_libs   = ''
+  ffmpeg_prefix = `brew --prefix ffmpeg 2>/dev/null`.strip
+  unless ffmpeg_prefix.empty?
+    pkg_dir = "#{ffmpeg_prefix}/lib/pkgconfig"
+    mods    = 'libavformat libavcodec libavutil libswscale'
+    cflags  = `PKG_CONFIG_PATH=#{pkg_dir} pkg-config --cflags #{mods} 2>/dev/null`.strip
+    libs    = `PKG_CONFIG_PATH=#{pkg_dir} pkg-config --libs #{mods} 2>/dev/null`.strip
+    unless cflags.empty? || libs.empty?
+      ffmpeg_defs   = ' PHOTO_HAVE_FFMPEG=1'
+      ffmpeg_cflags = " #{cflags}"
+      ffmpeg_libs   = " #{libs}"
+    end
+  end
+
   all_excludes = faces_excludes + catalog_excludes
   s.exclude_files = all_excludes unless all_excludes.empty?
 
@@ -151,8 +171,8 @@ Pod::Spec.new do |s|
       '"$(PODS_TARGET_SRCROOT)/_native_core/include"',
       '"$(PODS_TARGET_SRCROOT)/_native_core/src"',
     ].join(' '),
-    'OTHER_CPLUSPLUSFLAGS' => "$(inherited) #{vips_cflags}#{faces_cflags}#{catalog_cflags}#{semantic_cflags}",
-    'GCC_PREPROCESSOR_DEFINITIONS' => "PHOTO_BUILD_STATIC=1#{vips_defs}#{faces_defs}#{catalog_defs}#{semantic_defs}",
+    'OTHER_CPLUSPLUSFLAGS' => "$(inherited) #{vips_cflags}#{faces_cflags}#{catalog_cflags}#{semantic_cflags}#{ffmpeg_cflags}",
+    'GCC_PREPROCESSOR_DEFINITIONS' => "PHOTO_BUILD_STATIC=1#{vips_defs}#{faces_defs}#{catalog_defs}#{semantic_defs}#{ffmpeg_defs}",
     # Default visibility — hiding it breaks Obj-C class symbol export, which
     # GeneratedPluginRegistrant references. C++ internal symbols inside
     # photo_core stay hidden via the namespace anyway; PHOTO_API marks the
@@ -162,6 +182,6 @@ Pod::Spec.new do |s|
     # search path is inherited from the parent project but we add it
     # explicitly so the plugin framework links cleanly under use_frameworks!.
     'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "${PODS_CONFIGURATION_BUILD_DIR}/FlutterMacOS"',
-    'OTHER_LDFLAGS' => "$(inherited) -framework FlutterMacOS#{vips_libs}#{faces_libs}#{catalog_libs}#{semantic_libs}",
+    'OTHER_LDFLAGS' => "$(inherited) -framework FlutterMacOS#{vips_libs}#{faces_libs}#{catalog_libs}#{semantic_libs}#{ffmpeg_libs}",
   }
 end

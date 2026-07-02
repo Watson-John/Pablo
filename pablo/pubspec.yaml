@@ -62,6 +62,11 @@ dependencies:
   printing: ^5.13.4
   pdf: ^3.11.1
 
+  # §11 in-app video playback (Stage V3). AVFoundation on macOS via
+  # video_player_avfoundation; no desktop-Linux/Windows backend, so playback is
+  # macOS-gated (poster-only fallback elsewhere). Approved dep exception.
+  video_player: ^2.9.2
+
   # Pablo native backend (FFI + texture registrar). Path dependency on the
   # in-repo plugin under packages/photo_native.
   photo_native:

@@ -310,4 +310,58 @@ void main() {
       expect(File('$outDir${sep}b$i.jpg').existsSync(), isTrue);
     }
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  // ── Stage V3: video import surfaces isVideo + duration through the FFI ──
+  test('importing a video exposes isVideo + durationMs', () async {
+    final sep = Platform.pathSeparator;
+    final fixture = File(
+        '..${sep}native${sep}core${sep}tests${sep}data${sep}tiny.mp4');
+    if (!fixture.existsSync()) {
+      markTestSkipped('video fixture missing (${fixture.path})');
+      return;
+    }
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_video_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+    final libDir = '${tmp.path}${sep}lib';
+    Directory(libDir).createSync(recursive: true);
+    fixture.copySync('$libDir${sep}clip.mp4');
+    // A plain image alongside it so we can assert the flag discriminates.
+    File('$libDir${sep}note.jpg').writeAsBytesSync(List.filled(8, 1));
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final req = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == req);
+
+    final assets = engine.listAssets();
+    final clip = assets.firstWhere((a) => a.path.endsWith('clip.mp4'));
+    final note = assets.firstWhere((a) => a.path.endsWith('note.jpg'));
+    expect(clip.isVideo, isTrue);
+    expect(note.isVideo, isFalse);
+    // Duration is filled when the dylib linked FFmpeg; 0 otherwise (still imports).
+    if (clip.durationMs > 0) {
+      expect(clip.durationMs, closeTo(2000, 300));
+      expect(clip.width, 64);
+      expect(clip.height, 48);
+    }
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

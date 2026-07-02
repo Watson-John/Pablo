@@ -542,10 +542,12 @@ class _BodyState extends State<_Body> {
         ? _contextPhotosFor(st, lightboxPhoto)
         : <Photo>[];
 
+    // Videos aren't editable (§11): keep the sidebar rather than the edit panel.
+    final showEditPanel = lightboxPhoto != null && !lightboxPhoto.isVideo;
     final Widget shell = Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (lightboxPhoto != null)
+        if (showEditPanel)
           PhotoEditPanel(photo: lightboxPhoto, width: st.sidebarWidth)
         else
           const Sidebar(),

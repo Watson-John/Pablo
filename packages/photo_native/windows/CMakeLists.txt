@@ -84,6 +84,9 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/semantic/onnx_embedder.cpp"
   "${NATIVE_CORE_DIR}/src/semantic/semantic_search.cpp"
   "${NATIVE_CORE_DIR}/src/semantic/semantic_service.cpp"
+  # §11 video I/O — is_video_path() compiles; probe/poster self-stub (Windows
+  # stays ffmpeg-less for now, so PHOTO_HAVE_FFMPEG is undefined here).
+  "${NATIVE_CORE_DIR}/src/video/video_io.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})

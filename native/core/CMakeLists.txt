@@ -44,6 +44,9 @@ set(PHOTO_CORE_SOURCES
     src/semantic/semantic_service.cpp
     # §7/§8 — XMP face-region writer (pure text; no external deps)
     src/xmp/face_xmp.cpp
+    # §11 — video I/O (probe/poster/trim). is_video_path() is always compiled;
+    # the decode paths self-stub unless PHOTO_HAVE_FFMPEG (libav* probe below).
+    src/video/video_io.cpp
 )
 
 # Later milestones append to PHOTO_CORE_SOURCES via target_sources() calls
@@ -314,6 +317,53 @@ if(PHOTO_BUILD_VIPS)
         else()
             message(STATUS "photo_core: libvips not found "
                            "-> synthetic decode + geometry passthrough")
+        endif()
+    endif()
+endif()
+
+# ------------------------------------------------------------------
+# §11: FFmpeg for video probe / poster-frame / trim remux.
+#
+# Mirrors the libvips block: an optional libav* probe that, when all four
+# modules resolve, defines PHOTO_HAVE_FFMPEG so video_io.cpp's decode paths
+# compile. Absent, the core still builds (probe returns not-ok, poster null),
+# and is_video_path() works regardless. Raw vars (not IMPORTED_TARGET) for
+# parity with the vips block and to avoid per-keg imported-target quirks.
+# ------------------------------------------------------------------
+
+option(PHOTO_BUILD_FFMPEG "Link FFmpeg for video probe/poster/trim" ON)
+
+if(PHOTO_BUILD_FFMPEG)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        if(APPLE)
+            execute_process(COMMAND brew --prefix ffmpeg
+                            OUTPUT_VARIABLE _ff_pfx OUTPUT_STRIP_TRAILING_WHITESPACE
+                            ERROR_QUIET RESULT_VARIABLE _ff_rc)
+            if(_ff_rc EQUAL 0 AND EXISTS "${_ff_pfx}/lib/pkgconfig")
+                set(ENV{PKG_CONFIG_PATH}
+                    "${_ff_pfx}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+            endif()
+        endif()
+        pkg_check_modules(AVFORMAT QUIET libavformat)
+        pkg_check_modules(AVCODEC QUIET libavcodec)
+        pkg_check_modules(AVUTIL QUIET libavutil)
+        pkg_check_modules(SWSCALE QUIET libswscale)
+        if(AVFORMAT_FOUND AND AVCODEC_FOUND AND AVUTIL_FOUND AND SWSCALE_FOUND)
+            target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_FFMPEG=1)
+            target_include_directories(photo_core_objects PUBLIC
+                ${AVFORMAT_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS}
+                ${AVUTIL_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS})
+            target_link_directories(photo_core_objects PUBLIC
+                ${AVFORMAT_LIBRARY_DIRS} ${AVCODEC_LIBRARY_DIRS}
+                ${AVUTIL_LIBRARY_DIRS} ${SWSCALE_LIBRARY_DIRS})
+            target_link_libraries(photo_core_objects PUBLIC
+                ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES}
+                ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
+            message(STATUS "photo_core: FFmpeg ENABLED (libavformat "
+                           "${AVFORMAT_VERSION}) -> video probe/poster/trim")
+        else()
+            message(STATUS "photo_core: FFmpeg not found -> video disabled")
         endif()
     endif()
 endif()

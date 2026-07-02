@@ -46,6 +46,8 @@ struct AssetRecord {
     int32_t     rating = 0;       // 0..5
     std::string caption;
     bool        hidden = false;
+    int32_t     kind = 0;         // 0 = photo, 1 = video (§11)
+    int64_t     duration_ms = 0;  // video duration; 0 for photos
 };
 
 // Owns one SQLite connection to the catalog DB. Thread-compatible, not

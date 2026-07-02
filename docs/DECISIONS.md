@@ -318,6 +318,31 @@ spec-level text opacity must be a NEW key, never a positional insert into
 
 ---
 
+## D13. Video (§11) — FFmpeg optional native module + video_player playback
+
+**Status:** Locked (2026-07-02, Stage V3).
+
+Video support is a native `video/video_io` module gated on `PHOTO_HAVE_FFMPEG`
+(the same optional-dep pattern as libvips): `probe` (dims/duration/codec via
+libavformat) and `poster_frame` (seek ~10% → decode → swscale→BGRA) flow through
+the existing thumb slot/cache pipeline, so the grid needs no special path.
+`is_video_path()` is always compiled; without FFmpeg a video still imports
+(catalog **v9** `asset.kind=1`, `duration_ms=0`) — video is never dropped for
+lack of a decoder. Duration reaches Dart via `photo_asset_t.flags` bit1
+(`PHOTO_ASSET_FLAG_VIDEO`) + `_reserved[0]` (ms) — **no struct growth, ABI
+unchanged**. Playback is Flutter `video_player` (AVFoundation on macOS); it has
+no desktop Linux/Windows backend, so the lightbox player is `Platform.isMacOS`-
+gated with a poster-only fallback elsewhere. Trim is non-destructive per [D1]:
+catalog `video_edit(trim_start_ms, trim_end_ms)` (shipped in v9) + a
+stream-copy `remux_trim` for explicit clip export (wired in Stage V4) — the
+original file is never rewritten.
+
+**Watch-out (shipping):** Homebrew's FFmpeg is a **GPL** build (bundles
+x264/x265). For a shippable LGPL binary, rebuild FFmpeg `--disable-gpl`
+(decode + stream-copy only need LGPL components). Recorded in LICENSES.md.
+
+---
+
 ## Decision queue (open)
 
 | Item | Owed by | Notes |

@@ -45,7 +45,7 @@ jobs:
       - name: Install native deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev libexif-dev
+          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev libexif-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
       - name: Configure
         run: >
           cmake -S . -B build/ci -G Ninja
@@ -69,7 +69,7 @@ jobs:
         working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev libexif-dev
+          sudo apt-get install -y cmake ninja-build build-essential libsqlite3-dev libexif-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
       - name: Build standalone libphoto_core
         working-directory: .
         run: >
@@ -145,11 +145,11 @@ jobs:
         working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgtk-3-dev clang cmake pkg-config libvips-dev libsqlite3-dev libexif-dev
+          sudo apt-get install -y ninja-build libgtk-3-dev clang cmake pkg-config libvips-dev libsqlite3-dev libexif-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
           echo "PHOTO_REQUIRE_VIPS=1" >> "$GITHUB_ENV"
       - name: Install libvips (macOS real-decode path)
         if: matrix.target == 'macos'
-        run: brew install vips
+        run: brew install vips ffmpeg
       - name: Install libvips (Windows real-decode path)
         if: matrix.target == 'windows'
         shell: pwsh
