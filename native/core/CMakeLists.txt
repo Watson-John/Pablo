@@ -31,6 +31,9 @@ set(PHOTO_CORE_SOURCES
     # M3 — on-disk thumbnail cache
     src/thumb/thumb_cache.cpp
 
+    # Stage 7 — non-destructive edit stack (libvips/plain-C++ only; no OpenCV)
+    src/edit/edit_spec.cpp
+    src/edit/render.cpp
     # Stage 9 — semantic search & discovery. Dependency-free by design: the
     # deterministic embedder, cosine search, and service state machine compile
     # everywhere (the ONNX backend self-stubs unless SEMANTIC_HAVE_ORT + models
@@ -269,6 +272,49 @@ if(PHOTO_BUILD_CATALOG)
         endif()
     else()
         message(STATUS "photo_core: SQLite absent -> asset catalog disabled")
+    endif()
+endif()
+
+# ------------------------------------------------------------------
+# libvips — real image decode + the non-destructive edit geometry render.
+#
+# Optional in the standalone/test build (the Flutter plugin builds wire libvips
+# per-platform). When present it defines PHOTO_HAVE_VIPS, so thumb_service
+# decodes for real and edit/render.cpp's apply_geometry compiles — which is what
+# lets the edit integration tests exercise the actual geometry render. Absent, the
+# core still builds (synthetic decode + geometry passthrough).
+# ------------------------------------------------------------------
+
+option(PHOTO_BUILD_VIPS "Link libvips for real decode + edit geometry render" ON)
+
+if(PHOTO_BUILD_VIPS)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        # Homebrew symlinks each keg's .pc into <prefix>/lib/pkgconfig.
+        if(APPLE)
+            execute_process(COMMAND brew --prefix
+                            OUTPUT_VARIABLE _brew_prefix
+                            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+            if(_brew_prefix AND EXISTS "${_brew_prefix}/lib/pkgconfig")
+                set(ENV{PKG_CONFIG_PATH}
+                    "${_brew_prefix}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+            endif()
+        endif()
+        # Raw vars (not IMPORTED_TARGET): vips's .pc references a stale include
+        # path that the imported target's existence-check rejects.
+        pkg_check_modules(VIPS QUIET vips)
+        if(VIPS_FOUND)
+            target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_VIPS=1)
+            target_include_directories(photo_core_objects PUBLIC ${VIPS_INCLUDE_DIRS})
+            target_link_directories(photo_core_objects PUBLIC ${VIPS_LIBRARY_DIRS})
+            target_link_libraries(photo_core_objects PUBLIC ${VIPS_LIBRARIES})
+            target_compile_options(photo_core_objects PUBLIC ${VIPS_CFLAGS_OTHER})
+            message(STATUS "photo_core: libvips ENABLED (${VIPS_VERSION}) "
+                           "-> real decode + edit geometry render")
+        else()
+            message(STATUS "photo_core: libvips not found "
+                           "-> synthetic decode + geometry passthrough")
+        endif()
     endif()
 endif()
 

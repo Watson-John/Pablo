@@ -17,6 +17,7 @@ import 'package:photo_native/photo_native.dart';
 import '../data/app_config.dart';
 import '../data/boot.dart';
 import '../data/sources/face_repository.dart';
+import '../features/editor/edits_store.dart';
 import 'prefetch_controller.dart';
 
 class NativeBackend {
@@ -64,6 +65,13 @@ class NativeBackend {
         return null;
       }
       await TextureRegistry.instance.attachEngine(engine);
+      // Hydrate the edited-assets index so the gallery's "edited" badge is
+      // correct on restart (the edited pixels already render via the native map).
+      try {
+        EditsStore.instance.hydrate(engine);
+      } catch (e) {
+        debugPrint('[pablo] EditsStore hydrate failed: $e');
+      }
       // Drain the native event ring so STAGE_READY dimensions reach the UI
       // (and the ring never backs up). Pull-based on a short timer.
       final pump = EventPump(engine)..start();

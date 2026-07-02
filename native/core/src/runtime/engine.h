@@ -11,12 +11,15 @@
 
 #include <atomic>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "edit/edit_spec.h"
 #include "photo_core.h"
 #include "runtime/event_ring.h"
 #include "runtime/job_system.h"
@@ -127,6 +130,18 @@ public:
     int64_t rebase_paths(const std::string& old_prefix,
                          const std::string& new_prefix);
 
+    // ── Non-destructive edit stack ─────────────────────────────────────────
+    // The serialized `key=value;` spec for an asset, "" if none. Locked read.
+    std::string get_edits(int64_t asset_id) const;
+    // Persist the spec (catalog write first, then swap the in-memory COW map) and
+    // return the new content_rev. An identity spec clears the edit and returns 0.
+    // The caller (Dart) rebinds the visible slot's generation off this rev so the
+    // gallery tile repaints — native has no asset→slot index by design.
+    uint64_t set_edits(int64_t asset_id, const std::string& spec);
+    // Clear the saved edit (revert to original). Same as set_edits("").
+    void     revert_edits(int64_t asset_id);
+    // Current content_rev for an asset (0 = unedited).
+    uint64_t content_rev(int64_t asset_id) const;
     // ── Semantic search & discovery (Stage 9) ───────────────────────────────
     // Schedule embedding for one asset on the idle lane (lowest priority, so it
     // never preempts interactive thumbnails). Decode+embed runs off-lock; the
@@ -169,6 +184,35 @@ public:
     std::optional<catalog::Catalog::SavedSearchRecord> get_saved_search(
         int64_t id) const;
 #endif
+
+    // Live preview: parse `spec_str` and render it transiently to the slot on the
+    // interactive lane (no cache, no catalog). Available without a catalog, so it
+    // sits outside the SQLite guard. No-op without libvips.
+    void preview_edits(uint64_t slot_id, uint64_t generation,
+                       const std::string& path, uint32_t target_w,
+                       uint32_t target_h, const std::string& spec_str);
+
+    // Export `spec` over a full-res decode of `src` to `dst` on the idle lane
+    // (async). Returns a request id; emits PHOTO_EVT_EXPORT_COMPLETE. No catalog
+    // needed, so these sit outside the SQLite guard. 0 on immediate rejection.
+    uint64_t export_path(const std::string& src, const std::string& dst,
+                         const std::string& spec_str, int quality);
+    uint64_t save_layered(const std::string& src, const std::string& dst,
+                          const std::string& spec_str);
+
+    // Red-eye auto-detect: decode `path`, look up this asset's stored eye
+    // landmarks (from the face scan), and return a red-eye brush Region for every
+    // eye that actually contains a red pupil. The caller adds them to the edit
+    // spec (same non-destructive path as manual dabs). `spec_str` is the caller's
+    // CURRENT working edit spec: landmarks live in original-image space, so when
+    // the spec has geometry (crop/rotate/straighten) each region is mapped into
+    // the post-geometry space the retouch render uses; eyes cropped out of frame
+    // are dropped, never misplaced. Empty without the face models (Linux/Windows
+    // plugins) or when no eye is red. Synchronous — the caller invokes it off the
+    // UI thread if the decode cost matters.
+    std::vector<edit::Region> detect_redeye(int64_t asset_id,
+                                            const std::string& path,
+                                            const std::string& spec_str = "");
 #ifdef PHOTO_HAVE_FACES
     faces::FaceService& faces()  { return faces_; }
 #endif
@@ -194,6 +238,37 @@ private:
     void run_import(uint64_t request_id, std::vector<std::string> roots,
                     bool prune);
 #endif
+
+    // ── In-memory edit map (copy-on-write) ──────────────────────────────────
+    // asset_id → {content_rev, parsed spec}. Mutations rebuild a fresh immutable
+    // map and swap the pointer; readers take a shared_ptr copy under a tiny
+    // mutex (same pattern as semantic_ below — std::atomic<shared_ptr> is absent
+    // on libc++/AppleClang and the atomic_load/store free functions are
+    // C++20-deprecated → -Werror on the Linux plugin build). The lock holds for
+    // a pointer copy only; the map itself is immutable, so render workers keep
+    // their snapshot alive across a concurrent save. Keeps the thumbnail hot
+    // path off SQLite and off the spec parser.
+    using EditMap = std::unordered_map<int64_t, edit::EditEntry>;
+    std::shared_ptr<const EditMap> edits_{std::make_shared<const EditMap>()};
+    mutable std::mutex edits_mu_;
+    std::shared_ptr<const EditMap> edits_snapshot() const {
+        std::lock_guard<std::mutex> lk(edits_mu_);
+        return edits_;
+    }
+    // Request-id source for async export / layered-save (catalog-independent).
+    std::atomic<uint64_t> next_export_id_{1};
+    // Lookup injected into ThumbService (snapshot read of the COW map).
+    edit::EditEntry edit_lookup(int64_t asset_id) const;
+
+public:
+    // Asset ids that currently have a (non-identity) saved edit — for the
+    // gallery's "edited" badge. Reads the COW snapshot, so it is cheap and
+    // available with or without a catalog.
+    std::vector<int64_t> edited_asset_ids() const;
+
+private:
+    // Rebuild the map with one entry set (entry != nullptr) or erased (nullptr).
+    void store_edit_entry(int64_t asset_id, const edit::EditEntry* entry);
 
     // Owned thumbnail cache. Declared first so it is destroyed last — after
     // the job system's workers, which reference it through ThumbService.

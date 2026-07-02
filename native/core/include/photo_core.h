@@ -124,7 +124,11 @@ typedef enum {
      * aux64 = 1 (one asset processed); status = per-item result
      * (OK / UNSUPPORTED=skipped / DECODE_ERROR=failed). The Dart indexing
      * controller counts these to drive progress, like SCAN_PROGRESS for faces. */
-    PHOTO_EVT_EMBED_PROGRESS   = 10
+    PHOTO_EVT_EMBED_PROGRESS   = 10,
+    /* Async edit export / layered-save finished. status is the result;
+     * request_id matches the photo_asset_export / photo_asset_save_layered id.
+     * (11, not 10: Stage 9 landed EMBED_PROGRESS=10 on main first.) */
+    PHOTO_EVT_EXPORT_COMPLETE      = 11
 } photo_event_kind_t;
 
 typedef enum {
@@ -590,6 +594,130 @@ PHOTO_API int32_t photo_asset_remove_tag(photo_engine_t* engine,
  */
 PHOTO_API size_t photo_asset_tags(photo_engine_t* engine, uint64_t asset_id,
                                   char* out, size_t cap);
+
+/* ------------------------------------------------------------------------- */
+/* Non-destructive edits.                                                     */
+/*                                                                           */
+/* A parametric, non-destructive edit stack per asset, stored as a compact    */
+/* "key=value;" spec string (see edit/edit_spec). No pixels cross this        */
+/* boundary: edited frames reach the screen through the normal thumbnail /     */
+/* texture pipeline, keyed by a per-asset content_rev that bumps on each save  */
+/* so the thumbnail cache invalidates. Catalog-only by default (DECISIONS D1); */
+/* the file is never modified by these calls.                                  */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Serialized edit spec for an asset into a caller buffer (NUL-terminated UTF-8).
+ * Returns the total bytes needed INCLUDING the NUL — grow and re-call if it
+ * exceeds `cap` (mirrors photo_asset_tags). Empty (returns 1, a lone NUL) when
+ * the asset is unedited.
+ */
+PHOTO_API size_t photo_asset_get_edits(photo_engine_t* engine, uint64_t asset_id,
+                                       char* out, size_t cap);
+
+/*
+ * Persist the edit spec and bump content_rev. Returns the NEW content_rev, or 0
+ * if the spec is identity (the edit is cleared) or on failure / no catalog.
+ *
+ * NB the engine has no asset->slot index by design, so it cannot self-invalidate
+ * a visible tile. The caller MUST rebind the affected slot's generation and
+ * re-request off the returned content_rev so the gallery / lightbox repaint —
+ * a same-asset save does not otherwise bump the slot generation, and an
+ * in-flight original-keyed request could publish the pre-edit frame after this
+ * returns.
+ */
+PHOTO_API uint64_t photo_asset_set_edits(photo_engine_t* engine,
+                                         uint64_t asset_id,
+                                         const char* spec_utf8);
+
+/* Clear the saved edit (revert to original). Returns photo_status_t. */
+PHOTO_API int32_t photo_asset_revert(photo_engine_t* engine, uint64_t asset_id);
+
+/* Current content_rev for an asset (0 = unedited / no saved edit). */
+PHOTO_API uint64_t photo_asset_content_rev(photo_engine_t* engine,
+                                           uint64_t asset_id);
+
+/*
+ * Render `spec` over a FULL-RESOLUTION decode of `src_path` and write a flattened
+ * copy to `dst_path` (format chosen by extension: .jpg/.jpeg honour `quality`
+ * 1..100; .png/.tif also supported). This is "Save as Copy" — the original is
+ * untouched. Async on the idle lane: returns a non-zero request id and emits
+ * PHOTO_EVT_EXPORT_COMPLETE with the same id (status = result). Returns 0 on
+ * immediate rejection. PHOTO_STATUS_UNSUPPORTED-equivalent (0) without libvips.
+ */
+PHOTO_API uint64_t photo_asset_export(photo_engine_t* engine,
+                                      const char* src_path_utf8,
+                                      const char* dst_path_utf8,
+                                      const char* spec_utf8,
+                                      int32_t quality);
+
+/*
+ * Save mode `layeredTiff`: write a self-contained multi-page TIFF to `dst_path`
+ * — page 0 = the edited render, page 1 = the UNTOUCHED original, with the
+ * parametric spec embedded as XMP. Reversible from the file itself (drop the
+ * layer → re-derive from page 1). Async; same request-id + PHOTO_EVT_EXPORT_-
+ * COMPLETE contract as photo_asset_export.
+ */
+PHOTO_API uint64_t photo_asset_save_layered(photo_engine_t* engine,
+                                            const char* src_path_utf8,
+                                            const char* dst_path_utf8,
+                                            const char* spec_utf8);
+
+/*
+ * Asset ids that currently have a saved (non-identity) edit, for the gallery's
+ * "edited" badge. Fills up to `cap` ids and returns the TOTAL available — grow
+ * and re-call if it exceeds `cap` (mirrors photo_album_members).
+ */
+PHOTO_API size_t photo_list_edited_assets(photo_engine_t* engine,
+                                          uint64_t* out, size_t cap);
+
+/*
+ * Render a TRANSIENT spec to a slot for live preview: no cache write, no catalog
+ * write. The result is published as a PHOTO_STAGE_FULL frame and announced via
+ * PHOTO_EVT_STAGE_READY with request_id 0 and the echoed `generation` (dropped
+ * on a generation mismatch, so rapid asset-switching in the editor is safe).
+ * Returns photo_status_t (PHOTO_STATUS_UNSUPPORTED when built without libvips).
+ */
+PHOTO_API int32_t photo_asset_preview_edits(photo_engine_t* engine,
+                                            uint64_t slot_id,
+                                            uint64_t generation,
+                                            const char* path_utf8,
+                                            uint32_t target_w,
+                                            uint32_t target_h,
+                                            const char* spec_utf8);
+
+/* A red-eye brush region: normalized centre + radius as a fraction of the image
+ * short edge (matches the `redeye=x,y,r` edit-spec grammar). */
+typedef struct {
+    float x, y, r;
+} photo_region_t;
+
+/*
+ * Red-eye AUTO-DETECT: decode `path`, look up the asset's stored eye landmarks
+ * (from the face scan), and fill `out` with a red-eye brush region for every eye
+ * that actually contains a red pupil (non-red eyes are skipped). The caller adds
+ * these to the edit spec's `redeye=` list — same non-destructive path as manual
+ * dabs. `spec_utf8` is the caller's CURRENT working edit spec (may be NULL/"");
+ * when it carries geometry (crop/rotate/flip/straighten) the regions are mapped
+ * into that post-geometry space, and eyes cropped out of frame are dropped.
+ * Fills up to `cap` and returns the TOTAL found — grow and re-call if it
+ * exceeds `cap` (mirrors photo_list_edited_assets). Returns 0 without the face
+ * models (Linux/Windows plugins) or when no eye is red; caller falls back to the
+ * manual brush. Synchronous (does a full-res decode) — call off the UI thread.
+ */
+PHOTO_API size_t photo_asset_detect_redeye(photo_engine_t* engine,
+                                           uint64_t asset_id,
+                                           const char* path_utf8,
+                                           const char* spec_utf8,
+                                           photo_region_t* out, size_t cap);
+
+/*
+ * Whether this build can auto-detect red-eye at all (face models compiled in).
+ * Compile-time capability, not per-asset: 0 on the Linux/Windows plugins, 1 on
+ * macOS/standalone. Lets the UI say "not available on this platform" instead of
+ * a misleading "no red-eye detected".
+ */
+PHOTO_API int32_t photo_redeye_auto_supported(void);
 
 /* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */

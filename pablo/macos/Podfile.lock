@@ -19,10 +19,10 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/photo_native/macos
 
 SPEC CHECKSUMS:
-  file_selector_macos: 3e56eaea051180007b900eacb006686fd54da150
+  file_selector_macos: 9e9e068e90ebee155097d00e89ae91edb2374db7
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  photo_native: ada497f4eed6769803f6d985dfa1bfdd79f2a20d
+  photo_native: 22e3ae275c8b937bd89aacaeda28a29e8cb8f086
 
 PODFILE CHECKSUM: 89c84cf5c2351c1e554c6dea18d31a879fc3a19e
 
-COCOAPODS: 1.11.3
+COCOAPODS: 1.16.2

@@ -13,6 +13,10 @@ import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
+import '../editor/crop_overlay.dart';
+import '../editor/retouch_overlay.dart';
+import '../editor/edit_preview_surface.dart';
+import '../editor/edit_session.dart';
 import '../people/face_naming.dart';
 import '../people/people_scope.dart';
 import 'photo_surface.dart';
@@ -24,12 +28,17 @@ class LightboxView extends StatefulWidget {
     required this.onClose,
     this.fullscreen = false,
     this.onToggleFullscreen,
+    this.onCurrentChanged,
     super.key,
   });
 
   final List<Photo> photos;
   final String initialId;
   final VoidCallback onClose;
+
+  /// Fired when navigation changes the viewed photo, so the host can keep the
+  /// edit panel + EditSession pointed at the image on screen.
+  final ValueChanged<String>? onCurrentChanged;
 
   /// Immersive edge-to-edge mode: the top bar, filmstrip, and caption bar
   /// auto-hide (reveal on mouse-move); only the image + nav arrows remain.
@@ -82,6 +91,7 @@ class _LightboxViewState extends State<LightboxView> {
   void _goTo(int idx) {
     final c = idx.clamp(0, widget.photos.length - 1);
     setState(() => _currentId = widget.photos[c].id);
+    widget.onCurrentChanged?.call(_currentId);
     // Scroll filmstrip to keep current centered.
     final offset = c * 77.0 - 200;
     if (_filmCtl.hasClients) {
@@ -425,18 +435,39 @@ class _LightboxImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Depend on the edit session so the box re-sizes as geometry changes.
+    final session = EditSessionScope.of(context);
+    final spec = session?.spec;
+    final cropMode = session?.activeTool == 'crop';
+    final retouchMode =
+        session?.activeTool == 'redeye' || session?.activeTool == 'heal';
     return LayoutBuilder(builder: (context, c) {
       final maxW = c.maxWidth.isFinite ? c.maxWidth : 900.0;
       final maxH = c.maxHeight.isFinite ? c.maxHeight : 700.0;
       final known = imgW > 0 && imgH > 0;
-      final aspect = known ? imgW / imgH : 4 / 3;
-      // Contain the image at its true aspect within the available area.
+      // Aspect after rotation (the space the crop overlay maps over)…
+      double rotAspect = known ? imgW / imgH : 4 / 3;
+      if (spec != null && spec.rot90 % 2 == 1) rotAspect = 1 / rotAspect;
+      // …and the displayed-box aspect, which also folds in the crop unless we're
+      // actively cropping (then we show the full uncropped frame).
+      var aspect = rotAspect;
+      if (spec != null &&
+          !cropMode &&
+          spec.cropW > 0 &&
+          (spec.cropW != 1 || spec.cropH != 1)) {
+        aspect *= spec.cropW / spec.cropH;
+      }
+      // Contain the image at that aspect within the available area.
       var dW = maxW;
       var dH = dW / aspect;
       if (dH > maxH) {
         dH = maxH;
         dW = dH * aspect;
       }
+      final showFaces = known &&
+          !cropMode &&
+          !retouchMode &&
+          (spec == null || !spec.hasGeometry);
       return Center(
         child: SizedBox(
           width: dW,
@@ -458,7 +489,11 @@ class _LightboxImage extends StatelessWidget {
                   ),
                   child: ClipRRect(
                     borderRadius: PabloRadius.lgAll,
-                    child: PhotoSurface(
+                    // The main image renders the live edit preview when an
+                    // EditSession is in scope (editor open); otherwise it shows
+                    // the saved/original frame. Keyed by id so navigation
+                    // recreates it against the freshly-swapped session.
+                    child: EditPreviewSurface(
                       key: ValueKey(photo.id),
                       photo: photo,
                       targetW: 1280,
@@ -467,7 +502,23 @@ class _LightboxImage extends StatelessWidget {
                   ),
                 ),
               ),
-              if (known)
+              if (cropMode && session != null)
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: PabloRadius.lgAll,
+                    child: CropOverlay(
+                        session: session, imageAspect: rotAspect),
+                  ),
+                ),
+              if (retouchMode && session != null)
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: PabloRadius.lgAll,
+                    child: RetouchOverlay(
+                        session: session, tool: session.activeTool!),
+                  ),
+                ),
+              if (showFaces)
                 for (final f in faces)
                   Positioned(
                     left: (f.boxX / imgW) * dW,

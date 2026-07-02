@@ -10,6 +10,7 @@ import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
+import '../editor/edits_store.dart';
 import 'photo_surface.dart';
 
 class PhotoThumb extends StatefulWidget {
@@ -200,6 +201,20 @@ class _PhotoThumbState extends State<PhotoThumb> {
                                   left: 6,
                                   child: _StarBadge(),
                                 ),
+                              // "Edited" badge — a saved non-destructive edit
+                              // exists (revertible). Reacts to EditsStore.
+                              Positioned(
+                                bottom: 6,
+                                left: 6,
+                                child: ListenableBuilder(
+                                  listenable: EditsStore.instance,
+                                  builder: (context, _) =>
+                                      EditsStore.instance.isEdited(
+                                              assetIdFor(widget.photo.id))
+                                          ? const _EditedBadge()
+                                          : const SizedBox.shrink(),
+                                ),
+                              ),
                               Positioned(
                                 top: 4,
                                 right: 4,
@@ -390,6 +405,38 @@ class _StarBadge extends StatelessWidget {
           color: PabloColors.amber,
         ),
       ],
+    );
+  }
+}
+
+/// "Edited" badge: a small copper chip with a sparkle glyph marking a photo that
+/// carries a saved (reversible) non-destructive edit.
+class _EditedBadge extends StatelessWidget {
+  const _EditedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 17,
+      height: 17,
+      decoration: BoxDecoration(
+        color: PabloColors.accentPrimary,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.3),
+            blurRadius: 1.5,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: const PabloIcon(
+        PabloIconName.sparkle,
+        size: 10,
+        color: PabloColors.textOnAccent,
+      ),
     );
   }
 }

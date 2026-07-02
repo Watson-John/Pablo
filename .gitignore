@@ -3,6 +3,10 @@
 # Lean standalone test build (docs/specs/05-organize-and-metadata-tests.md §3)
 /build-tests/
 
+# Local native test builds (see native-test-build-recipe; faces variant for the
+# env-gated SCRFD end-to-end tests)
+/build-tests-faces/
+
 # Rust / native build dirs
 target/
 
@@ -31,5 +35,4 @@ target/
 # Stage 9 semantic-search: local ML venv + exported model artifacts (large, not committed)
 .venv-semantic/
 build-ort/
-/build-tests/
 build-werror/

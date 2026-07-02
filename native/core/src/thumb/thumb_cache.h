@@ -60,6 +60,14 @@ public:
     static uint64_t key(uint64_t asset_id, uint32_t stage,
                         const std::string& path);
 
+    // Edit-aware key. content_rev == 0 (unedited / identity) returns the 3-arg
+    // key BYTE-IDENTICALLY — appending a literal 0 would still change the FNV
+    // input length and cold-start the whole cache, so it must branch. A non-zero
+    // rev mixes in the rev so an edited frame never collides with the original
+    // and a save (rev bump) invalidates the cached frame.
+    static uint64_t key(uint64_t asset_id, uint32_t stage,
+                        const std::string& path, uint32_t content_rev);
+
     // Returns the cached frame for `k`, or nullptr on miss / error.
     FramePtr get(uint64_t k);
 

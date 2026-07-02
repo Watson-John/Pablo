@@ -12,6 +12,7 @@
 //   - NULL engines are tolerated by lifecycle functions (destroy). Other
 //     functions treat NULL engine as a misuse and return a sentinel.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -835,6 +836,192 @@ PHOTO_API size_t photo_asset_tags(photo_engine_t* engine, uint64_t asset_id,
     (void)engine; (void)asset_id; (void)out; (void)cap;
     return 0;
 #endif
+}
+
+// ---------------------------------------------------------------------------
+// Non-destructive edits.
+// ---------------------------------------------------------------------------
+
+PHOTO_API size_t photo_asset_get_edits(photo_engine_t* engine, uint64_t asset_id,
+                                       char* out, size_t cap) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        const std::string s =
+            cast(engine)->get_edits(static_cast<int64_t>(asset_id));
+        const size_t need = s.size() + 1;  // include the NUL terminator
+        if (out && cap > 0) {
+            const size_t n = std::min(s.size(), cap - 1);
+            std::memcpy(out, s.data(), n);
+            out[n] = '\0';
+        }
+        return need;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_get_edits: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id; (void)out; (void)cap;
+    return 0;
+#endif
+}
+
+PHOTO_API uint64_t photo_asset_set_edits(photo_engine_t* engine,
+                                         uint64_t asset_id,
+                                         const char* spec_utf8) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        return cast(engine)->set_edits(static_cast<int64_t>(asset_id),
+                                       spec_utf8 ? spec_utf8 : "");
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_set_edits: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id; (void)spec_utf8;
+    return 0;
+#endif
+}
+
+PHOTO_API int32_t photo_asset_revert(photo_engine_t* engine, uint64_t asset_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    return organize_mutate(engine, "photo_asset_revert", [&](photo::Engine* e) {
+        e->revert_edits(static_cast<int64_t>(asset_id));
+    });
+#else
+    (void)engine; (void)asset_id;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API uint64_t photo_asset_content_rev(photo_engine_t* engine,
+                                           uint64_t asset_id) {
+#ifdef PHOTO_HAVE_SQLITE
+    if (!engine) return 0;
+    try {
+        return cast(engine)->content_rev(static_cast<int64_t>(asset_id));
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_content_rev: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)asset_id;
+    return 0;
+#endif
+}
+
+PHOTO_API uint64_t photo_asset_export(photo_engine_t* engine,
+                                      const char* src_path_utf8,
+                                      const char* dst_path_utf8,
+                                      const char* spec_utf8,
+                                      int32_t quality) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!engine || !src_path_utf8 || !dst_path_utf8) return 0;
+    try {
+        return cast(engine)->export_path(src_path_utf8, dst_path_utf8,
+                                         spec_utf8 ? spec_utf8 : "", quality);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_export: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)src_path_utf8; (void)dst_path_utf8;
+    (void)spec_utf8; (void)quality;
+    return 0;
+#endif
+}
+
+PHOTO_API uint64_t photo_asset_save_layered(photo_engine_t* engine,
+                                            const char* src_path_utf8,
+                                            const char* dst_path_utf8,
+                                            const char* spec_utf8) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!engine || !src_path_utf8 || !dst_path_utf8) return 0;
+    try {
+        return cast(engine)->save_layered(src_path_utf8, dst_path_utf8,
+                                          spec_utf8 ? spec_utf8 : "");
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_save_layered: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine; (void)src_path_utf8; (void)dst_path_utf8; (void)spec_utf8;
+    return 0;
+#endif
+}
+
+PHOTO_API size_t photo_list_edited_assets(photo_engine_t* engine,
+                                          uint64_t* out, size_t cap) {
+    if (!engine) return 0;
+    try {
+        const auto ids = cast(engine)->edited_asset_ids();
+        const size_t n = ids.size();
+        if (out)
+            for (size_t i = 0; i < n && i < cap; ++i)
+                out[i] = static_cast<uint64_t>(ids[i]);
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_list_edited_assets: %s", e.what());
+        return 0;
+    }
+}
+
+PHOTO_API int32_t photo_asset_preview_edits(photo_engine_t* engine,
+                                            uint64_t slot_id,
+                                            uint64_t generation,
+                                            const char* path_utf8,
+                                            uint32_t target_w,
+                                            uint32_t target_h,
+                                            const char* spec_utf8) {
+#ifdef PHOTO_HAVE_VIPS
+    if (!engine || !path_utf8 || !*path_utf8) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        cast(engine)->preview_edits(slot_id, generation, path_utf8,
+                                    target_w, target_h,
+                                    spec_utf8 ? spec_utf8 : "");
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_preview_edits: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)slot_id; (void)generation; (void)path_utf8;
+    (void)target_w; (void)target_h; (void)spec_utf8;
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int32_t photo_redeye_auto_supported(void) {
+#if defined(PHOTO_HAVE_FACES)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+PHOTO_API size_t photo_asset_detect_redeye(photo_engine_t* engine,
+                                           uint64_t asset_id,
+                                           const char* path_utf8,
+                                           const char* spec_utf8,
+                                           photo_region_t* out, size_t cap) {
+    if (!engine || !path_utf8) return 0;
+    try {
+        const auto regs = cast(engine)->detect_redeye(
+            static_cast<int64_t>(asset_id), path_utf8,
+            spec_utf8 ? spec_utf8 : "");
+        const size_t n = regs.size();
+        if (out)
+            for (size_t i = 0; i < n && i < cap; ++i) {
+                out[i].x = regs[i].x;
+                out[i].y = regs[i].y;
+                out[i].r = regs[i].r;
+            }
+        return n;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_detect_redeye: %s", e.what());
+        return 0;
+    }
 }
 
 // ---------------------------------------------------------------------------

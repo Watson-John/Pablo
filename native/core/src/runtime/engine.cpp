@@ -17,6 +17,10 @@
 
 #include "util/log.h"
 #include "thumb/thumb_cache.h"
+#include "edit/render.h"
+#ifdef PHOTO_HAVE_FACES
+#include "codec/codec.h"
+#endif
 
 namespace photo {
 
@@ -123,6 +127,12 @@ Engine::Engine(fs::path catalog_path,
                cache_->ok() ? "ready" : "DISABLED",
                cache_->entry_count());
 
+    // Render workers consult the (lock-free COW) edit map for every thumbnail.
+    // Wired unconditionally; the map is simply empty without a catalog.
+    thumbs_.set_edit_lookup([this](uint64_t id) {
+        return edit_lookup(static_cast<int64_t>(id));
+    });
+
 #ifdef PHOTO_HAVE_SQLITE
     // Open the durable asset catalog. A failure here degrades to "no catalog"
     // (import/rescan report unavailable) rather than bricking the engine.
@@ -130,6 +140,24 @@ Engine::Engine(fs::path catalog_path,
         catalog_ = std::make_unique<catalog::Catalog>(catalog_path_.string());
         PHOTO_LOGF(PHOTO_LOG_INFO, "catalog ready (%lld assets)",
                    static_cast<long long>(catalog_->count()));
+        // Hydrate the in-memory edit map from the catalog so edited thumbnails
+        // render correctly from the first request (no first-touch SQLite read).
+        try {
+            auto map = std::make_shared<EditMap>();
+            for (auto& [id, row] : catalog_->all_edits()) {
+                auto spec = std::make_shared<edit::EditSpec>(
+                    edit::parse_edit_spec(row.spec));
+                if (!spec->is_identity())
+                    (*map)[id] = edit::EditEntry{
+                        static_cast<uint32_t>(row.content_rev), std::move(spec)};
+            }
+            const size_t n = map->size();
+            // Construction is single-threaded; no lock needed for the initial set.
+            edits_ = std::shared_ptr<const EditMap>(std::move(map));
+            if (n) PHOTO_LOGF(PHOTO_LOG_INFO, "hydrated %zu edited assets", n);
+        } catch (const std::exception& e) {
+            PHOTO_LOGF(PHOTO_LOG_WARN, "edit map hydrate failed: %s", e.what());
+        }
     } catch (const std::exception& e) {
         catalog_.reset();
         PHOTO_LOGF(PHOTO_LOG_ERROR, "catalog DISABLED: %s", e.what());
@@ -175,6 +203,121 @@ int Engine::reload_semantic() {
 
 Engine::~Engine() {
     PHOTO_LOGF(PHOTO_LOG_INFO, "engine destroyed (slots=%zu)", slots_.size());
+}
+
+// ── Edit map (general; available with or without a catalog) ────────────────
+
+edit::EditEntry Engine::edit_lookup(int64_t asset_id) const {
+    auto snap = edits_snapshot();
+    if (!snap) return {};
+    auto it = snap->find(asset_id);
+    return it == snap->end() ? edit::EditEntry{} : it->second;
+}
+
+std::vector<int64_t> Engine::edited_asset_ids() const {
+    std::vector<int64_t> out;
+    auto snap = edits_snapshot();
+    if (snap) {
+        out.reserve(snap->size());
+        for (const auto& [id, entry] : *snap) out.push_back(id);
+    }
+    return out;
+}
+
+void Engine::store_edit_entry(int64_t asset_id, const edit::EditEntry* entry) {
+    // Copy-on-write under the lock: the rebuild must not race another writer
+    // (snapshot→rebuild→swap interleaving would lose an update). The map holds
+    // only the currently-edited assets, so the copy is tiny; readers block for
+    // no longer than that copy, and the swapped-out map stays alive for any
+    // render worker still holding a snapshot.
+    std::lock_guard<std::mutex> lk(edits_mu_);
+    auto next = std::make_shared<EditMap>(edits_ ? *edits_ : EditMap{});
+    if (entry) (*next)[asset_id] = *entry;
+    else       next->erase(asset_id);
+    edits_ = std::shared_ptr<const EditMap>(std::move(next));
+}
+
+void Engine::preview_edits(uint64_t slot_id, uint64_t generation,
+                           const std::string& path, uint32_t target_w,
+                           uint32_t target_h, const std::string& spec_str) {
+    edit::EditSpec spec = edit::parse_edit_spec(spec_str);
+    jobs_.submit(PHOTO_PRIORITY_INTERACTIVE,
+                 [this, slot_id, generation, path, target_w, target_h, spec] {
+                     thumbs_.preview(slot_id, generation, path, target_w,
+                                     target_h, spec);
+                 });
+}
+
+uint64_t Engine::export_path(const std::string& src, const std::string& dst,
+                             const std::string& spec_str, int quality) {
+    if (src.empty() || dst.empty()) return 0;
+    edit::EditSpec spec = edit::parse_edit_spec(spec_str);
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, src, dst, spec, quality] {
+        const bool ok = thumbs_.export_to_file(src, dst, spec, quality);
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+        ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+        ev.request_id = req;
+        events_.push(ev);
+    });
+    return req;
+}
+
+uint64_t Engine::save_layered(const std::string& src, const std::string& dst,
+                              const std::string& spec_str) {
+    if (src.empty() || dst.empty()) return 0;
+    edit::EditSpec spec = edit::parse_edit_spec(spec_str);
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, src, dst, spec] {
+        const bool ok = thumbs_.save_layered_tiff(src, dst, spec);
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+        ev.status = ok ? PHOTO_STATUS_OK : PHOTO_STATUS_IO_ERROR;
+        ev.request_id = req;
+        events_.push(ev);
+    });
+    return req;
+}
+
+std::vector<edit::Region> Engine::detect_redeye(int64_t asset_id,
+                                                const std::string& path,
+                                                const std::string& spec_str) {
+    std::vector<edit::Region> out;
+#if defined(PHOTO_HAVE_FACES)
+    // Eye landmarks come from the stored face scan (SCRFD 5-pt); the pixels come
+    // from a fresh decode. Both need the faces/OpenCV build, so this whole path is
+    // macOS/standalone-only — elsewhere the caller falls back to the manual brush.
+    auto eyes = faces_.eye_landmarks_for_asset(static_cast<uint64_t>(asset_id));
+    if (eyes.empty() || path.empty()) return out;
+    cv::Mat bgr = codec::decode_bgr(path);
+    if (bgr.empty()) return out;
+    out = edit::auto_redeye_regions(bgr.data, bgr.cols, bgr.rows,
+                                    static_cast<int>(bgr.step), eyes);
+    // Landmarks (and thus the regions above) are in ORIGINAL-image space, but
+    // retouch regions render in post-geometry space. When the caller's working
+    // spec has geometry, map each region through it; a dab whose eye was cropped
+    // out of frame is dropped rather than misplaced.
+    if (!out.empty() && !spec_str.empty()) {
+        const edit::EditSpec spec = edit::parse_edit_spec(spec_str);
+        if (spec.has_geometry()) {
+            std::vector<edit::Region> mapped;
+            mapped.reserve(out.size());
+            for (const auto& r : out) {
+                edit::Region m;
+                if (edit::map_region_through_geometry(r, bgr.cols, bgr.rows,
+                                                      spec, &m))
+                    mapped.push_back(m);
+            }
+            out = std::move(mapped);
+        }
+    }
+#else
+    (void)asset_id;
+    (void)path;
+    (void)spec_str;
+#endif
+    return out;
 }
 
 #ifdef PHOTO_HAVE_SQLITE
@@ -827,6 +970,48 @@ std::optional<catalog::AssetRecord> Engine::asset(int64_t asset_id) const {
     if (!catalog_) return std::nullopt;
     std::lock_guard<std::mutex> lk(catalog_mu_);
     return catalog_->asset_by_id(asset_id);
+}
+
+std::string Engine::get_edits(int64_t asset_id) const {
+    if (!catalog_) return {};
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    auto row = catalog_->edit_for(asset_id);
+    return row ? row->spec : std::string{};
+}
+
+uint64_t Engine::set_edits(int64_t asset_id, const std::string& spec_str) {
+    if (!catalog_) return 0;
+    edit::EditSpec parsed = edit::parse_edit_spec(spec_str);
+    // An identity spec is a revert: clear the row (rev → 0) so the original is
+    // served straight from cache, and don't fork the cache with a no-op edit.
+    if (parsed.is_identity()) {
+        revert_edits(asset_id);
+        return 0;
+    }
+    // Store the canonical (re-serialized) form so the on-disk spec is normalized.
+    const std::string canonical = edit::serialize_edit_spec(parsed);
+    int64_t rev = 0;
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);  // durable first (see R3)
+        rev = catalog_->set_edit(asset_id, canonical, now_ns());
+    }
+    edit::EditEntry entry{static_cast<uint32_t>(rev),
+                          std::make_shared<edit::EditSpec>(std::move(parsed))};
+    store_edit_entry(asset_id, &entry);  // then make it visible (COW swap)
+    return static_cast<uint64_t>(rev);
+}
+
+void Engine::revert_edits(int64_t asset_id) {
+    if (!catalog_) return;
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        catalog_->clear_edit(asset_id);
+    }
+    store_edit_entry(asset_id, nullptr);
+}
+
+uint64_t Engine::content_rev(int64_t asset_id) const {
+    return edit_lookup(asset_id).content_rev;
 }
 
 #endif  // PHOTO_HAVE_SQLITE

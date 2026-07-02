@@ -65,6 +65,10 @@ list(APPEND PLUGIN_SOURCES
   # libexif is absent, so it is always safe to compile.
   "${NATIVE_CORE_DIR}/src/catalog/catalog.cpp"
   "${NATIVE_CORE_DIR}/src/exif/exif.cpp"
+  # Stage 7 non-destructive edit stack — libvips/plain-C++ only (no OpenCV), so
+  # safe to compile on every desktop plugin.
+  "${NATIVE_CORE_DIR}/src/edit/edit_spec.cpp"
+  "${NATIVE_CORE_DIR}/src/edit/render.cpp"
   # Stage 9 — semantic search (dependency-free; ONNX backend self-stubs).
   "${NATIVE_CORE_DIR}/src/semantic/embedder.cpp"
   "${NATIVE_CORE_DIR}/src/semantic/onnx_embedder.cpp"

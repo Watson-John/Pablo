@@ -9,18 +9,32 @@ import '../../theme/tokens.dart';
 class EditFooterBar extends StatelessWidget {
   const EditFooterBar({
     required this.isDefault,
+    required this.isDirty,
+    required this.hasSavedEdits,
     required this.saveLabel,
     required this.onSave,
     required this.onSaveCopy,
     required this.onReset,
+    required this.onRevert,
     super.key,
   });
 
+  /// The working spec is neutral (nothing to reset) — drives the Reset button.
   final bool isDefault;
+
+  /// The working spec differs from what's saved — drives the "Unsaved changes"
+  /// hint (distinct from [isDefault]: a saved non-neutral edit is NOT dirty).
+  final bool isDirty;
+
+  /// True when a persisted edit exists on disk → show "Revert to Original".
+  final bool hasSavedEdits;
   final String saveLabel;
   final VoidCallback onSave;
   final VoidCallback onSaveCopy;
   final VoidCallback onReset;
+
+  /// Discard the saved edit and restore the untouched original.
+  final VoidCallback onRevert;
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +48,7 @@ class EditFooterBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!isDefault)
+          if (isDirty)
             Padding(
               padding: const EdgeInsets.only(bottom: PabloSpacing.base),
               child: Text(
@@ -63,7 +77,73 @@ class EditFooterBar extends StatelessWidget {
               ],
             ),
           ),
+          // Reversibility signal: edits never touch the original. When a saved
+          // edit exists, the hint becomes a tappable "Revert to Original".
+          Padding(
+            padding: const EdgeInsets.only(top: PabloSpacing.base),
+            child: hasSavedEdits
+                ? _RevertLink(onTap: onRevert)
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const PabloIcon(PabloIconName.rotateLeft,
+                          size: 11, color: PabloColors.textMuted),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Non-destructive — revert anytime',
+                        style: PabloTypography.sans(
+                          fontSize: 10.5,
+                          color: PabloColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// Tappable "Revert to Original" affordance shown when the photo has a saved
+/// edit — the explicit, file-safe undo.
+class _RevertLink extends StatefulWidget {
+  const _RevertLink({required this.onTap});
+  final VoidCallback onTap;
+  @override
+  State<_RevertLink> createState() => _RevertLinkState();
+}
+
+class _RevertLinkState extends State<_RevertLink> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            PabloIcon(PabloIconName.rotateLeft,
+                size: 11,
+                color: _hover ? PabloColors.accentHover : PabloColors.accentPrimary),
+            const SizedBox(width: 5),
+            Text(
+              'Revert to Original',
+              style: PabloTypography.sans(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: _hover
+                    ? PabloColors.accentHover
+                    : PabloColors.accentPrimary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
