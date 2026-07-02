@@ -65,6 +65,9 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/thumb/thumb_service.cpp"
   "${NATIVE_CORE_DIR}/src/thumb/thumb_cache.cpp"
   "${NATIVE_CORE_DIR}/src/util/log.cpp"
+  # §7 XMP face-region writer (pure text; no deps) — referenced by c_api only
+  # under PHOTO_HAVE_FACES, harmless to compile everywhere.
+  "${NATIVE_CORE_DIR}/src/xmp/face_xmp.cpp"
   # M5 asset catalog (SQLite) + EXIF — unify the durable catalog across every
   # desktop target. The SQLite probe below defines PHOTO_HAVE_SQLITE, lighting
   # up engine.cpp's catalog member and the catalog/album/organize C-ABI in
@@ -76,6 +79,11 @@ list(APPEND PLUGIN_SOURCES
   # safe to compile on every desktop plugin.
   "${NATIVE_CORE_DIR}/src/edit/edit_spec.cpp"
   "${NATIVE_CORE_DIR}/src/edit/render.cpp"
+  # Stage 9 — semantic search (dependency-free; ONNX backend self-stubs).
+  "${NATIVE_CORE_DIR}/src/semantic/embedder.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/onnx_embedder.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/semantic_search.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/semantic_service.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})
@@ -146,7 +154,14 @@ message(STATUS "photo_native(windows): asset catalog ENABLED (vcpkg sqlite3)")
 # Bundle the vcpkg sqlite3 DLL next to the app so the plugin resolves it at
 # runtime (x64-windows is a dynamic triplet; CRT-compatible with Flutter's /MD).
 set(_pn_bundled_libraries "")
-if(DEFINED ENV{VCPKG_ROOT} AND EXISTS "$ENV{VCPKG_ROOT}/installed/x64-windows/bin/sqlite3.dll")
-  list(APPEND _pn_bundled_libraries "$ENV{VCPKG_ROOT}/installed/x64-windows/bin/sqlite3.dll")
+if(DEFINED ENV{VCPKG_ROOT})
+  # Normalize to forward slashes: VCPKG_ROOT is typically "C:\vcpkg", and a raw
+  # backslash path gets embedded into the generated cmake_install.cmake where
+  # CMake rejects it ("Invalid character escape '\v'"). TO_CMAKE_PATH → "C:/vcpkg".
+  file(TO_CMAKE_PATH "$ENV{VCPKG_ROOT}/installed/x64-windows/bin/sqlite3.dll"
+       _pn_sqlite_dll)
+  if(EXISTS "${_pn_sqlite_dll}")
+    list(APPEND _pn_bundled_libraries "${_pn_sqlite_dll}")
+  endif()
 endif()
 set(photo_native_bundled_libraries "${_pn_bundled_libraries}" PARENT_SCOPE)

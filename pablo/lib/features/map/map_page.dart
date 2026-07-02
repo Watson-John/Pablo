@@ -2,6 +2,9 @@
 // Pablo v4: the map auto-collapses (fades + slides away) once the photo grid
 // scrolls past a small threshold, and re-reveals near the top / on a new pick.
 
+import 'dart:io' show File, Platform;
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_native/photo_native.dart' show GeoPoint;
 
@@ -12,9 +15,11 @@ import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
+import 'kml_export.dart';
 import 'location_photo_grid.dart';
 import 'map_data.dart';
-import 'usa_heat_map.dart';
+import 'set_location_dialog.dart';
+import 'world_map.dart';
 
 const double _kMapHeight = 300;
 
@@ -86,6 +91,47 @@ class _MapPageState extends State<MapPage> {
     });
   }
 
+  // Export every clustered marker as a KML document for Google Earth / Maps.
+  Future<void> _exportKml() async {
+    final placemarks = [
+      for (final l in _data.locations)
+        KmlPlacemark(
+          name: l.name,
+          lat: l.lat,
+          lon: l.lon,
+          description: '${l.count} photo${l.count == 1 ? '' : 's'}',
+        ),
+    ];
+    if (placemarks.isEmpty) return;
+    final kml = buildKml(documentName: 'Pablo Photo Map', placemarks: placemarks);
+    final loc = await getSaveLocation(suggestedName: 'pablo-photos.kml');
+    if (loc == null) return;
+    var path = loc.path;
+    if (!path.toLowerCase().endsWith('.kml')) path = '$path.kml';
+    await File(path).writeAsString(kml);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Exported ${placemarks.length} locations to '
+          '${path.split(Platform.pathSeparator).last}'),
+    ));
+  }
+
+  // Re-place (manually geotag) every photo at the selected marker.
+  Future<void> _moveLocation(MapLocation loc) async {
+    final backend = NativeBackendScope.maybeOf(context);
+    if (backend == null) return;
+    final ids = _data.assetIdsByLocation[loc.id] ?? const <int>[];
+    if (ids.isEmpty) return;
+    await showSetLocationDialog(
+      context,
+      engine: backend.engine,
+      assetIds: ids,
+      initialLat: loc.lat,
+      initialLon: loc.lon,
+    );
+    _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     final locations = _data.locations;
@@ -144,6 +190,14 @@ class _MapPageState extends State<MapPage> {
                   style: PabloTypography.caption,
                 ),
                 const Spacer(),
+                if (locations.isNotEmpty)
+                  PabloButton(
+                    label: 'Export KML',
+                    variant: PabloButtonVariant.ghost,
+                    icon: PabloIconName.exportIcon,
+                    onPressed: _exportKml,
+                  ),
+                const SizedBox(width: PabloSpacing.sm),
                 PabloButton(
                   label: _showMap ? 'Hide Map' : 'Show Map',
                   variant: PabloButtonVariant.ghost,
@@ -177,7 +231,7 @@ class _MapPageState extends State<MapPage> {
                 opacity: _mapCollapsed ? 0 : 1,
                 child: IgnorePointer(
                   ignoring: _mapCollapsed,
-                  child: USAHeatMap(
+                  child: WorldHeatMap(
                     locations: locations,
                     selectedId: _selectedId,
                     onSelect: _select,
@@ -223,6 +277,14 @@ class _MapPageState extends State<MapPage> {
                               style: PabloTypography.caption,
                             ),
                             const Spacer(),
+                            PabloButton(
+                              label: 'Move location',
+                              variant: PabloButtonVariant.ghost,
+                              size: PabloButtonSize.xs,
+                              icon: PabloIconName.move,
+                              onPressed: () => _moveLocation(selected!),
+                            ),
+                            const SizedBox(width: PabloSpacing.sm),
                             if (!_showMap)
                               PabloButton(
                                 label: 'Show Map',
@@ -265,7 +327,7 @@ class _MapPageState extends State<MapPage> {
                         ),
                         const SizedBox(height: PabloSpacing.xl),
                         Text(
-                          'No geotagged photos in this library.\nThe Flickr30k set carries no GPS metadata.',
+                          'No geotagged photos yet.\nAdd a location from a photo’s Info panel → Location → “Set on map”.',
                           textAlign: TextAlign.center,
                           style: PabloTypography.sans(
                             fontSize: 13,

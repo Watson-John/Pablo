@@ -56,7 +56,11 @@ class PabloCheckbox extends StatelessWidget {
                     : null,
               ),
               const SizedBox(width: PabloSpacing.base),
-              Text(label, style: PabloTypography.sans(fontSize: 12)),
+              // Flexible so a long label wraps instead of overflowing the
+              // fixed-width criteria column.
+              Flexible(
+                child: Text(label, style: PabloTypography.sans(fontSize: 12)),
+              ),
             ],
           ),
         ),

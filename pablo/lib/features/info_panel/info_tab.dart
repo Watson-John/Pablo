@@ -4,13 +4,17 @@
 // carries no EXIF (most of the Flickr30k set).
 
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart' show GeoPoint;
 
+import '../../backend/native_backend.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
 import '../gallery/photo_surface.dart';
+import '../map/reverse_geocode.dart';
+import '../map/set_location_dialog.dart';
 import '../people/people_scope.dart';
 import 'shared.dart';
 
@@ -30,8 +34,25 @@ class InfoTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final exif = getPhotoExif(photo.id);
     final tags = getPhotoTags(photo.id);
+    final assetId = assetIdFor(photo.id);
     final faceCount =
-        PeopleScope.of(context).facesForAsset(assetIdFor(photo.id)).length;
+        PeopleScope.of(context).facesForAsset(assetId).length;
+
+    // Current geotag (manual override or EXIF) from the live catalog, if any.
+    final backend = NativeBackendScope.maybeOf(context);
+    GeoPoint? geo;
+    if (backend != null) {
+      for (final g in backend.engine.listGeotagged()) {
+        if (g.assetId == assetId) {
+          geo = g;
+          break;
+        }
+      }
+    }
+    final geoLabel = geo != null
+        ? (reverseGeocode(geo.lat, geo.lon)?.label ??
+            '${geo.lat.toStringAsFixed(3)}, ${geo.lon.toStringAsFixed(3)}')
+        : exif.location;
 
     final dims = exif.width > 0 ? '${exif.width} × ${exif.height}' : null;
     final sizeLine =
@@ -120,12 +141,30 @@ class InfoTab extends StatelessWidget {
             ],
           ),
         ),
-        if (exif.location != null)
-          MetaRow(
-            icon: PabloIconName.map,
-            label: 'Location',
-            child: Text(exif.location!),
+        MetaRow(
+          icon: PabloIconName.map,
+          label: 'Location',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(geoLabel ?? 'No location'),
+              if (backend != null) ...[
+                const SizedBox(height: 2),
+                InspectorLink(
+                  geo != null ? 'Edit on map →' : 'Set on map →',
+                  fontSize: 11.5,
+                  onTap: () => showSetLocationDialog(
+                    context,
+                    engine: backend.engine,
+                    assetIds: [assetId],
+                    initialLat: geo?.lat,
+                    initialLon: geo?.lon,
+                  ),
+                ),
+              ],
+            ],
           ),
+        ),
 
         // Manage details card
         Padding(

@@ -43,6 +43,11 @@ for rel in api/c_api.cpp \
            exif/exif.cpp \
            edit/edit_spec.cpp \
            edit/render.cpp \
+           semantic/embedder.cpp \
+           semantic/onnx_embedder.cpp \
+           semantic/semantic_search.cpp \
+           semantic/semantic_service.cpp \
+           xmp/face_xmp.cpp \
            codec/codec.cpp \
            faces/detector.cpp \
            faces/align.cpp \

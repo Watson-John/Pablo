@@ -16,6 +16,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "edit/edit_spec.h"
@@ -27,6 +28,8 @@
 
 #ifdef PHOTO_HAVE_SQLITE
 #include "catalog/catalog.h"
+#include "semantic/semantic_search.h"
+#include "semantic/semantic_service.h"
 #endif
 
 #ifdef PHOTO_HAVE_FACES
@@ -72,6 +75,10 @@ public:
     std::optional<exif::AssetMetadata> asset_metadata(int64_t asset_id) const;
     // Every geotagged asset (locked) — drives the map.
     std::vector<catalog::Catalog::GeoPoint> list_geotagged() const;
+    // Manual geotag override (locked). set with lat/lon, or clear to fall back to
+    // EXIF GPS. Takes precedence in list_geotagged().
+    void set_geo(int64_t asset_id, double lat, double lon);
+    void clear_geo(int64_t asset_id);
 
     // Albums (all locked). create_album stamps the creation time itself.
     int64_t create_album(const std::string& name);
@@ -135,6 +142,47 @@ public:
     void     revert_edits(int64_t asset_id);
     // Current content_rev for an asset (0 = unedited).
     uint64_t content_rev(int64_t asset_id) const;
+    // ── Semantic search & discovery (Stage 9) ───────────────────────────────
+    // Schedule embedding for one asset on the idle lane (lowest priority, so it
+    // never preempts interactive thumbnails). Decode+embed runs off-lock; the
+    // resulting row is persisted under catalog_mu_. Emits PHOTO_EVT_EMBED_PROGRESS
+    // (status = per-item result). Returns a request id (0 if no catalog).
+    uint64_t embedding_scan(int64_t asset_id);
+    // Asset ids that still need embedding for the ACTIVE model — the resume
+    // queue (no row, pending, or a done row from a different model). limit<0 =
+    // no cap. Locked.
+    std::vector<int64_t> pending_embedding_ids(int limit = -1) const;
+    catalog::Catalog::EmbeddingCounts embedding_counts() const;   // progress UI
+    void retry_failed_embeddings();                               // explicit retry
+    std::optional<catalog::Catalog::EmbeddingRecord> get_embedding(
+        int64_t asset_id) const;
+    int         embedding_dim() const;       // active model's vector length
+    std::string embedding_model_id() const;  // active model id (for diagnostics)
+    // (asset_id, 0xRRGGBB) for every embedded asset — drives colour search.
+    std::vector<std::pair<int64_t, int32_t>> dominant_colors() const;
+    // Text-query embedding (pure CPU, no lock) + cosine ranking over the done
+    // embeddings. `candidates` (if non-empty) restricts to a metadata-filtered
+    // subset; results are score-descending, capped at `cap`.
+    std::vector<float> embed_text(const std::string& query) const;
+    std::vector<semantic::SearchHit> semantic_search(
+        const std::vector<float>& query,
+        const std::vector<int64_t>& candidates, size_t cap) const;
+    // Reclaim ONNX-session RAM (semantic::kRelease* mask): the UI calls this
+    // when the indexing queue drains (image tower) and on search idle timeout
+    // (text tower). Next embed/search transparently reloads.
+    void release_semantic_sessions(uint32_t mask);
+    // Re-probe the models dir and swap the embedder in (call after the
+    // first-run model download lands — no app restart needed). Returns the
+    // active model's dim. A model change re-queues stale embedding rows.
+    int reload_semantic();
+
+    // Saved searches (all locked). query_json is opaque to the engine.
+    int64_t create_saved_search(const std::string& name,
+                                const std::string& query_json);
+    void    delete_saved_search(int64_t id);
+    std::vector<catalog::Catalog::SavedSearchRecord> list_saved_searches() const;
+    std::optional<catalog::Catalog::SavedSearchRecord> get_saved_search(
+        int64_t id) const;
 #endif
 
     // Live preview: parse `spec_str` and render it transiently to the slot on the
@@ -192,23 +240,30 @@ private:
 #endif
 
     // ── In-memory edit map (copy-on-write) ──────────────────────────────────
-    // asset_id → {content_rev, parsed spec}. Render workers read it via an atomic
-    // shared_ptr load (std::atomic_load free function — the std::atomic<shared_ptr>
-    // specialization isn't available on libc++); mutations rebuild a fresh map and
-    // atomic-store it under edits_write_mu_. This keeps the thumbnail hot path off
-    // SQLite and off the spec parser, with no writer-starvation under scroll.
+    // asset_id → {content_rev, parsed spec}. Mutations rebuild a fresh immutable
+    // map and swap the pointer; readers take a shared_ptr copy under a tiny
+    // mutex (same pattern as semantic_ below — std::atomic<shared_ptr> is absent
+    // on libc++/AppleClang and the atomic_load/store free functions are
+    // C++20-deprecated → -Werror on the Linux plugin build). The lock holds for
+    // a pointer copy only; the map itself is immutable, so render workers keep
+    // their snapshot alive across a concurrent save. Keeps the thumbnail hot
+    // path off SQLite and off the spec parser.
     using EditMap = std::unordered_map<int64_t, edit::EditEntry>;
     std::shared_ptr<const EditMap> edits_{std::make_shared<const EditMap>()};
-    std::mutex edits_write_mu_;
+    mutable std::mutex edits_mu_;
+    std::shared_ptr<const EditMap> edits_snapshot() const {
+        std::lock_guard<std::mutex> lk(edits_mu_);
+        return edits_;
+    }
     // Request-id source for async export / layered-save (catalog-independent).
     std::atomic<uint64_t> next_export_id_{1};
-    // Lookup injected into ThumbService (lock-free read of the COW snapshot).
+    // Lookup injected into ThumbService (snapshot read of the COW map).
     edit::EditEntry edit_lookup(int64_t asset_id) const;
 
 public:
     // Asset ids that currently have a (non-identity) saved edit — for the
-    // gallery's "edited" badge. Reads the lock-free COW snapshot, so it is cheap
-    // and available with or without a catalog.
+    // gallery's "edited" badge. Reads the COW snapshot, so it is cheap and
+    // available with or without a catalog.
     std::vector<int64_t> edited_asset_ids() const;
 
 private:
@@ -233,6 +288,41 @@ private:
     // interleave their snapshot→diff→apply→prune phases. Held for a whole job.
     std::mutex                        import_mu_;
     std::atomic<uint64_t>             next_import_id_{1};
+    // The semantic embedder: the real ONNX model when present, else the
+    // dependency-free deterministic backend. Constructed at engine start and
+    // hot-swappable via reload_semantic (after the first-run model download).
+    // A tiny mutex guards the pointer swap — NOT std::atomic<shared_ptr>
+    // (absent on libc++/AppleClang) nor the std::atomic_load/store free
+    // functions (C++20-deprecated → -Werror on the Linux plugin build). Every
+    // caller takes a local copy under the lock, so a reload can never free a
+    // service out from under an in-flight embed; the copy outlives the swap.
+    // Swaps are rare (once, on download); reads are off the render hot path.
+    std::shared_ptr<semantic::SemanticService> semantic_;
+    mutable std::mutex                         semantic_mu_;
+    std::shared_ptr<semantic::SemanticService> semantic_service() const {
+        std::lock_guard<std::mutex> lk(semantic_mu_);
+        return semantic_;
+    }
+    std::shared_ptr<semantic::SemanticService> make_semantic_service() const;
+    // Semantic-search working set: a DISK-resident int8 sidecar file
+    // (cache_path/semantic_index.bin), memory-mapped — so queries neither
+    // re-read N BLOBs out of SQLite (≈100 MB copied per search at 30k assets)
+    // nor pin a ~100 MB fp32 heap; the OS page cache owns residency and
+    // reclaims the (clean, file-backed) pages under memory pressure. Searches
+    // rank against an immutable mapping snapshot taken outside catalog_mu_;
+    // any engine-side embedding write bumps the generation and clears the
+    // pointer, and the next search lazily rebuilds the file from the catalog
+    // (the durable fp32 source of truth). Across restarts the file is adopted
+    // without a rebuild when its stamp matches Catalog::embedding_stamp().
+    // The generation counter closes the lost-invalidation race: a search that
+    // read the DB before a concurrent write must not publish a stale index.
+    // Only the pointer swap is under semantic_index_mu_ — never the SQLite
+    // read, the file write, or the ranking scan.
+    mutable std::shared_ptr<const semantic::SidecarIndex> sidecar_;
+    mutable uint64_t                                      sidecar_built_gen_ = 0;
+    mutable std::mutex                                    semantic_index_mu_;
+    mutable std::atomic<uint64_t>                         semantic_index_gen_{0};
+    void invalidate_semantic_index();
 #endif
 
     SlotStore                 slots_;

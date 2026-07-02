@@ -55,6 +55,9 @@ list(APPEND PLUGIN_SOURCES
   "${NATIVE_CORE_DIR}/src/thumb/thumb_service.cpp"
   "${NATIVE_CORE_DIR}/src/thumb/thumb_cache.cpp"
   "${NATIVE_CORE_DIR}/src/util/log.cpp"
+  # §7 XMP face-region writer (pure text; no deps) — referenced by c_api only
+  # under PHOTO_HAVE_FACES, harmless to compile everywhere.
+  "${NATIVE_CORE_DIR}/src/xmp/face_xmp.cpp"
   # M5 asset catalog (SQLite) + EXIF — unify the durable catalog across every
   # desktop target (the macOS podspec already compiles these). The SQLite probe
   # below defines PHOTO_HAVE_SQLITE, which lights up engine.cpp's catalog member
@@ -66,6 +69,11 @@ list(APPEND PLUGIN_SOURCES
   # safe to compile on every desktop plugin.
   "${NATIVE_CORE_DIR}/src/edit/edit_spec.cpp"
   "${NATIVE_CORE_DIR}/src/edit/render.cpp"
+  # Stage 9 — semantic search (dependency-free; ONNX backend self-stubs).
+  "${NATIVE_CORE_DIR}/src/semantic/embedder.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/onnx_embedder.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/semantic_search.cpp"
+  "${NATIVE_CORE_DIR}/src/semantic/semantic_service.cpp"
 )
 
 add_library(${PLUGIN_NAME} SHARED ${PLUGIN_SOURCES})

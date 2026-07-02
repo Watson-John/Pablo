@@ -22,7 +22,9 @@ abstract final class PhotoEventKind {
   static const int providerProbed = 7;
   static const int log = 8;
   static const int maintenanceComplete = 9;
-  static const int exportComplete = 10;
+  static const int embedProgress = 10;
+  // 11, not 10: Stage 9 landed embedProgress=10 on main first.
+  static const int exportComplete = 11;
 }
 
 /// Immutable Dart-side projection of a native [NativeEvent].

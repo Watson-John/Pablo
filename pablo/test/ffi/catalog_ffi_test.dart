@@ -105,6 +105,42 @@ void main() {
     engine.addTag(aId, 'beach');
     expect(engine.assetTags(aId), ['beach']);
 
+    // ── Stage 9: embedding index + text query + saved searches ──
+    final counts0 = engine.embeddingCounts();
+    expect(counts0.total, 3);
+    expect(counts0.pending, 3); // nothing embedded yet (all assets pending)
+    expect(engine.pendingEmbeddingIds().length, 3);
+
+    // A text query embeds via the deterministic model (no ONNX needed).
+    final qv = engine.embedText('blue sky');
+    expect(qv, isNotEmpty);
+    // Ranking over an empty done-set is a safe no-op.
+    expect(engine.semanticSearch(qv), isEmpty);
+
+    // Schedule one embed; the terminal EMBED_PROGRESS event fires whether or not
+    // a decoder is compiled (done vs skipped) — either way the row is written.
+    final embReq = engine.embeddingScan(aId);
+    expect(embReq, isNonZero);
+    final embDone = await _waitFor(
+        pump.stream,
+        (e) =>
+            e.kind == PhotoEventKind.embedProgress && e.requestId == embReq);
+    expect(embDone.assetId, aId);
+    expect(engine.embeddingCounts().pending, lessThan(3)); // aId settled
+
+    // Saved searches round-trip through the catalog.
+    final ssId = engine.createSavedSearch('Blue skies', '{"text":"blue"}');
+    expect(ssId, isNonZero);
+    final saved = engine.listSavedSearches();
+    expect(
+        saved.any((s) =>
+            s.name == 'Blue skies' && s.queryJson == '{"text":"blue"}'),
+        isTrue);
+    engine.deleteSavedSearch(ssId);
+    expect(engine.listSavedSearches().any((s) => s.id == ssId), isFalse);
+    // A durable one to verify persistence across reopen.
+    engine.createSavedSearch('persist', '{}');
+
     // ── Hide a single asset → excluded from listAssets, surfaced by hiddenAssets ──
     engine.setHidden(bId, true);
     expect(engine.listAssets().length, 2);
@@ -159,5 +195,7 @@ void main() {
     expect(reopened!.listAssets().length, 3);
     expect(reopened.listAlbums().any((x) => x.name == 'Trip 2'), isTrue);
     expect(reopened.starredAssets().length, 1);
+    // Saved searches persist across the reopen (catalog v7).
+    expect(reopened.listSavedSearches().any((s) => s.name == 'persist'), isTrue);
   }, timeout: const Timeout(Duration(seconds: 90)));
 }

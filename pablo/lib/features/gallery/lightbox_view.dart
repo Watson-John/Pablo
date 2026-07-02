@@ -164,7 +164,10 @@ class _LightboxViewState extends State<LightboxView> {
     // Faces detected in this photo (empty if it hasn't been scanned), drawn as
     // hover-to-name boxes over the big image.
     final pc = PeopleScope.of(context);
-    final faces = pc.facesForAsset(assetIdFor(photo.id));
+    // Ignored faces are hidden from the lightbox overlay (manage them in the
+    // info-panel People tab).
+    final faces =
+        pc.facesForAsset(assetIdFor(photo.id)).where((f) => !f.ignored).toList();
     // In immersive mode the chrome (top bar, filmstrip, caption) auto-hides.
     final showChrome = !widget.fullscreen || _chromeVisible;
 

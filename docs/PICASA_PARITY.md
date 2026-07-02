@@ -147,19 +147,30 @@ _Last verified against the tree: 2026-06-16 (`pablo-v4`)._ Treat this as a livin
 - [x] **Name tagging + People albums** — ✅ P0 (Pablo: `pablo/lib/features/people/face_naming.dart`)
 - [x] **Confirm / reject suggestions** — ✅ P0 (Pablo: `people/decision_buttons.dart`)
 - [x] **Face data persisted (catalog)** — ✅ P0 (Pablo: `data/sources/face_repository.dart`)
-- [ ] **Ignore-face / unknown-face handling** — ◐ P1 (Picasa: `]ignoreface`, `]unknownface`, `<Unknown Person>`)
-- [ ] **Manual face rectangle add / adjust** — ❌ P1
-- [ ] **Write face tags to file metadata (XMP regions) / `.picasa.ini` interop** — ❌ P1
-  (Picasa: `ThumbDB_WriteFaceTagsToImageFile 0x004852e0`, XMP IPTC-ext Regions)
+- [x] **Ignore-face / unknown-face handling** — ✅ P1 — persisted `ignored` flag detaches a
+  detection from its person/cluster + excludes it from people & re-clustering; restorable
+  (Picasa: `]ignoreface`; Pablo: `face.ignored` column, `photo_face_set_ignored`, People-tab Ignore/Restore)
+- [x] **Manual face rectangle add / adjust** — ✅ P1 — draw a box by hand (lightbox / info-panel
+  dialog), name it, remove it (adjust = remove + redraw) (Pablo: `photo_face_add_manual`,
+  `manual` column, `manual_face_dialog.dart`)
+- [ ] **Write face tags to file metadata (XMP regions) / `.picasa.ini` interop** — ◐ P1 — MWG-rs
+  XMP sidecar write DONE (opt-in, `photo_asset_write_face_xmp` → `<path>.xmp`); `.picasa.ini`
+  interop still ❌ (Picasa: `ThumbDB_WriteFaceTagsToImageFile 0x004852e0`, XMP IPTC-ext Regions;
+  Pablo: `native/core/src/xmp/face_xmp.cpp`)
 
 ## 8. Places & geo
 
-- [ ] **Map view of geotagged photos** — ◐ P1 — Pablo has a USA-only heat map; needs a real world map +
-  clustering (Picasa: `GeoPanel`, `EarthController`; Pablo: `pablo/lib/features/map/`)
+- [x] **Map view of geotagged photos** — ✅ P1 — real equirectangular world map (simplified
+  continent outlines + graticule), markers by true GPS, ~1° clustering, tap-to-select
+  (Picasa: `GeoPanel`, `EarthController`; Pablo: `pablo/lib/features/map/world_map.dart`)
 - [x] **Read GPS from EXIF** — ✅ P1
-- [ ] **Manual geotag (drag onto map)** — ❌ P2 (Picasa: `CGeoLocateDialog`, `CGeoTagAdornerEnable`)
-- [ ] **Reverse-geocode to place names** — ❌ P2
-- [ ] **KML / KMZ export** — ❌ P2 (Picasa: `CBackgroundKmzWriter`)
+- [x] **Manual geotag (drag onto map)** — ✅ P2 — click-to-place pin or type coordinates; a
+  catalog `geo_override` that beats EXIF and survives rescan (Picasa: `CGeoLocateDialog`;
+  Pablo: `photo_asset_set_geo`, `set_location_dialog.dart`, Info-panel Location row)
+- [x] **Reverse-geocode to place names** — ✅ P2 — offline nearest-city lookup (bundled ~250-city
+  table, no network) → "City, Country" labels (Pablo: `reverse_geocode.dart`)
+- [x] **KML / KMZ export** — ✅ P2 — KML export of all located photos for Google Earth/Maps (KMZ
+  zipping still ❌) (Picasa: `CBackgroundKmzWriter`; Pablo: `kml_export.dart`)
 
 ## 9. Search & discovery
 

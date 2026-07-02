@@ -170,6 +170,10 @@ final class _NativeFace extends Struct {
   @Int32()
   external int confirmed;
   @Int32()
+  external int ignored;
+  @Int32()
+  external int manual;
+  @Int32()
   external int pad;
 }
 
@@ -233,6 +237,49 @@ final class _NativeAlbum extends Struct {
   external int count;
   @Int32()
   external int pad;
+  @Int64()
+  external int created;
+  @Array(128)
+  external Array<Uint8> name;
+}
+
+// Stage 9 — semantic search. Field order/sizes mirror the C structs exactly.
+final class _NativeEmbedCounts extends Struct {
+  @Int64()
+  external int done;
+  @Int64()
+  external int pending;
+  @Int64()
+  external int processing;
+  @Int64()
+  external int failed;
+  @Int64()
+  external int skipped;
+  @Int64()
+  external int total;
+}
+
+final class _NativeSearchHit extends Struct {
+  @Uint64()
+  external int asset_id;
+  @Float()
+  external double score;
+  @Float()
+  external double pad;
+}
+
+final class _NativeAssetColor extends Struct {
+  @Uint64()
+  external int asset_id;
+  @Int32()
+  external int rgb;
+  @Int32()
+  external int pad;
+}
+
+final class _NativeSavedSearch extends Struct {
+  @Uint64()
+  external int id;
   @Int64()
   external int created;
   @Array(128)
@@ -450,6 +497,61 @@ typedef _NamePersonDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
 
 typedef _NameClusterC = Uint64 Function(Pointer<Void>, Int64, Pointer<Utf8>);
 typedef _NameClusterDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+
+// Stage 9 — semantic search & discovery.
+typedef _EmbedScanC = Uint64 Function(Pointer<Void>, Uint64);
+typedef _EmbedScanDart = int Function(Pointer<Void>, int);
+typedef _EmbedCountsC = Int32 Function(Pointer<Void>, Pointer<_NativeEmbedCounts>);
+typedef _EmbedCountsDart = int Function(Pointer<Void>, Pointer<_NativeEmbedCounts>);
+typedef _EmbedPendingC =
+    IntPtr Function(Pointer<Void>, Int32, Pointer<Uint64>, IntPtr);
+typedef _EmbedPendingDart =
+    int Function(Pointer<Void>, int, Pointer<Uint64>, int);
+typedef _EmbedColorsC =
+    IntPtr Function(Pointer<Void>, Pointer<_NativeAssetColor>, IntPtr);
+typedef _EmbedColorsDart =
+    int Function(Pointer<Void>, Pointer<_NativeAssetColor>, int);
+typedef _EmbedTextC =
+    Uint32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Float>, Uint32);
+typedef _EmbedTextDart =
+    int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Float>, int);
+typedef _SemanticSearchC = IntPtr Function(Pointer<Void>, Pointer<Float>, Uint32,
+    Pointer<Uint64>, IntPtr, Pointer<_NativeSearchHit>, IntPtr);
+typedef _SemanticSearchDart = int Function(Pointer<Void>, Pointer<Float>, int,
+    Pointer<Uint64>, int, Pointer<_NativeSearchHit>, int);
+typedef _SemanticReleaseC = Void Function(Pointer<Void>, Uint32);
+typedef _SemanticReleaseDart = void Function(Pointer<Void>, int);
+typedef _SavedCreateC =
+    Uint64 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _SavedCreateDart =
+    int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+typedef _SavedListC =
+    IntPtr Function(Pointer<Void>, Pointer<_NativeSavedSearch>, IntPtr);
+typedef _SavedListDart =
+    int Function(Pointer<Void>, Pointer<_NativeSavedSearch>, int);
+typedef _SavedQueryC =
+    IntPtr Function(Pointer<Void>, Uint64, Pointer<Uint8>, IntPtr);
+typedef _SavedQueryDart = int Function(Pointer<Void>, int, Pointer<Uint8>, int);
+// Face editing (§7): ignore / manual rect / assign / remove / XMP write-back.
+typedef _FaceSetIgnoredC = Int32 Function(Pointer<Void>, Uint64, Int32);
+typedef _FaceSetIgnoredDart = int Function(Pointer<Void>, int, int);
+typedef _FaceAddManualC =
+    Uint64 Function(Pointer<Void>, Uint64, Float, Float, Float, Float);
+typedef _FaceAddManualDart =
+    int Function(Pointer<Void>, int, double, double, double, double);
+typedef _FaceAssignC = Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _FaceAssignDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _FaceRemoveC = Int32 Function(Pointer<Void>, Uint64);
+typedef _FaceRemoveDart = int Function(Pointer<Void>, int);
+typedef _WriteFaceXmpC =
+    Int32 Function(Pointer<Void>, Uint64, Pointer<Utf8>, IntPtr);
+typedef _WriteFaceXmpDart = int Function(Pointer<Void>, int, Pointer<Utf8>, int);
+
+// Manual geotag (§8).
+typedef _AssetSetGeoC = Int32 Function(Pointer<Void>, Uint64, Double, Double);
+typedef _AssetSetGeoDart = int Function(Pointer<Void>, int, double, double);
+typedef _AssetClearGeoC = Int32 Function(Pointer<Void>, Uint64);
+typedef _AssetClearGeoDart = int Function(Pointer<Void>, int);
 
 // ---------------------------------------------------------------------------
 // EngineConfig (Dart-side, immutable)
@@ -1056,6 +1158,197 @@ final class Engine {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Semantic search & discovery (Stage 9).
+  // -------------------------------------------------------------------------
+
+  /// Schedule embedding for one asset on the idle lane. Emits a
+  /// [PhotoEventKind.embedProgress] event on completion. Returns a request id.
+  int embeddingScan(int assetId) => _Bindings.embeddingScan(_handle, assetId);
+
+  /// Embedding-index progress counts for the indexing UI.
+  EmbeddingCounts embeddingCounts() {
+    final out = calloc<_NativeEmbedCounts>();
+    try {
+      if (_Bindings.embeddingCounts(_handle, out) != 0) {
+        return const EmbeddingCounts.empty();
+      }
+      final r = out.ref;
+      return EmbeddingCounts(
+        done: r.done,
+        pending: r.pending,
+        processing: r.processing,
+        failed: r.failed,
+        skipped: r.skipped,
+        total: r.total,
+      );
+    } finally {
+      calloc.free(out);
+    }
+  }
+
+  /// Asset ids still needing embedding for the active model (the resume queue).
+  /// [limit] < 0 means no cap.
+  List<int> pendingEmbeddingIds({int limit = -1}) =>
+      _collectIds((b, c) => _Bindings.embeddingPending(_handle, limit, b, c));
+
+  /// Flip every failed embedding back to pending (explicit "retry failed").
+  int retryFailedEmbeddings() => _Bindings.embeddingRetryFailed(_handle);
+
+  /// (assetId → 0xRRGGBB dominant colour) for every embedded asset — colour
+  /// search reads this.
+  Map<int, int> embeddingColors() {
+    var cap = 1024;
+    var buf = calloc<_NativeAssetColor>(cap);
+    try {
+      var n = _Bindings.embeddingColors(_handle, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeAssetColor>(cap);
+        n = _Bindings.embeddingColors(_handle, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return {for (var i = 0; i < count; i++) buf[i].asset_id: buf[i].rgb};
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Embed a text query into the active model's vector space (empty if there is
+  /// no embedder).
+  List<double> embedText(String query) {
+    final q = query.toNativeUtf8();
+    var cap = 1024;
+    var buf = calloc<Float>(cap);
+    try {
+      var dim = _Bindings.embedText(_handle, q, buf, cap);
+      if (dim > cap) {
+        calloc.free(buf);
+        cap = dim;
+        buf = calloc<Float>(cap);
+        dim = _Bindings.embedText(_handle, q, buf, cap);
+      }
+      final n = dim < cap ? dim : cap;
+      return [for (var i = 0; i < n; i++) buf[i]];
+    } finally {
+      calloc.free(buf);
+      calloc.free(q);
+    }
+  }
+
+  /// Cosine-rank [queryVec] over the done embeddings, optionally restricted to
+  /// [candidates]. Returns up to [cap] hits, score-descending.
+  List<SearchHit> semanticSearch(
+    List<double> queryVec, {
+    List<int> candidates = const [],
+    int cap = 500,
+  }) {
+    if (queryVec.isEmpty) return const [];
+    final q = calloc<Float>(queryVec.length);
+    Pointer<Uint64> cand = nullptr;
+    final out = calloc<_NativeSearchHit>(cap);
+    try {
+      for (var i = 0; i < queryVec.length; i++) {
+        q[i] = queryVec[i];
+      }
+      if (candidates.isNotEmpty) {
+        cand = calloc<Uint64>(candidates.length);
+        for (var i = 0; i < candidates.length; i++) {
+          cand[i] = candidates[i];
+        }
+      }
+      final n = _Bindings.semanticSearch(
+          _handle, q, queryVec.length, cand, candidates.length, out, cap);
+      final count = n < cap ? n : cap;
+      return [
+        for (var i = 0; i < count; i++)
+          SearchHit(assetId: out[i].asset_id, score: out[i].score),
+      ];
+    } finally {
+      calloc.free(q);
+      if (cand != nullptr) calloc.free(cand);
+      calloc.free(out);
+    }
+  }
+
+  /// Reclaim the RAM of lazily-loaded semantic inference sessions. Call with
+  /// [releaseImageTower] when the embedding-indexing queue drains (the image
+  /// tower is only needed while indexing) and [releaseTextTower] after a
+  /// search idle timeout. The next embed/search transparently reloads (~1 s).
+  static const int releaseImageTower = 1 << 0;
+  static const int releaseTextTower = 1 << 1;
+  void releaseSemanticSessions(int mask) =>
+      _Bindings.semanticReleaseSessions(_handle, mask);
+
+  /// Re-probe the models directory and swap the semantic embedder in — call
+  /// after the first-run model download lands so real text→image search
+  /// activates without an app restart. Returns the active model's dim.
+  int reloadSemantic() => _Bindings.semanticReload(_handle);
+
+  /// Persist a saved search ([queryJson] opaque). Returns its id (0 on failure).
+  int createSavedSearch(String name, String queryJson) {
+    final nptr = name.toNativeUtf8();
+    final jptr = queryJson.toNativeUtf8();
+    try {
+      return _Bindings.savedSearchCreate(_handle, nptr, jptr);
+    } finally {
+      calloc.free(nptr);
+      calloc.free(jptr);
+    }
+  }
+
+  /// Delete a saved search. Returns a photo_status_t (0 == OK).
+  int deleteSavedSearch(int id) => _Bindings.savedSearchDelete(_handle, id);
+
+  /// List saved searches (newest first), each with its query hydrated.
+  List<SavedSearch> listSavedSearches() {
+    var cap = 64;
+    var buf = calloc<_NativeSavedSearch>(cap);
+    try {
+      var n = _Bindings.savedSearchList(_handle, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeSavedSearch>(cap);
+        n = _Bindings.savedSearchList(_handle, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [
+        for (var i = 0; i < count; i++)
+          SavedSearch(
+            id: buf[i].id,
+            created: buf[i].created,
+            name: _readCName(buf[i].name, 128),
+            queryJson: savedSearchQuery(buf[i].id),
+          ),
+      ];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// The opaque query_json of one saved search.
+  String savedSearchQuery(int id) {
+    var cap = 1024;
+    var buf = calloc<Uint8>(cap);
+    try {
+      var n = _Bindings.savedSearchQuery(_handle, id, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Uint8>(cap);
+        n = _Bindings.savedSearchQuery(_handle, id, buf, cap);
+      }
+      // n includes the NUL terminator.
+      final len = n < cap ? n : cap;
+      final strlen = len > 0 ? len - 1 : 0;
+      return utf8.decode(buf.asTypedList(strlen), allowMalformed: true);
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
   /// Collect a uint64 id array from a grow-and-return-total native call.
   List<int> _collectIds(int Function(Pointer<Uint64> buf, int cap) fill,
       {int cap = 256}) {
@@ -1145,6 +1438,58 @@ final class Engine {
       calloc.free(p);
     }
   }
+
+  /// Hide (ignore) or restore a detected face. Ignoring detaches it from its
+  /// person/cluster and excludes it from People + re-clustering. photo_status_t.
+  int setFaceIgnored(int faceId, bool ignored) =>
+      _Bindings.faceSetIgnored(_handle, faceId, ignored ? 1 : 0);
+
+  /// Add a user-drawn face rectangle (source-image pixels) to an asset. Returns
+  /// the new face id, or 0 on failure.
+  int addManualFace(int assetId,
+          {required double x,
+          required double y,
+          required double w,
+          required double h}) =>
+      _Bindings.faceAddManual(_handle, assetId, x, y, w, h);
+
+  /// Assign a face to a named person (create/merge by name), confirming it.
+  /// Works for detector and manual faces alike. Returns photo_status_t.
+  int assignFace(int faceId, String name) {
+    final p = name.toNativeUtf8();
+    try {
+      return _Bindings.faceAssign(_handle, faceId, p);
+    } finally {
+      calloc.free(p);
+    }
+  }
+
+  /// Hard-delete a face row (undo a manual rectangle). photo_status_t.
+  int removeFace(int faceId) => _Bindings.faceRemove(_handle, faceId);
+
+  /// Write the asset's named face regions to an XMP sidecar ("<path>.xmp") in
+  /// the MWG Regions schema. OPT-IN write-back — call only on explicit user
+  /// action. Returns the sidecar path on success, or null (no named faces /
+  /// unsupported / error).
+  String? writeFaceXmp(int assetId) {
+    const cap = 4096;
+    final out = calloc<Uint8>(cap);
+    try {
+      final rc = _Bindings.writeFaceXmp(_handle, assetId, out.cast(), cap);
+      if (rc != 0) return null;
+      return out.cast<Utf8>().toDartString();
+    } finally {
+      calloc.free(out);
+    }
+  }
+
+  /// Manually set an asset's map coordinates (decimal degrees). Overrides EXIF
+  /// GPS and survives rescan. Returns photo_status_t.
+  int setGeo(int assetId, double lat, double lon) =>
+      _Bindings.assetSetGeo(_handle, assetId, lat, lon);
+
+  /// Clear a manual geotag, falling back to EXIF GPS. Returns photo_status_t.
+  int clearGeo(int assetId) => _Bindings.assetClearGeo(_handle, assetId);
 
   // Grow-and-retry read into a native buffer; the C side returns the total
   // count, so a single re-call covers the case where the first buffer was
@@ -1280,7 +1625,9 @@ final class FaceRow {
       boxH = f.box_h,
       score = f.det_score,
       quality = f.quality,
-      confirmed = f.confirmed != 0;
+      confirmed = f.confirmed != 0,
+      ignored = f.ignored != 0,
+      manual = f.manual != 0;
 
   final int faceId;
   final int assetId;
@@ -1293,6 +1640,8 @@ final class FaceRow {
   final double score;
   final double quality;
   final bool confirmed;
+  final bool ignored;
+  final bool manual;
 }
 
 /// One catalog asset, for library hydration. Immutable projection of
@@ -1358,6 +1707,58 @@ final class Album {
   final String name;
   final int coverAssetId;
   final int count;
+  final int created;
+}
+
+/// Embedding-index progress counts (Stage 9). `total` is all non-hidden
+/// assets; `pending` includes assets with no embedding row yet.
+final class EmbeddingCounts {
+  const EmbeddingCounts({
+    required this.done,
+    required this.pending,
+    required this.processing,
+    required this.failed,
+    required this.skipped,
+    required this.total,
+  });
+  const EmbeddingCounts.empty()
+      : done = 0,
+        pending = 0,
+        processing = 0,
+        failed = 0,
+        skipped = 0,
+        total = 0;
+
+  final int done;
+  final int pending;
+  final int processing;
+  final int failed;
+  final int skipped;
+  final int total;
+
+  /// Terminal (won't be retried automatically): done + skipped + failed.
+  int get settled => done + skipped + failed;
+  bool get isComplete => total == 0 || pending + processing == 0;
+}
+
+/// One ranked semantic-search result.
+final class SearchHit {
+  const SearchHit({required this.assetId, required this.score});
+  final int assetId;
+  final double score;
+}
+
+/// A persisted saved search (Stage 9). [queryJson] is the serialized criteria.
+final class SavedSearch {
+  const SavedSearch({
+    required this.id,
+    required this.name,
+    required this.queryJson,
+    required this.created,
+  });
+  final int id;
+  final String name;
+  final String queryJson;
   final int created;
 }
 
@@ -1599,4 +2000,63 @@ final class _Bindings {
 
   static final _NameClusterDart nameCluster = _dylib
       .lookupFunction<_NameClusterC, _NameClusterDart>('photo_face_name_cluster');
+
+  // Stage 9 — semantic search & discovery.
+  static final _EmbedScanDart embeddingScan = _dylib
+      .lookupFunction<_EmbedScanC, _EmbedScanDart>('photo_embedding_scan');
+  static final _EmbedCountsDart embeddingCounts = _dylib
+      .lookupFunction<_EmbedCountsC, _EmbedCountsDart>('photo_embedding_counts');
+  static final _EmbedPendingDart embeddingPending = _dylib
+      .lookupFunction<_EmbedPendingC, _EmbedPendingDart>(
+          'photo_embedding_pending');
+  static final _EngineToInt32Dart embeddingRetryFailed = _dylib
+      .lookupFunction<_EngineToInt32C, _EngineToInt32Dart>(
+          'photo_embedding_retry_failed');
+  static final _EmbedColorsDart embeddingColors = _dylib
+      .lookupFunction<_EmbedColorsC, _EmbedColorsDart>('photo_embedding_colors');
+  static final _EmbedTextDart embedText = _dylib
+      .lookupFunction<_EmbedTextC, _EmbedTextDart>('photo_embed_text');
+  static final _SemanticSearchDart semanticSearch = _dylib
+      .lookupFunction<_SemanticSearchC, _SemanticSearchDart>(
+          'photo_semantic_search');
+  static final _SemanticReleaseDart semanticReleaseSessions = _dylib
+      .lookupFunction<_SemanticReleaseC, _SemanticReleaseDart>(
+          'photo_semantic_release_sessions');
+  static final _EngineToInt32Dart semanticReload = _dylib
+      .lookupFunction<_EngineToInt32C, _EngineToInt32Dart>(
+          'photo_semantic_reload');
+  static final _SavedCreateDart savedSearchCreate = _dylib
+      .lookupFunction<_SavedCreateC, _SavedCreateDart>(
+          'photo_saved_search_create');
+  static final _AlbumIdDart savedSearchDelete = _dylib
+      .lookupFunction<_AlbumIdC, _AlbumIdDart>('photo_saved_search_delete');
+  static final _SavedListDart savedSearchList = _dylib
+      .lookupFunction<_SavedListC, _SavedListDart>('photo_saved_search_list');
+  static final _SavedQueryDart savedSearchQuery = _dylib
+      .lookupFunction<_SavedQueryC, _SavedQueryDart>('photo_saved_search_query');
+  // Face editing (§7).
+  static final _FaceSetIgnoredDart faceSetIgnored = _dylib
+      .lookupFunction<_FaceSetIgnoredC, _FaceSetIgnoredDart>(
+        'photo_face_set_ignored',
+      );
+  static final _FaceAddManualDart faceAddManual = _dylib
+      .lookupFunction<_FaceAddManualC, _FaceAddManualDart>(
+        'photo_face_add_manual',
+      );
+  static final _FaceAssignDart faceAssign = _dylib
+      .lookupFunction<_FaceAssignC, _FaceAssignDart>('photo_face_assign');
+  static final _FaceRemoveDart faceRemove = _dylib
+      .lookupFunction<_FaceRemoveC, _FaceRemoveDart>('photo_face_remove');
+  static final _WriteFaceXmpDart writeFaceXmp = _dylib
+      .lookupFunction<_WriteFaceXmpC, _WriteFaceXmpDart>(
+        'photo_asset_write_face_xmp',
+      );
+
+  // Manual geotag (§8).
+  static final _AssetSetGeoDart assetSetGeo = _dylib
+      .lookupFunction<_AssetSetGeoC, _AssetSetGeoDart>('photo_asset_set_geo');
+  static final _AssetClearGeoDart assetClearGeo = _dylib
+      .lookupFunction<_AssetClearGeoC, _AssetClearGeoDart>(
+        'photo_asset_clear_geo',
+      );
 }

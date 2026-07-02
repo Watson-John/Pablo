@@ -38,6 +38,19 @@ overwritten) and portable, but it IS a real new-file write, so it is opt-in and
 off by default. "Save as Copy" (`photo_asset_export`) likewise writes a separate
 flattened file. No original file is ever modified or deleted by the editor.
 
+**Amendment (2026-07-01) — opt-in XMP face-region write-back (§7 parity).** The
+"no write-back" rule is relaxed for ONE explicit, user-initiated action: exporting
+an asset's named face regions to an XMP **sidecar** (`<path>.xmp`) in the MWG
+Regions schema (`native/core/src/xmp/face_xmp.cpp`, `photo_asset_write_face_xmp`).
+This never runs on import or automatically, is a pure-text sidecar (no dependency,
+no pugixml, and the **original image bytes are never touched**), and is the write
+half the parity checklist §7 tracked as ❌. Catalog-only remains the DEFAULT for
+all other user metadata (ratings/captions/tags/face assignments); manual geotags
+also stay catalog-only (a `geo_override` table, not the file). Reading third-party
+XMP regions on import is still out of scope. Does not reverse the interop stance
+in the Implications — Pablo still produces no Lightroom-compatible metadata beyond
+this one sidecar on request.
+
 ---
 
 ## D2. Face model source — BlazeFace + permissively-licensed embedder

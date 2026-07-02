@@ -605,7 +605,21 @@ final List<String> _photosForOrder = <String>[];
 /// Curated smart collections whose intrinsic order is meaningful (Recently
 /// Added = recency, Starred = engine order) and must NOT be re-sorted by the
 /// gallery sort. "All Photos" and folders/albums/timeline ARE sorted.
-const Set<String> _unsortedSections = {'smart:recent', 'smart:starred'};
+/// `search:results` is ordered by semantic relevance / colour proximity, so it
+/// is unsorted too.
+const Set<String> _unsortedSections = {
+  'smart:recent',
+  'smart:starred',
+  'search:results',
+};
+
+/// The active search's results (Stage 9), ordered by relevance. Rendered under
+/// the `search:results` section id. Kept out of the gallery sort.
+List<Photo> _searchResults = const [];
+void setSearchResults(List<Photo> photos) {
+  _searchResults = photos;
+  _invalidateGallery();
+}
 
 /// Photos for a gallery section id — a smart-collection key, album id, folder
 /// id, or timeline id — with hidden photos filtered out (unless
@@ -614,7 +628,8 @@ const Set<String> _unsortedSections = {'smart:recent', 'smart:starred'};
 /// generation, library revision) so scroll/hover rebuilds don't re-sort a
 /// tens-of-thousands-of-photo section.
 List<Photo> photosFor(String id) {
-  final raw = _smartSectionPhotos[id] ??
+  final raw = (id == 'search:results' ? _searchResults : null) ??
+      _smartSectionPhotos[id] ??
       _albumSectionPhotos[id] ??
       Library.instance.photosByFolder[id] ??
       Library.instance.photosByTimeline[id] ??

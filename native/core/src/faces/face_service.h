@@ -76,6 +76,20 @@ public:
     std::vector<std::array<float, 4>> eye_landmarks_for_asset(uint64_t asset_id);
     bool name_person(uint64_t person_id, const std::string& name);
 
+    // --- face editing (persistence only; NO models required) ---
+    // Hide/restore a detection (Picasa ]ignoreface). Excluded from people.
+    bool set_ignored(uint64_t face_id, bool ignored);
+    // Add a hand-drawn face rectangle (source-image pixels). Returns face_id, 0 on fail.
+    uint64_t add_manual_face(uint64_t asset_id, float x, float y, float w, float h);
+    // Assign a face to a named person (create/merge), confirming it.
+    bool assign_face(uint64_t face_id, const std::string& name);
+    // Hard-delete a face row (manual-rect undo).
+    bool remove_face(uint64_t face_id);
+
+    // Named face regions of an asset, in source-image pixels, for XMP export.
+    struct NamedRegion { std::string name; float x, y, w, h; };
+    std::vector<NamedRegion> named_regions_for_asset(uint64_t asset_id);
+
     static bool available();  // FACES_HAVE_ORT
 
 private:
@@ -95,7 +109,11 @@ private:
                             uint32_t n_faces);
     void emit_cluster_updated(uint64_t request_id);
 
-    // Lazily constructed on first scan (model load is expensive + may fail).
+    // Lazily open the FaceStore + prototype index (SQLite only — cheap, no ML).
+    // A prerequisite for both read-back and ensure_models().
+    bool ensure_store();
+    // Lazily load the ONNX detector + embedder (expensive; may fail). Implies
+    // ensure_store().
     bool ensure_models();
 
     EventRing* events_;
@@ -103,6 +121,8 @@ private:
     std::filesystem::path models_dir_;
     std::filesystem::path catalog_path_;
 
+    std::once_flag store_once_;
+    bool store_ok_ = false;
     std::once_flag models_once_;
     bool models_ok_ = false;
     // Serializes all FaceStore access: UI read queries vs. worker writes.

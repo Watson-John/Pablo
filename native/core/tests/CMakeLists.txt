@@ -38,9 +38,26 @@ set(PHOTO_CORE_TEST_SOURCES
     edit_test.cpp
     edit_integration_test.cpp
     edit_c_api_test.cpp
+    semantic_test.cpp
+    semantic_onnx_test.cpp
+    xmp_test.cpp
+    geo_test.cpp
+    face_store_test.cpp
+    # §5 Organize & metadata — full suite (see
+    # docs/specs/05-organize-and-metadata-tests.md).
+    organize_state_test.cpp     # star / rating / caption (catalog)
+    tags_test.cpp               # keyword/tag edge cases (catalog)
+    metadata_storage_test.cpp   # asset_metadata round-trip (catalog)
+    exif_extract_test.cpp       # real libexif extraction vs exiftool fixture
+    c_api_organize_test.cpp     # the organize/metadata C ABI surface
 )
 
 add_executable(photo_core_tests ${PHOTO_CORE_TEST_SOURCES})
+
+# exif_extract_test loads a committed fixture baked by exiftool; hand it the
+# absolute fixtures dir so the test is run-location independent.
+target_compile_definitions(photo_core_tests PRIVATE
+    PHOTO_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
 # Link the OBJECT library, not the SHARED dylib: tests do white-box checks on
 # internal classes (ThumbCache, Catalog, …) whose symbols the dylib hides.
