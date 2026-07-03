@@ -289,3 +289,61 @@ TEST(Import, VideoIsImportedAndFlagged) {
 }
 
 #endif  // PHOTO_HAVE_SQLITE
+
+// ── Analyzer seam (runtime/analyzer.h): register → run → poll result ────────
+
+namespace {
+class StubAnalyzer final : public photo::runtime::IImageAnalyzer {
+public:
+    const std::string& id() const override {
+        static const std::string kId = "test.stub";
+        return kId;
+    }
+    const std::string& version() const override {
+        static const std::string kV = "1";
+        return kV;
+    }
+    bool available() const override { return true; }
+    photo::runtime::AnalyzerResult analyze(
+        int64_t, const photo::semantic::PixelView& px) override {
+        return {0, std::string("{\"ok\":true,\"w\":") +
+                       std::to_string(px.width) + "}"};
+    }
+};
+}  // namespace
+
+TEST(Analyzer, RunPersistsAndPollsThroughTheEngine) {
+    auto dir = make_tree("analyzer");
+    write_file(dir / "a.jpg");
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    eng->analyzers().register_analyzer(std::make_unique<StubAnalyzer>());
+    ASSERT_TRUE(wait_for_import(*eng, eng->import_path(dir.string())));
+    const auto assets = eng->list_assets();
+    ASSERT_EQ(assets.size(), 1u);
+    const int64_t id = assets[0].id;
+
+    // Unknown analyzer → rejected.
+    EXPECT_EQ(eng->analyzer_run("no.such.analyzer", id), 0u);
+
+    ASSERT_GT(eng->analyzer_run("test.stub", id), 0u);
+    // A pending row lands synchronously; the result follows on the idle lane.
+    photo::catalog::Catalog::AnalysisRow row;
+    ASSERT_TRUE(eng->analysis_get("test.stub", id, row));
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (row.status == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ASSERT_TRUE(eng->analysis_get("test.stub", id, row));
+    }
+    EXPECT_EQ(row.version, "1");
+#if defined(PHOTO_HAVE_FACES)
+    // A codec is compiled in: the 8-byte fixture is undecodable → failed is
+    // also acceptable; a REAL decode yields done + the stub payload. Either
+    // way the row is terminal.
+    EXPECT_NE(row.status, 0);
+#else
+    // Lean build: no decoder → the runner reports failed.
+    EXPECT_EQ(row.status, 2);
+#endif
+}

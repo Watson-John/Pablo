@@ -53,6 +53,13 @@ public:
     // Whether a decoder is available in this build (false ⇒ embed_asset Skips).
     static bool has_builtin_decoder();
 
+    // Decode `path` to row-major RGBA8 bounded to `target` px on the long
+    // edge, via the built-in codec. False when unavailable/failed. Shared by
+    // the analyzer runner (runtime/analyzer.h) so extensions decode exactly
+    // like the semantic indexer.
+    static bool decode_rgba(const std::string& path, int target,
+                            std::vector<uint8_t>& rgba, int& w, int& h);
+
 private:
     std::unique_ptr<Embedder> embedder_;
     DecodeFn decode_;

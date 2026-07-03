@@ -13,6 +13,7 @@ import '../../app/app_state.dart';
 import '../../components/context_menu.dart';
 import '../../data/library.dart' show photosFor;
 import '../../data/models.dart' show NavSection;
+import '../../data/sources/external_actions.dart';
 import '../../utils/reveal_in_file_manager.dart';
 
 /// The photos an action should operate on: the current selection (in visible
@@ -191,11 +192,18 @@ List<ContextMenuItem> buildPhotoMenuItems({
         onPressed: () => actions.onToggleHidden(targets),
       ),
       ContextMenuItem.separator(),
-      ContextMenuItem(
-        label: revealActionLabel(),
-        iconCharacter: '📂',
-        onPressed: () => revealInFileManager(clickedId),
-      ),
+      // External actions come from the registry (external_actions.dart) so an
+      // add-on lands in this menu with one registration, no menu surgery.
+      for (final action in ExternalActionRegistry.actions)
+        if (action.canRun(action.singleTarget ? [clickedId] : targets))
+          ContextMenuItem(
+            label: action.singleTarget || !multi
+                ? action.label
+                : '${action.label} ($n)',
+            iconCharacter: action.iconCharacter,
+            onPressed: () =>
+                action.run(action.singleTarget ? [clickedId] : targets),
+          ),
       ContextMenuItem(
         label: withCount('Copy', 'Paths'),
         iconCharacter: '📋',

@@ -2075,6 +2075,95 @@ class PhotoBindings {
   late final _photo_face_prune_stale = _photo_face_prune_stalePtr
       .asFunction<int Function(ffi.Pointer<photo_engine_t>)>();
 
+  /// Analyzers — the plugin-ready per-asset analysis seam (runtime/analyzer.h).
+  /// Results persist in the catalog analysis table keyed (analyzer_id, asset_id)
+  /// with a small JSON payload whose schema is each analyzer's own contract.
+  /// NOT yet a stable third-party API (see docs/EXTENDING.md).
+  /// photo_analyzer_list: NUL-separated "id\tversion" entries into out;
+  /// returns TOTAL bytes needed (grow-and-retry, like photo_asset_tags).
+  /// photo_analyzer_run: schedule on the idle lane; a pending row is written
+  /// immediately, the result row (status done/failed) when finished. Poll
+  /// photo_analysis_get. Returns a request id; 0 = unknown/unavailable.
+  /// photo_analysis_get: *out_status = 0 pending / 1 done / 2 failed;
+  /// payload copied when cap >= *out_needed. NOT_FOUND when never run.
+  int photo_analyzer_list(
+    ffi.Pointer<photo_engine_t> engine,
+    ffi.Pointer<ffi.Char> out,
+    int cap,
+  ) {
+    return _photo_analyzer_list(
+      engine,
+      out,
+      cap,
+    );
+  }
+
+  late final _photo_analyzer_listPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Size Function(ffi.Pointer<photo_engine_t>, ffi.Pointer<ffi.Char>,
+              ffi.Size)>>('photo_analyzer_list');
+  late final _photo_analyzer_list = _photo_analyzer_listPtr.asFunction<
+      int Function(ffi.Pointer<photo_engine_t>, ffi.Pointer<ffi.Char>, int)>();
+
+  int photo_analyzer_run(
+    ffi.Pointer<photo_engine_t> engine,
+    ffi.Pointer<ffi.Char> analyzer_id_utf8,
+    int asset_id,
+  ) {
+    return _photo_analyzer_run(
+      engine,
+      analyzer_id_utf8,
+      asset_id,
+    );
+  }
+
+  late final _photo_analyzer_runPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Uint64 Function(ffi.Pointer<photo_engine_t>,
+              ffi.Pointer<ffi.Char>, ffi.Uint64)>>('photo_analyzer_run');
+  late final _photo_analyzer_run = _photo_analyzer_runPtr.asFunction<
+      int Function(ffi.Pointer<photo_engine_t>, ffi.Pointer<ffi.Char>, int)>();
+
+  int photo_analysis_get(
+    ffi.Pointer<photo_engine_t> engine,
+    ffi.Pointer<ffi.Char> analyzer_id_utf8,
+    int asset_id,
+    ffi.Pointer<ffi.Int32> out_status,
+    ffi.Pointer<ffi.Char> out_payload,
+    int cap,
+    ffi.Pointer<ffi.Size> out_needed,
+  ) {
+    return _photo_analysis_get(
+      engine,
+      analyzer_id_utf8,
+      asset_id,
+      out_status,
+      out_payload,
+      cap,
+      out_needed,
+    );
+  }
+
+  late final _photo_analysis_getPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int32 Function(
+              ffi.Pointer<photo_engine_t>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Uint64,
+              ffi.Pointer<ffi.Int32>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Size,
+              ffi.Pointer<ffi.Size>)>>('photo_analysis_get');
+  late final _photo_analysis_get = _photo_analysis_getPtr.asFunction<
+      int Function(
+          ffi.Pointer<photo_engine_t>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          ffi.Pointer<ffi.Int32>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          ffi.Pointer<ffi.Size>)>();
+
   /// Add a user-drawn face rectangle to an asset, in source-image pixels. Stores
   /// the box as a manual face (no embedding). If the face models are loaded the
   /// region is also embedded so recognition can suggest it. Returns the new

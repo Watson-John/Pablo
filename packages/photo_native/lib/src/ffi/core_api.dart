@@ -623,6 +623,15 @@ typedef _SavedQueryDart = int Function(Pointer<Void>, int, Pointer<Uint8>, int);
 // Face editing (§7): ignore / manual rect / assign / remove / XMP write-back.
 typedef _FaceSetIgnoredC = Int32 Function(Pointer<Void>, Uint64, Int32);
 typedef _FaceSetIgnoredDart = int Function(Pointer<Void>, int, int);
+typedef _AnalyzerListC = IntPtr Function(Pointer<Void>, Pointer<Utf8>, IntPtr);
+typedef _AnalyzerListDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _AnalyzerRunC =
+    Uint64 Function(Pointer<Void>, Pointer<Utf8>, Uint64);
+typedef _AnalyzerRunDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _AnalysisGetC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Uint64,
+    Pointer<Int32>, Pointer<Utf8>, IntPtr, Pointer<IntPtr>);
+typedef _AnalysisGetDart = int Function(Pointer<Void>, Pointer<Utf8>, int,
+    Pointer<Int32>, Pointer<Utf8>, int, Pointer<IntPtr>);
 typedef _FaceModelIdC = Int32 Function(Pointer<Void>, Pointer<Utf8>, IntPtr);
 typedef _FaceModelIdDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _FaceStaleCountC = Int64 Function(Pointer<Void>);
@@ -1714,6 +1723,77 @@ final class Engine {
   int setFaceIgnored(int faceId, bool ignored) =>
       _Bindings.faceSetIgnored(_handle, faceId, ignored ? 1 : 0);
 
+  /// Registered analyzers (runtime/analyzer.h) as (id, version) records.
+  /// Empty until built-ins/plugins register; the seam ships ahead of them.
+  List<({String id, String version})> listAnalyzers() {
+    var cap = 512;
+    var buf = calloc<Uint8>(cap);
+    try {
+      var n = _Bindings.analyzerList(_handle, buf.cast(), cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Uint8>(cap);
+        n = _Bindings.analyzerList(_handle, buf.cast(), cap);
+      }
+      final out = <({String id, String version})>[];
+      var start = 0;
+      final bytes = buf.asTypedList(n < cap ? n : cap);
+      for (var i = 0; i < bytes.length; i++) {
+        if (bytes[i] != 0) continue;
+        final entry = String.fromCharCodes(bytes.sublist(start, i));
+        start = i + 1;
+        final tab = entry.indexOf('\t');
+        if (tab > 0) {
+          out.add(
+              (id: entry.substring(0, tab), version: entry.substring(tab + 1)));
+        }
+      }
+      return out;
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Schedule [analyzerId] over [assetId] (idle lane). Returns a request id;
+  /// 0 = unknown analyzer / unavailable / no catalog. Poll [analysisFor].
+  int runAnalyzer(String analyzerId, int assetId) {
+    final a = analyzerId.toNativeUtf8();
+    try {
+      return _Bindings.analyzerRun(_handle, a, assetId);
+    } finally {
+      calloc.free(a);
+    }
+  }
+
+  /// Persisted analysis for (analyzer, asset): status 0 pending / 1 done /
+  /// 2 failed + the analyzer's JSON payload. Null when never run.
+  ({int status, String payload})? analysisFor(String analyzerId, int assetId) {
+    final a = analyzerId.toNativeUtf8();
+    final st = calloc<Int32>();
+    final needed = calloc<IntPtr>();
+    var cap = 4096;
+    var buf = calloc<Uint8>(cap);
+    try {
+      var rc = _Bindings.analysisGet(
+          _handle, a, assetId, st, buf.cast(), cap, needed);
+      if (rc == 1 && needed.value > cap) {
+        calloc.free(buf);
+        cap = needed.value;
+        buf = calloc<Uint8>(cap);
+        rc = _Bindings.analysisGet(
+            _handle, a, assetId, st, buf.cast(), cap, needed);
+      }
+      if (rc != 0) return null;
+      return (status: st.value, payload: buf.cast<Utf8>().toDartString());
+    } finally {
+      calloc.free(a);
+      calloc.free(st);
+      calloc.free(needed);
+      calloc.free(buf);
+    }
+  }
+
   /// Active face-model profile id (e.g. "scrfd10g+auraface"); '' when faces
   /// are unavailable. Settings diagnostics.
   String get faceModelId {
@@ -2419,6 +2499,15 @@ final class _Bindings {
       .lookupFunction<_FaceSetIgnoredC, _FaceSetIgnoredDart>(
         'photo_face_set_ignored',
       );
+
+  static final _AnalyzerListDart analyzerList = _dylib
+      .lookupFunction<_AnalyzerListC, _AnalyzerListDart>('photo_analyzer_list');
+
+  static final _AnalyzerRunDart analyzerRun = _dylib
+      .lookupFunction<_AnalyzerRunC, _AnalyzerRunDart>('photo_analyzer_run');
+
+  static final _AnalysisGetDart analysisGet = _dylib
+      .lookupFunction<_AnalysisGetC, _AnalysisGetDart>('photo_analysis_get');
 
   static final _FaceModelIdDart faceModelId = _dylib
       .lookupFunction<_FaceModelIdC, _FaceModelIdDart>('photo_face_model_id');

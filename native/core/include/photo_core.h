@@ -1069,6 +1069,30 @@ PHOTO_API int32_t photo_face_model_id(photo_engine_t* engine, char* out,
 PHOTO_API int64_t photo_face_stale_count(photo_engine_t* engine);
 PHOTO_API int64_t photo_face_prune_stale(photo_engine_t* engine);
 
+/*
+ * Analyzers — the plugin-ready per-asset analysis seam (runtime/analyzer.h).
+ * Results persist in the catalog analysis table keyed (analyzer_id, asset_id)
+ * with a small JSON payload whose schema is each analyzer's own contract.
+ * NOT yet a stable third-party API (see docs/EXTENDING.md).
+ *   photo_analyzer_list: NUL-separated "id\tversion" entries into out;
+ *     returns TOTAL bytes needed (grow-and-retry, like photo_asset_tags).
+ *   photo_analyzer_run: schedule on the idle lane; a pending row is written
+ *     immediately, the result row (status done/failed) when finished. Poll
+ *     photo_analysis_get. Returns a request id; 0 = unknown/unavailable.
+ *   photo_analysis_get: *out_status = 0 pending / 1 done / 2 failed;
+ *     payload copied when cap >= *out_needed. NOT_FOUND when never run.
+ */
+PHOTO_API size_t photo_analyzer_list(photo_engine_t* engine, char* out,
+                                     size_t cap);
+PHOTO_API uint64_t photo_analyzer_run(photo_engine_t* engine,
+                                      const char* analyzer_id_utf8,
+                                      uint64_t asset_id);
+PHOTO_API int32_t photo_analysis_get(photo_engine_t* engine,
+                                     const char* analyzer_id_utf8,
+                                     uint64_t asset_id, int32_t* out_status,
+                                     char* out_payload, size_t cap,
+                                     size_t* out_needed);
+
 /* Add a user-drawn face rectangle to an asset, in source-image pixels. Stores
  * the box as a manual face (no embedding). If the face models are loaded the
  * region is also embedded so recognition can suggest it. Returns the new

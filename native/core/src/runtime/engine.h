@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "edit/edit_spec.h"
+#include "runtime/analyzer.h"
 #include "photo_core.h"
 #include "runtime/event_ring.h"
 #include "runtime/job_system.h"
@@ -156,6 +157,19 @@ public:
     // resulting row is persisted under catalog_mu_. Emits PHOTO_EVT_EMBED_PROGRESS
     // (status = per-item result). Returns a request id (0 if no catalog).
     uint64_t embedding_scan(int64_t asset_id);
+
+    // ── analyzers (runtime/analyzer.h) — the plugin-ready analysis seam ──
+    // Registration happens during engine construction only; the registry is
+    // immutable afterwards (lock-free lookups). Exposed non-const for tests
+    // and future built-ins registered in the ctor.
+    runtime::AnalyzerRegistry& analyzers() { return analyzers_; }
+    // Run `analyzer_id` over one asset on the idle lane. Persists a pending
+    // row immediately and the result row when done (status done/failed).
+    // Returns a request id; 0 = unknown analyzer / unavailable / no catalog.
+    uint64_t analyzer_run(const std::string& analyzer_id, int64_t asset_id);
+    // Read a persisted result. False when no row exists.
+    bool analysis_get(const std::string& analyzer_id, int64_t asset_id,
+                      catalog::Catalog::AnalysisRow& out) const;
     // Asset ids that still need embedding for the ACTIVE model — the resume
     // queue (no row, pending, or a done row from a different model). limit<0 =
     // no cap. Locked.
@@ -319,6 +333,8 @@ private:
     // interleave their snapshot→diff→apply→prune phases. Held for a whole job.
     std::mutex                        import_mu_;
     std::atomic<uint64_t>             next_import_id_{1};
+    // Analyzer registry (runtime/analyzer.h). Populated in the ctor only.
+    runtime::AnalyzerRegistry         analyzers_;
     // The semantic embedder: the real ONNX model when present, else the
     // dependency-free deterministic backend. Constructed at engine start and
     // hot-swappable via reload_semantic (after the first-run model download).

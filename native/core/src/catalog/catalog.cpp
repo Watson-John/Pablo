@@ -282,6 +282,54 @@ void Catalog::migrate() {
              " updated_ns INTEGER NOT NULL DEFAULT 0);"
              "PRAGMA user_version=9;");
     }
+    if (user_version(db_) < 10) {
+        // Generic analyzer-result table (runtime/analyzer.h). One row per
+        // (analyzer, asset); payload is a small JSON doc whose schema is the
+        // analyzer's own contract, so new analyzers never need a migration.
+        // status: 0 pending, 1 done, 2 failed. `version` mirrors the semantic
+        // embedder rule — a row whose version differs from the analyzer's
+        // current one is stale and gets re-run.
+        exec(db_,
+             "CREATE TABLE IF NOT EXISTS analysis("
+             " analyzer_id TEXT NOT NULL,"
+             " asset_id INTEGER NOT NULL"
+             "   REFERENCES asset(id) ON DELETE CASCADE,"
+             " version TEXT NOT NULL DEFAULT '',"
+             " status INTEGER NOT NULL DEFAULT 0,"
+             " payload TEXT NOT NULL DEFAULT '',"
+             " updated_ns INTEGER NOT NULL DEFAULT 0,"
+             " PRIMARY KEY(analyzer_id, asset_id));"
+             "PRAGMA user_version=10;");
+    }
+}
+
+void Catalog::upsert_analysis(const AnalysisRow& row) {
+    Stmt q(db_,
+           "INSERT INTO analysis(analyzer_id,asset_id,version,status,payload,"
+           "updated_ns) VALUES(?,?,?,?,?,?)"
+           " ON CONFLICT(analyzer_id,asset_id) DO UPDATE SET"
+           " version=excluded.version, status=excluded.status,"
+           " payload=excluded.payload, updated_ns=excluded.updated_ns");
+    q.bind(1, row.analyzer_id).bind(2, row.asset_id).bind(3, row.version)
+     .bind(4, static_cast<int64_t>(row.status)).bind(5, row.payload_json)
+     .bind(6, row.updated_ns);
+    q.run();
+}
+
+bool Catalog::get_analysis(const std::string& analyzer_id, int64_t asset_id,
+                           AnalysisRow& out) const {
+    Stmt q(db_,
+           "SELECT version,status,payload,updated_ns FROM analysis"
+           " WHERE analyzer_id=? AND asset_id=?");
+    q.bind(1, analyzer_id).bind(2, asset_id);
+    if (!q.step()) return false;
+    out.analyzer_id = analyzer_id;
+    out.asset_id = asset_id;
+    out.version = q.col_text(0);
+    out.status = static_cast<int32_t>(q.col_int(1));
+    out.payload_json = q.col_text(2);
+    out.updated_ns = q.col_int(3);
+    return true;
 }
 
 int64_t Catalog::upsert_asset(AssetRecord& rec) {

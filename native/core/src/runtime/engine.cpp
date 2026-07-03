@@ -582,6 +582,54 @@ uint64_t Engine::rescan() {
 
 // ── Semantic search & discovery (Stage 9) ────────────────────────────────────
 
+uint64_t Engine::analyzer_run(const std::string& analyzer_id, int64_t asset_id) {
+    if (!catalog_) return 0;
+    auto* a = analyzers_.find(analyzer_id);
+    if (!a || !a->available()) return 0;
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        path = catalog_->path_by_id(asset_id);
+        if (path.empty()) return 0;
+        catalog::Catalog::AnalysisRow pending;
+        pending.analyzer_id = analyzer_id;
+        pending.asset_id = asset_id;
+        pending.version = a->version();
+        pending.status = 0;  // pending — Dart polls analysis_get
+        pending.updated_ns = now_ns();
+        catalog_->upsert_analysis(pending);
+    }
+    const uint64_t req = next_import_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, a, analyzer_id, asset_id, path] {
+        // Decode + analyze OFF the catalog lock (mirrors embedding_scan).
+        catalog::Catalog::AnalysisRow row;
+        row.analyzer_id = analyzer_id;
+        row.asset_id = asset_id;
+        row.version = a->version();
+        std::vector<uint8_t> rgba;
+        int w = 0, h = 0;
+        if (semantic::SemanticService::decode_rgba(path, 1024, rgba, w, h)) {
+            semantic::PixelView px{rgba.data(), w, h, 4, 0};
+            const auto res = a->analyze(asset_id, px);
+            row.status = res.status == 0 ? 1 : 2;  // done / failed
+            row.payload_json = res.payload_json;
+        } else {
+            row.status = 2;  // failed: no decodable pixels in this build
+        }
+        row.updated_ns = now_ns();
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        if (catalog_) catalog_->upsert_analysis(row);
+    });
+    return req;
+}
+
+bool Engine::analysis_get(const std::string& analyzer_id, int64_t asset_id,
+                          catalog::Catalog::AnalysisRow& out) const {
+    if (!catalog_) return false;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->get_analysis(analyzer_id, asset_id, out);
+}
+
 uint64_t Engine::embedding_scan(int64_t asset_id) {
     if (!catalog_ || !semantic_service()) return 0;
     const uint64_t req = next_import_id_.fetch_add(1, std::memory_order_relaxed);

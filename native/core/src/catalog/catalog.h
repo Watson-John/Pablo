@@ -252,6 +252,20 @@ public:
         kEmbedFailed     = 3,
         kEmbedSkipped    = 4,
     };
+    // ── analyzer results (runtime/analyzer.h) — the generic plugin-data
+    //    table: (analyzer_id, asset_id) → versioned JSON payload. ──
+    struct AnalysisRow {
+        std::string analyzer_id;
+        int64_t asset_id = 0;
+        std::string version;
+        int32_t status = 0;  // 0 pending, 1 done, 2 failed
+        std::string payload_json;
+        int64_t updated_ns = 0;
+    };
+    void upsert_analysis(const AnalysisRow& row);
+    bool get_analysis(const std::string& analyzer_id, int64_t asset_id,
+                      AnalysisRow& out) const;
+
     struct EmbeddingRecord {
         int64_t            asset_id = 0;
         std::string        model_id;

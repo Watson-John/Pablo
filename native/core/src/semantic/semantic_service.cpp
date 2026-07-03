@@ -75,6 +75,12 @@ SemanticService::SemanticService(std::unique_ptr<Embedder> embedder,
       // is compiled in. When neither, assets are Skipped (not Failed).
       has_decoder_(static_cast<bool>(decode) || has_builtin_decoder()) {}
 
+bool SemanticService::decode_rgba(const std::string& path, int target,
+                                  std::vector<uint8_t>& rgba, int& w, int& h) {
+    // builtin_decode self-gates on the compiled codec (false when absent).
+    return builtin_decode(path, target, rgba, w, h);
+}
+
 bool SemanticService::has_builtin_decoder() {
 #if defined(PHOTO_HAVE_FACES)
     return true;

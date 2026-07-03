@@ -1452,6 +1452,64 @@ PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
+// Analyzers (runtime/analyzer.h) — the plugin-ready analysis seam. Payloads
+// are JSON-opaque so the ABI never grows per-analyzer.
+// ---------------------------------------------------------------------------
+
+PHOTO_API size_t photo_analyzer_list(photo_engine_t* engine, char* out,
+                                     size_t cap) {
+    if (!engine) return 0;
+    // NUL-separated "id\tversion" entries; returns the TOTAL byte size needed
+    // (grow-and-retry contract, mirroring photo_asset_tags).
+    std::string joined;
+    for (const auto& [id, ver] : cast(engine)->analyzers().list_ids_versions()) {
+        joined += id;
+        joined += '\t';
+        joined += ver;
+        joined += '\0';
+    }
+    if (out && cap >= joined.size() && !joined.empty())
+        std::memcpy(out, joined.data(), joined.size());
+    return joined.size();
+}
+
+PHOTO_API uint64_t photo_analyzer_run(photo_engine_t* engine,
+                                      const char* analyzer_id_utf8,
+                                      uint64_t asset_id) {
+    if (!engine || !analyzer_id_utf8) return 0;
+    try {
+        return cast(engine)->analyzer_run(analyzer_id_utf8,
+                                          static_cast<int64_t>(asset_id));
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_analyzer_run: %s", e.what());
+        return 0;
+    }
+}
+
+PHOTO_API int32_t photo_analysis_get(photo_engine_t* engine,
+                                     const char* analyzer_id_utf8,
+                                     uint64_t asset_id, int32_t* out_status,
+                                     char* out_payload, size_t cap,
+                                     size_t* out_needed) {
+    if (!engine || !analyzer_id_utf8) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        photo::catalog::Catalog::AnalysisRow row;
+        if (!cast(engine)->analysis_get(analyzer_id_utf8,
+                                        static_cast<int64_t>(asset_id), row))
+            return PHOTO_STATUS_NOT_FOUND;
+        if (out_status) *out_status = row.status;
+        const size_t need = row.payload_json.size() + 1;
+        if (out_needed) *out_needed = need;
+        if (!out_payload || cap < need) return PHOTO_STATUS_INVALID_ARG;
+        std::memcpy(out_payload, row.payload_json.c_str(), need);
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_analysis_get: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Face model registry (model_registry.h) — diagnostics + stale-row upkeep.
 // ---------------------------------------------------------------------------
 

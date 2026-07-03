@@ -278,4 +278,48 @@ TEST(Catalog, SavedSearchCrud) {
     EXPECT_FALSE(cat.get_saved_search(id1).has_value());
 }
 
+
+TEST(Catalog, AnalysisCrudAndCascade) {
+    Catalog cat(fresh_db("analysis"));
+    ASSERT_TRUE(cat.ok());
+    auto rec = sample("/lib/a.jpg");
+    const int64_t id = cat.upsert_asset(rec);
+
+    // No row until an analyzer ran.
+    Catalog::AnalysisRow got;
+    EXPECT_FALSE(cat.get_analysis("meme.detector", id, got));
+
+    // Pending → done upsert round-trip (same PK overwrites).
+    Catalog::AnalysisRow row;
+    row.analyzer_id = "meme.detector";
+    row.asset_id = id;
+    row.version = "1";
+    row.status = 0;
+    row.updated_ns = 111;
+    cat.upsert_analysis(row);
+    ASSERT_TRUE(cat.get_analysis("meme.detector", id, got));
+    EXPECT_EQ(got.status, 0);
+
+    row.status = 1;
+    row.payload_json = "{\"meme\":true,\"score\":0.93}";
+    row.updated_ns = 222;
+    cat.upsert_analysis(row);
+    ASSERT_TRUE(cat.get_analysis("meme.detector", id, got));
+    EXPECT_EQ(got.status, 1);
+    EXPECT_EQ(got.payload_json, "{\"meme\":true,\"score\":0.93}");
+    EXPECT_EQ(got.version, "1");
+    EXPECT_EQ(got.updated_ns, 222);
+
+    // Distinct analyzers coexist per asset.
+    row.analyzer_id = "aesthetic.scorer";
+    cat.upsert_analysis(row);
+    ASSERT_TRUE(cat.get_analysis("meme.detector", id, got));
+    ASSERT_TRUE(cat.get_analysis("aesthetic.scorer", id, got));
+
+    // FK CASCADE: removing the asset drops its analysis rows.
+    cat.remove_asset(id);
+    EXPECT_FALSE(cat.get_analysis("meme.detector", id, got));
+    EXPECT_FALSE(cat.get_analysis("aesthetic.scorer", id, got));
+}
+
 #endif  // PHOTO_HAVE_SQLITE
