@@ -344,9 +344,14 @@ namespace {
 
 const std::unordered_set<std::string>& image_exts() {
     // Mirrors pablo/lib/data/library.dart's _kImageExts so the catalog and the
-    // Dart gallery agree on what counts as an importable image.
+    // Dart gallery agree on what counts as an importable image. TIFF/HEIC/AVIF
+    // ride the libvips decode the thumb/edit/face paths already use; builds
+    // without those loaders show a placeholder rather than dropping the file.
+    // RAW/JXL stay out until the embedded-preview decode lands (D4 follow-up)
+    // — a full vips RAW develop per tile is too slow to admit by default.
     static const std::unordered_set<std::string> kExts = {
-        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"};
+        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",
+        ".tif", ".tiff", ".heic", ".heif", ".avif"};
     return kExts;
 }
 

@@ -347,3 +347,26 @@ TEST(Analyzer, RunPersistsAndPollsThroughTheEngine) {
     EXPECT_EQ(row.status, 2);
 #endif
 }
+
+// The extension gate admits every format the libvips decode path handles —
+// TIFF/HEIC/AVIF must reach the catalog (they used to be silently dropped
+// even though thumbs/edit/faces could already decode them). Import keys off
+// the extension; content is irrelevant to this catalog-level test.
+TEST(Import, VipsDecodableFormatsAreAdmitted) {
+    auto dir = make_tree("formats");
+    write_file(dir / "a.jpg");
+    write_file(dir / "b.tif");
+    write_file(dir / "c.tiff");
+    write_file(dir / "d.heic");
+    write_file(dir / "e.heif");
+    write_file(dir / "f.avif");
+    write_file(dir / "g.cr2");  // RAW stays OUT until embedded-preview decode
+
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    ASSERT_TRUE(wait_for_import(*eng, eng->import_path(dir.string())));
+    const auto assets = eng->list_assets();
+    EXPECT_EQ(assets.size(), 6u);
+    for (const auto& a : assets)
+        EXPECT_EQ(a.path.find(".cr2"), std::string::npos) << a.path;
+}

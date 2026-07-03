@@ -47,7 +47,14 @@ const Set<String> _kImageExts = {
   '.png',
   '.webp',
   '.gif',
-  '.bmp'
+  '.bmp',
+  // Decoded by the libvips path everywhere (thumbs/edit/faces/semantic).
+  // Mirrors engine.cpp image_exts(); RAW/JXL wait on embedded-preview decode.
+  '.tif',
+  '.tiff',
+  '.heic',
+  '.heif',
+  '.avif',
 };
 
 /// True when [path] has an extension the library scan treats as an image.
