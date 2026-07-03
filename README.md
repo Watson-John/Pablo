@@ -11,7 +11,7 @@ A Picasa-successor photo-management desktop app: a **Flutter** frontend over a *
 | `native/models/` | ONNX models for the face pipeline (Git LFS): `scrfd_10g` (detect), `auraface` (512-d embed), `sface` (128-d fallback). See `native/models/MANIFEST.md`. |
 | `packages/photo_native/` | The in-repo Flutter plugin: Dart FFI bindings (`lib/src/ffi/`) + the native texture registrar (per-platform). `pablo/` depends on it via a path dependency. |
 | `tools/` | Dev scripts. `setup-plugin-symlinks.sh` wires the plugin's source symlinks; `faces_standalone/` is an end-to-end face-pipeline harness. |
-| `docs/` | `BUILD.md` (build instructions) and `DECISIONS.md` (locked architectural decisions). |
+| `docs/` | `BUILD.md` (build), `DECISIONS.md` (locked architectural decisions), `TESTING.md` (the full local gate), `EXTENDING.md` (extension points: analyzers, external actions, model profiles), `PICASA_PARITY.md` (feature checklist), `FUTURE_WORK.md` (roadmap backlog). |
 | `LICENSES.md` | Third-party library inventory + LGPL link policy. |
 | `CMakeLists.txt`, `CMakePresets.json`, `vcpkg.json` | Native build entry, presets, and dependency manifest. |
 
@@ -24,8 +24,8 @@ components/   Shared design-system primitives (buttons, slider, avatar, …).
 layouts/      App-shell chrome (title bar, menu bar, search header, status bar, shell).
 data/
   models.dart   Domain models (Person, Photo, …).
-  mock/         Mock data + generators (default data source).
-  sources/      Real data sources / repositories (e.g. FaceRepository over the native engine).
+  sources/      Data sources / repositories (FaceRepository, DedupRepository,
+                ExternalActionRegistry) over the native engine.
 backend/      The native engine bridge (NativeBackend over packages/photo_native).
 features/     One folder per feature: gallery, people, sidebar, info_panel, editor,
               map, controls_bar, photo_tray, search.
