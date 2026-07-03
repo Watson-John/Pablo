@@ -1452,6 +1452,35 @@ PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
+// Visually-similar pairs (Find Duplicates) — scoped pairwise semantic cosine.
+// ---------------------------------------------------------------------------
+
+PHOTO_API size_t photo_dedup_similar(photo_engine_t* engine,
+                                     const uint64_t* asset_ids, size_t n_ids,
+                                     float min_cosine,
+                                     photo_similar_pair_t* out, size_t cap) {
+    if (!engine || !asset_ids || n_ids < 2) return 0;
+    try {
+        std::vector<int64_t> ids(asset_ids, asset_ids + n_ids);
+        std::vector<photo::Engine::SimilarPair> pairs;
+        cast(engine)->similar_pairs(ids, min_cosine, pairs);
+        if (out) {
+            const size_t n = std::min(cap, pairs.size());
+            for (size_t i = 0; i < n; ++i) {
+                out[i].asset_a = static_cast<uint64_t>(pairs[i].a);
+                out[i].asset_b = static_cast<uint64_t>(pairs[i].b);
+                out[i].score = pairs[i].score;
+                out[i]._pad = 0;
+            }
+        }
+        return pairs.size();  // grow-and-retry contract
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_dedup_similar: %s", e.what());
+        return 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Analyzers (runtime/analyzer.h) — the plugin-ready analysis seam. Payloads
 // are JSON-opaque so the ABI never grows per-analyzer.
 // ---------------------------------------------------------------------------
@@ -1923,6 +1952,7 @@ static_assert(sizeof(photo_saved_search_t)   == 144, "ABI break: photo_saved_sea
 static_assert(sizeof(photo_export_options_t) == 300, "ABI break: photo_export_options_t");
 static_assert(sizeof(photo_collage_cell_t)   == 32,  "ABI break: photo_collage_cell_t");
 static_assert(sizeof(photo_metadata_t)       == 408, "ABI break: photo_metadata_t");
+static_assert(sizeof(photo_similar_pair_t)   == 24,  "ABI break: photo_similar_pair_t");
 static_assert(sizeof(photo_region_t)         == 12,  "ABI break: photo_region_t");
 
 // Field offsets the Dart event pump / asset hydration dereference directly.

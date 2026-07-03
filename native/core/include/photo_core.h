@@ -1069,6 +1069,26 @@ PHOTO_API int32_t photo_face_model_id(photo_engine_t* engine, char* out,
 PHOTO_API int64_t photo_face_stale_count(photo_engine_t* engine);
 PHOTO_API int64_t photo_face_prune_stale(photo_engine_t* engine);
 
+/* One visually-similar pair: two catalog assets + their cosine (0..1). */
+typedef struct {
+    uint64_t asset_a;
+    uint64_t asset_b;
+    float    score;
+    uint32_t _pad;
+} photo_similar_pair_t;
+
+/*
+ * Visually-similar pairs over the SUPPLIED assets (Find Duplicates). Pairwise
+ * cosine over the catalog's semantic embeddings (SigLIP2 "similar scene");
+ * pairs with score >= min_cosine fill `out` up to `cap`. Returns the TOTAL
+ * pair count (grow-and-retry). Scoped + synchronous: pass the dedup scope,
+ * not the whole library. Assets without a done embedding are skipped.
+ */
+PHOTO_API size_t photo_dedup_similar(photo_engine_t* engine,
+                                     const uint64_t* asset_ids, size_t n_ids,
+                                     float min_cosine,
+                                     photo_similar_pair_t* out, size_t cap);
+
 /*
  * Analyzers — the plugin-ready per-asset analysis seam (runtime/analyzer.h).
  * Results persist in the catalog analysis table keyed (analyzer_id, asset_id)

@@ -582,6 +582,41 @@ uint64_t Engine::rescan() {
 
 // ── Semantic search & discovery (Stage 9) ────────────────────────────────────
 
+size_t Engine::similar_pairs(const std::vector<int64_t>& ids, float min_cosine,
+                             std::vector<SimilarPair>& out) const {
+    out.clear();
+    if (!catalog_ || ids.size() < 2) return 0;
+    // Snapshot the needed vectors under the lock, compute pairwise outside it.
+    std::vector<std::pair<int64_t, std::vector<float>>> vecs;
+    vecs.reserve(ids.size());
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        for (const int64_t id : ids) {
+            auto rec = catalog_->get_embedding(id);
+            if (!rec || rec->status != catalog::Catalog::kEmbedDone ||
+                rec->vec.empty())
+                continue;
+            vecs.emplace_back(id, std::move(rec->vec));
+        }
+    }
+    if (vecs.size() < 2) return 0;
+    const size_t dim = vecs[0].second.size();
+    for (size_t i = 0; i < vecs.size(); ++i) {
+        if (vecs[i].second.size() != dim) continue;  // mixed models: skip
+        for (size_t j = i + 1; j < vecs.size(); ++j) {
+            if (vecs[j].second.size() != dim) continue;
+            float dot = 0;
+            const float* a = vecs[i].second.data();
+            const float* b = vecs[j].second.data();
+            for (size_t k = 0; k < dim; ++k) dot += a[k] * b[k];
+            // Embeddings are L2-normalized (semantic contract) → dot = cosine.
+            if (dot >= min_cosine)
+                out.push_back({vecs[i].first, vecs[j].first, dot});
+        }
+    }
+    return out.size();
+}
+
 uint64_t Engine::analyzer_run(const std::string& analyzer_id, int64_t asset_id) {
     if (!catalog_) return 0;
     auto* a = analyzers_.find(analyzer_id);

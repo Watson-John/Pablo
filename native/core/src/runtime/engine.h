@@ -158,6 +158,17 @@ public:
     // (status = per-item result). Returns a request id (0 if no catalog).
     uint64_t embedding_scan(int64_t asset_id);
 
+    // ── visually-similar pairs (Find Duplicates) ──
+    // Pairwise cosine over the SUPPLIED assets' semantic embeddings (catalog
+    // rows, status done). Scoped + synchronous on purpose: the dedup flow
+    // passes its scope (a folder / the library subset the user picked), which
+    // keeps the O(n²) pass small; SigLIP2 cosine reads as "similar scene",
+    // strictly better than the old synthetic scores. Pairs with
+    // cos >= min_cosine land in `out` as (a, b, cosine01). Returns pair count.
+    struct SimilarPair { int64_t a = 0, b = 0; float score = 0; };
+    size_t similar_pairs(const std::vector<int64_t>& ids, float min_cosine,
+                         std::vector<SimilarPair>& out) const;
+
     // ── analyzers (runtime/analyzer.h) — the plugin-ready analysis seam ──
     // Registration happens during engine construction only; the registry is
     // immutable afterwards (lock-free lookups). Exposed non-const for tests

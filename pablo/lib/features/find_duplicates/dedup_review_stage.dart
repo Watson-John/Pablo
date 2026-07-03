@@ -51,7 +51,8 @@ class DedupReviewStage extends StatelessWidget {
       for (final c in exact) _Item.cluster(c),
       _Item.slider(),
       _Item.header('Similar images', similar.length,
-          'Same photo, different exposure/crop/scan — set the threshold'),
+          'Similar scene by visual embedding — review before discarding; '
+          'set the threshold'),
       for (final c in similar) _Item.cluster(c),
     ];
     return Column(

@@ -93,6 +93,7 @@ void main() {
       'photo_album_t': sizeOf<gen.photo_album_t>(),
       'photo_embed_counts_t': sizeOf<gen.photo_embed_counts_t>(),
       'photo_metadata_t': sizeOf<gen.photo_metadata_t>(),
+      'photo_similar_pair_t': sizeOf<gen.photo_similar_pair_t>(),
       'photo_search_hit_t': sizeOf<gen.photo_search_hit_t>(),
       'photo_asset_color_t': sizeOf<gen.photo_asset_color_t>(),
       'photo_saved_search_t': sizeOf<gen.photo_saved_search_t>(),

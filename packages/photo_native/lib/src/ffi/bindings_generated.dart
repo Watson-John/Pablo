@@ -2075,6 +2075,42 @@ class PhotoBindings {
   late final _photo_face_prune_stale = _photo_face_prune_stalePtr
       .asFunction<int Function(ffi.Pointer<photo_engine_t>)>();
 
+  /// Visually-similar pairs over the SUPPLIED assets (Find Duplicates). Pairwise
+  /// cosine over the catalog's semantic embeddings (SigLIP2 "similar scene");
+  /// pairs with score >= min_cosine fill `out` up to `cap`. Returns the TOTAL
+  /// pair count (grow-and-retry). Scoped + synchronous: pass the dedup scope,
+  /// not the whole library. Assets without a done embedding are skipped.
+  int photo_dedup_similar(
+    ffi.Pointer<photo_engine_t> engine,
+    ffi.Pointer<ffi.Uint64> asset_ids,
+    int n_ids,
+    double min_cosine,
+    ffi.Pointer<photo_similar_pair_t> out,
+    int cap,
+  ) {
+    return _photo_dedup_similar(
+      engine,
+      asset_ids,
+      n_ids,
+      min_cosine,
+      out,
+      cap,
+    );
+  }
+
+  late final _photo_dedup_similarPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Size Function(
+              ffi.Pointer<photo_engine_t>,
+              ffi.Pointer<ffi.Uint64>,
+              ffi.Size,
+              ffi.Float,
+              ffi.Pointer<photo_similar_pair_t>,
+              ffi.Size)>>('photo_dedup_similar');
+  late final _photo_dedup_similar = _photo_dedup_similarPtr.asFunction<
+      int Function(ffi.Pointer<photo_engine_t>, ffi.Pointer<ffi.Uint64>, int,
+          double, ffi.Pointer<photo_similar_pair_t>, int)>();
+
   /// Analyzers — the plugin-ready per-asset analysis seam (runtime/analyzer.h).
   /// Results persist in the catalog analysis table keyed (analyzer_id, asset_id)
   /// with a small JSON payload whose schema is each analyzer's own contract.
@@ -2928,6 +2964,21 @@ final class photo_saved_search_t extends ffi.Struct {
 
   @ffi.Array.multi([128])
   external ffi.Array<ffi.Char> name;
+}
+
+/// One visually-similar pair: two catalog assets + their cosine (0..1).
+final class photo_similar_pair_t extends ffi.Struct {
+  @ffi.Uint64()
+  external int asset_a;
+
+  @ffi.Uint64()
+  external int asset_b;
+
+  @ffi.Float()
+  external double score;
+
+  @ffi.Uint32()
+  external int _pad;
 }
 
 const int PHOTO_EXPORT_ANCHOR_BR = 0;

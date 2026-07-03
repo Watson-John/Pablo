@@ -197,6 +197,18 @@ final class _NativeAsset extends Struct {
 const int _kAssetFlagHidden = 1 << 0;
 const int _kAssetFlagVideo = 1 << 1;
 
+/// photo_similar_pair_t mirror — one visually-similar pair (Find Duplicates).
+final class _NativeSimilarPair extends Struct {
+  @Uint64()
+  external int asset_a;
+  @Uint64()
+  external int asset_b;
+  @Float()
+  external double score;
+  @Uint32()
+  external int pad;
+}
+
 /// photo_metadata_t mirror — stored EXIF for an asset (extracted by libexif on
 /// import; strings arrive pre-formatted, e.g. aperture "f/2.8").
 final class _NativeMetadata extends Struct {
@@ -623,6 +635,10 @@ typedef _SavedQueryDart = int Function(Pointer<Void>, int, Pointer<Uint8>, int);
 // Face editing (§7): ignore / manual rect / assign / remove / XMP write-back.
 typedef _FaceSetIgnoredC = Int32 Function(Pointer<Void>, Uint64, Int32);
 typedef _FaceSetIgnoredDart = int Function(Pointer<Void>, int, int);
+typedef _DedupSimilarC = IntPtr Function(Pointer<Void>, Pointer<Uint64>,
+    IntPtr, Float, Pointer<_NativeSimilarPair>, IntPtr);
+typedef _DedupSimilarDart = int Function(Pointer<Void>, Pointer<Uint64>, int,
+    double, Pointer<_NativeSimilarPair>, int);
 typedef _AnalyzerListC = IntPtr Function(Pointer<Void>, Pointer<Utf8>, IntPtr);
 typedef _AnalyzerListDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
 typedef _AnalyzerRunC =
@@ -1723,6 +1739,41 @@ final class Engine {
   int setFaceIgnored(int faceId, bool ignored) =>
       _Bindings.faceSetIgnored(_handle, faceId, ignored ? 1 : 0);
 
+  /// Visually-similar pairs over [assetIds] (Find Duplicates): pairwise
+  /// cosine over the catalog's semantic embeddings; pairs scoring >=
+  /// [minCosine] return as (a, b, score). Scoped + synchronous — pass the
+  /// dedup scope, not the whole library. Assets without a done embedding are
+  /// skipped (empty until indexing has run).
+  List<({int a, int b, double score})> dedupSimilar(
+      List<int> assetIds, double minCosine) {
+    if (assetIds.length < 2) return const [];
+    final ids = calloc<Uint64>(assetIds.length);
+    for (var i = 0; i < assetIds.length; i++) {
+      ids[i] = assetIds[i];
+    }
+    var cap = 1024;
+    var buf = calloc<_NativeSimilarPair>(cap);
+    try {
+      var n = _Bindings.dedupSimilar(
+          _handle, ids, assetIds.length, minCosine, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeSimilarPair>(cap);
+        n = _Bindings.dedupSimilar(
+            _handle, ids, assetIds.length, minCosine, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [
+        for (var i = 0; i < count; i++)
+          (a: buf[i].asset_a, b: buf[i].asset_b, score: buf[i].score),
+      ];
+    } finally {
+      calloc.free(ids);
+      calloc.free(buf);
+    }
+  }
+
   /// Registered analyzers (runtime/analyzer.h) as (id, version) records.
   /// Empty until built-ins/plugins register; the seam ships ahead of them.
   List<({String id, String version})> listAnalyzers() {
@@ -2500,6 +2551,9 @@ final class _Bindings {
         'photo_face_set_ignored',
       );
 
+  static final _DedupSimilarDart dedupSimilar = _dylib
+      .lookupFunction<_DedupSimilarC, _DedupSimilarDart>('photo_dedup_similar');
+
   static final _AnalyzerListDart analyzerList = _dylib
       .lookupFunction<_AnalyzerListC, _AnalyzerListDart>('photo_analyzer_list');
 
@@ -2566,6 +2620,7 @@ Map<String, int> debugNativeStructSizes() => {
       'photo_album_t': sizeOf<_NativeAlbum>(),
       'photo_embed_counts_t': sizeOf<_NativeEmbedCounts>(),
       'photo_metadata_t': sizeOf<_NativeMetadata>(),
+      'photo_similar_pair_t': sizeOf<_NativeSimilarPair>(),
       'photo_search_hit_t': sizeOf<_NativeSearchHit>(),
       'photo_asset_color_t': sizeOf<_NativeAssetColor>(),
       'photo_saved_search_t': sizeOf<_NativeSavedSearch>(),
