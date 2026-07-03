@@ -197,6 +197,41 @@ final class _NativeAsset extends Struct {
 const int _kAssetFlagHidden = 1 << 0;
 const int _kAssetFlagVideo = 1 << 1;
 
+/// photo_metadata_t mirror — stored EXIF for an asset (extracted by libexif on
+/// import; strings arrive pre-formatted, e.g. aperture "f/2.8").
+final class _NativeMetadata extends Struct {
+  @Uint64()
+  external int asset_id;
+  @Int32()
+  external int width;
+  @Int32()
+  external int height;
+  @Int32()
+  external int orientation;
+  @Int32()
+  external int iso;
+  @Int64()
+  external int datetime_unix;
+  @Int32()
+  external int has_gps;
+  @Int32()
+  external int pad;
+  @Double()
+  external double gps_lat;
+  @Double()
+  external double gps_lon;
+  @Array(128)
+  external Array<Uint8> camera;
+  @Array(128)
+  external Array<Uint8> lens;
+  @Array(32)
+  external Array<Uint8> aperture;
+  @Array(32)
+  external Array<Uint8> shutter;
+  @Array(32)
+  external Array<Uint8> focal;
+}
+
 /// photo_geopoint_t mirror.
 final class _NativeGeoPoint extends Struct {
   @Uint64()
@@ -406,6 +441,11 @@ typedef _ListAssetsC =
     IntPtr Function(Pointer<Void>, Pointer<_NativeAsset>, IntPtr);
 typedef _ListAssetsDart =
     int Function(Pointer<Void>, Pointer<_NativeAsset>, int);
+
+typedef _AssetMetadataC =
+    Int32 Function(Pointer<Void>, Uint64, Pointer<_NativeMetadata>);
+typedef _AssetMetadataDart =
+    int Function(Pointer<Void>, int, Pointer<_NativeMetadata>);
 
 typedef _ListGeotaggedC =
     IntPtr Function(Pointer<Void>, Pointer<_NativeGeoPoint>, IntPtr);
@@ -790,6 +830,20 @@ final class Engine {
       }
       final count = n < cap ? n : cap;
       return [for (var i = 0; i < count; i++) AssetRow._(buf[i])];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Stored EXIF metadata for [assetId] (extracted on import), or null when
+  /// the asset has no metadata row. Synchronous catalog read — no file I/O,
+  /// so it replaces the Dart-side per-photo header parse for imported assets.
+  AssetMetadata? assetMetadata(int assetId) {
+    final buf = calloc<_NativeMetadata>();
+    try {
+      final st = _Bindings.assetMetadata(_handle, assetId, buf);
+      if (st != 0) return null; // NOT_FOUND / error → caller falls back
+      return AssetMetadata._(buf.ref);
     } finally {
       calloc.free(buf);
     }
@@ -1898,6 +1952,58 @@ final class AssetRow {
   final int durationMs;
 }
 
+/// Stored EXIF metadata for an asset (immutable projection of
+/// photo_metadata_t). String fields are '' when absent; [captureUnix] is 0
+/// when the file carried no DateTimeOriginal; GPS is null unless [hasGps].
+final class AssetMetadata {
+  AssetMetadata._(_NativeMetadata m)
+    : assetId = m.asset_id,
+      width = m.width,
+      height = m.height,
+      orientation = m.orientation,
+      iso = m.iso,
+      captureUnix = m.datetime_unix,
+      hasGps = m.has_gps != 0,
+      gpsLat = m.has_gps != 0 ? m.gps_lat : null,
+      gpsLon = m.has_gps != 0 ? m.gps_lon : null,
+      camera = _readCName(m.camera, 128),
+      lens = _readCName(m.lens, 128),
+      aperture = _readCName(m.aperture, 32),
+      shutter = _readCName(m.shutter, 32),
+      focal = _readCName(m.focal, 32);
+
+  final int assetId;
+  final int width;
+  final int height;
+  final int orientation;
+  final int iso;
+  final int captureUnix;
+  final bool hasGps;
+  final double? gpsLat;
+  final double? gpsLon;
+
+  /// "Make Model" as one display string (how the catalog stores it).
+  final String camera;
+  final String lens;
+  final String aperture;
+  final String shutter;
+  final String focal;
+
+  /// DateTimeOriginal as a naive wall-clock DateTime, or null when absent.
+  ///
+  /// EXIF capture time has no timezone; the native side encodes the civil
+  /// "as shot" fields with timegm (as-if-UTC). Decode with isUtc and strip
+  /// the zone so the photo displays at the wall-clock time it was taken —
+  /// treating the value as a local epoch instant would shift it by the
+  /// machine's UTC offset (caught by metadata_ffi_test parity).
+  DateTime? get captureDate {
+    if (captureUnix == 0) return null;
+    final u =
+        DateTime.fromMillisecondsSinceEpoch(captureUnix * 1000, isUtc: true);
+    return DateTime(u.year, u.month, u.day, u.hour, u.minute, u.second);
+  }
+}
+
 /// One collage cell for [Engine.createCollage]: a normalized rect [0,1] on the
 /// canvas, the source image path, and its edit spec ('' = none).
 class CollageCell {
@@ -2121,6 +2227,11 @@ final class _Bindings {
 
   static final _ListAssetsDart listAssets = _dylib
       .lookupFunction<_ListAssetsC, _ListAssetsDart>('photo_list_assets');
+
+  static final _AssetMetadataDart assetMetadata = _dylib
+      .lookupFunction<_AssetMetadataC, _AssetMetadataDart>(
+        'photo_asset_metadata',
+      );
 
   static final _ListGeotaggedDart listGeotagged = _dylib
       .lookupFunction<_ListGeotaggedC, _ListGeotaggedDart>(
@@ -2352,6 +2463,7 @@ Map<String, int> debugNativeStructSizes() => {
       'photo_organize_t': sizeOf<_NativeOrganize>(),
       'photo_album_t': sizeOf<_NativeAlbum>(),
       'photo_embed_counts_t': sizeOf<_NativeEmbedCounts>(),
+      'photo_metadata_t': sizeOf<_NativeMetadata>(),
       'photo_search_hit_t': sizeOf<_NativeSearchHit>(),
       'photo_asset_color_t': sizeOf<_NativeAssetColor>(),
       'photo_saved_search_t': sizeOf<_NativeSavedSearch>(),

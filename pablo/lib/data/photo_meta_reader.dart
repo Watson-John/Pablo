@@ -1,5 +1,8 @@
 // photo_meta_reader.dart — build a [PhotoMeta] for the scheme engine from a real
-// file: filesystem mtime + best-effort EXIF. The `dart:io`/EXIF coupling lives
+// file: filesystem mtime + best-effort EXIF. Deliberately stays on the Dart
+// parser (utils/exif.dart) rather than the catalog: scheme tokens need make
+// and model SEPARATELY, which the catalog's combined "Make Model" string
+// can't recover, and scheme previews run over not-yet-imported files. The `dart:io`/EXIF coupling lives
 // here so the engine (scheme_engine.dart) and planner stay testable in isolation.
 
 import 'dart:io';

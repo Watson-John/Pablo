@@ -21,6 +21,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:photo_native/photo_native.dart' show AssetMetadata;
 
 import 'aspect_store.dart';
 import 'models.dart';
@@ -31,6 +32,11 @@ import '../utils/image_dims.dart';
 /// Bumped when [Library.instance] is replaced (e.g. when the background boot
 /// scan finishes), so the app can rebuild against the freshly-scanned library.
 final ValueNotifier<int> libraryRevision = ValueNotifier<int>(0);
+
+/// Catalog-first EXIF source, installed at boot (LibraryImport.run) as
+/// Engine.assetMetadata. Null in engine-less contexts (pure-Dart tests), where
+/// [Library.exifFor] falls back to the in-Dart header parse (utils/exif.dart).
+AssetMetadata? Function(int assetId)? catalogMetadataLookup;
 
 /// True while the initial background scan is still in flight.
 bool libraryScanning = false;
@@ -231,7 +237,6 @@ class Library {
     if (cached != null) return cached;
     final photo = byId[id];
     final path = photo?.filePath ?? id;
-    final dims = readImageDimensions(path);
     int sizeBytes = 0;
     DateTime? modified;
     try {
@@ -240,6 +245,40 @@ class Library {
       modified = st.modified;
     } catch (_) {}
 
+    // Catalog first: imported assets already carry libexif-extracted metadata
+    // in the native catalog — a synchronous DB read instead of re-parsing
+    // ~192 KB of file header per photo. Falls through to the Dart parser for
+    // engine-less contexts and not-yet-imported files.
+    final cid = catalogIdForPath(path);
+    final meta = cid != null ? catalogMetadataLookup?.call(cid) : null;
+    if (meta != null) {
+      final date = meta.captureDate ?? modified;
+      final dims = (meta.width > 0 && meta.height > 0)
+          ? null
+          : readImageDimensions(path);
+      final result = ExifData(
+        camera: meta.camera.isEmpty ? null : meta.camera,
+        lens: meta.lens.isEmpty ? null : meta.lens,
+        aperture: meta.aperture.isEmpty ? null : meta.aperture,
+        shutter: meta.shutter.isEmpty ? null : meta.shutter,
+        iso: meta.iso > 0 ? meta.iso : null,
+        focalLength: meta.focal.isEmpty ? null : meta.focal,
+        dateLabel: date != null ? _dateLabel(date) : null,
+        timeLabel: date != null ? _timeLabel(date) : null,
+        width: meta.width > 0 ? meta.width : (dims?.width ?? 0),
+        height: meta.height > 0 ? meta.height : (dims?.height ?? 0),
+        fileSize: _humanSize(sizeBytes),
+        format: _formatOf(path),
+        location: meta.hasGps
+            ? '${meta.gpsLat!.toStringAsFixed(5)}, '
+                '${meta.gpsLon!.toStringAsFixed(5)}'
+            : null,
+      );
+      _exifCache[id] = result;
+      return result;
+    }
+
+    final dims = readImageDimensions(path);
     final exif = readExif(path);
     final date = exif?.dateTimeOriginal ?? modified;
 

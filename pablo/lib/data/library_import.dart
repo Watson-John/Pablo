@@ -60,6 +60,8 @@ class LibraryImport {
     final assets = backend.engine.listAssets();
     hydrateCatalogIds({for (final a in assets) a.path: a.assetId});
     hydrateStarred({for (final a in assets) a.assetId: a.starred});
+    // Install the catalog-first EXIF source for Library.exifFor (info panel).
+    catalogMetadataLookup = backend.engine.assetMetadata;
     // §11: seed video durations (ms) by path so the grid can badge clips.
     hydrateVideoDurations({
       for (final a in assets)

@@ -21,6 +21,7 @@ export 'src/ffi/core_api.dart'
         FacePerson,
         FaceRow,
         AssetRow,
+        AssetMetadata,
         GeoPoint,
         Album,
         Organize,
