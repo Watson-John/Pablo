@@ -394,14 +394,6 @@ typedef _PollEventsC =
     IntPtr Function(Pointer<Void>, Pointer<NativeEvent>, IntPtr);
 typedef _PollEventsDart = int Function(Pointer<Void>, Pointer<NativeEvent>, int);
 
-// TEST-ONLY (M1): publishes a solid BGRA color for a slot. Replaced in M2
-// by the real photo_thumb_request pipeline. Kept on Engine so integration
-// code doesn't need implementation_import to reach the symbol.
-typedef _TestPublishSolidC =
-    Void Function(Pointer<Void>, Uint64, Uint8, Uint8, Uint8, Uint8);
-typedef _TestPublishSolidDart =
-    void Function(Pointer<Void>, int, int, int, int, int);
-
 // M2 — request pipeline hot path. Scalar args; no per-call alloc on the
 // Dart side beyond the UTF-8 path buffer (reused via RequestArena).
 typedef _ThumbRequestFastC = Uint64 Function(
@@ -1804,17 +1796,6 @@ final class Engine {
     }
   }
 
-  /// **M1 TEST HOOK** — publishes a solid BGRA color as the slot's current
-  /// frame. Replaced in M2 by the real `requestThumbnail` pipeline that
-  /// dispatches actual decode jobs. Kept on Engine so that integration
-  /// callers do not need to reach into `implementation_imports`.
-  ///
-  /// Channel values are 0..255. Alpha is straight (premultiplication is done
-  /// inside the engine).
-  void testPublishSolid(int slotId, int r, int g, int b, int a) {
-    _Bindings.testPublishSolid(_handle, slotId, r, g, b, a);
-  }
-
   /// Borrow the latest frame for [slotId]. The caller must call [releaseFrame]
   /// with the returned release context exactly once. Returns null if no frame
   /// is yet available.
@@ -2202,11 +2183,6 @@ final class _Bindings {
 
   static final _PollEventsDart pollEvents = _dylib
       .lookupFunction<_PollEventsC, _PollEventsDart>('photo_poll_events');
-
-  static final _TestPublishSolidDart testPublishSolid = _dylib
-      .lookupFunction<_TestPublishSolidC, _TestPublishSolidDart>(
-        'photo_test_publish_solid',
-      );
 
   static final _ThumbRequestFastDart thumbRequestFast = _dylib
       .lookupFunction<_ThumbRequestFastC, _ThumbRequestFastDart>(

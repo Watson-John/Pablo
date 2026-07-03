@@ -148,7 +148,6 @@ CI fails if `bindings_generated.dart` is out of sync with the header.
 
 | Harness | Path | Run command | When |
 |---------|------|-------------|------|
-| Scroll harness | [tools/scroll_harness/](tools/scroll_harness/) | `cd tools/scroll_harness && flutter run -d macos` | M1 gate; runs on every CI build |
 | Corpus runner | [tools/corpus_runner/](tools/corpus_runner/) | `tools/corpus_runner/run.sh` | M3+ |
 | Cluster replay | [tools/cluster_replay/](tools/cluster_replay/) | `tools/cluster_replay/replay.sh fixtures/seq1.json` | M7+ |
 
@@ -156,7 +155,6 @@ CI fails if `bindings_generated.dart` is out of sync with the header.
 
 GitHub Actions matrix (defined post-M1):
 
-| OS | Build | Tests | Benchmarks | Scroll harness video |
 |----|-------|-------|------------|---------------------|
 | macOS 13 (x64) | ✅ | ✅ | regression | ✅ |
 | macOS 14 (arm64) | ✅ | ✅ | regression | ✅ |

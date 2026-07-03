@@ -1783,26 +1783,6 @@ PHOTO_API int32_t photo_asset_write_face_xmp(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
-// TEST-ONLY hook (M1).
-//
-// Publishes a solid-color frame into a slot. The texture-harness uses this
-// before M2's request/decode pipeline lands. Wrapped in extern "C" because the
-// symbol is intentionally not declared in photo_core.h.
-// (photo_face_scan now resolves asset_id -> path via the catalog, so the former
-// photo_face_scan_path hook has been removed.)
-// ---------------------------------------------------------------------------
-
-extern "C" PHOTO_API void photo_test_publish_solid(photo_engine_t* engine,
-                                                   uint64_t slot_id,
-                                                   uint8_t r, uint8_t g,
-                                                   uint8_t b, uint8_t a) {
-    if (!engine) return;
-    auto* slot = cast(engine)->slots().get(slot_id);
-    if (!slot) return;
-    slot->publish_solid_color(b, g, r, a);
-}
-
-// ---------------------------------------------------------------------------
 // ABI layout pins.
 //
 // These are the byte layouts the Dart side hand-mirrors (core_api.dart) and
