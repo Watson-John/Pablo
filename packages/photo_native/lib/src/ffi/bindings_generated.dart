@@ -2019,6 +2019,62 @@ class PhotoBindings {
   late final _photo_face_set_ignored = _photo_face_set_ignoredPtr
       .asFunction<int Function(ffi.Pointer<photo_engine_t>, int, int)>();
 
+  /// Face model registry. The active model profile is resolved by probing the
+  /// models directory (model_registry.h); faces embedded by a non-active profile
+  /// are STALE — excluded from prototypes/clustering until rescanned.
+  /// photo_face_model_id: NUL-terminated active profile id into out (cap incl.
+  /// NUL). PHOTO_STATUS_INVALID_ARG when cap is too small.
+  /// photo_face_stale_count: embedded faces from non-active profiles.
+  /// photo_face_prune_stale: delete UNCONFIRMED stale rows (a fresh scan
+  /// repopulates them); returns rows deleted. Confirmed rows keep their
+  /// person link but sit out of prototypes until rescanned.
+  int photo_face_model_id(
+    ffi.Pointer<photo_engine_t> engine,
+    ffi.Pointer<ffi.Char> out,
+    int cap,
+  ) {
+    return _photo_face_model_id(
+      engine,
+      out,
+      cap,
+    );
+  }
+
+  late final _photo_face_model_idPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<photo_engine_t>, ffi.Pointer<ffi.Char>,
+              ffi.Size)>>('photo_face_model_id');
+  late final _photo_face_model_id = _photo_face_model_idPtr.asFunction<
+      int Function(ffi.Pointer<photo_engine_t>, ffi.Pointer<ffi.Char>, int)>();
+
+  int photo_face_stale_count(
+    ffi.Pointer<photo_engine_t> engine,
+  ) {
+    return _photo_face_stale_count(
+      engine,
+    );
+  }
+
+  late final _photo_face_stale_countPtr = _lookup<
+          ffi.NativeFunction<ffi.Int64 Function(ffi.Pointer<photo_engine_t>)>>(
+      'photo_face_stale_count');
+  late final _photo_face_stale_count = _photo_face_stale_countPtr
+      .asFunction<int Function(ffi.Pointer<photo_engine_t>)>();
+
+  int photo_face_prune_stale(
+    ffi.Pointer<photo_engine_t> engine,
+  ) {
+    return _photo_face_prune_stale(
+      engine,
+    );
+  }
+
+  late final _photo_face_prune_stalePtr = _lookup<
+          ffi.NativeFunction<ffi.Int64 Function(ffi.Pointer<photo_engine_t>)>>(
+      'photo_face_prune_stale');
+  late final _photo_face_prune_stale = _photo_face_prune_stalePtr
+      .asFunction<int Function(ffi.Pointer<photo_engine_t>)>();
+
   /// Add a user-drawn face rectangle to an asset, in source-image pixels. Stores
   /// the box as a manual face (no embedding). If the face models are loaded the
   /// region is also embedded so recognition can suggest it. Returns the new

@@ -49,6 +49,11 @@ struct FaceRecord {
     bool    confirmed = false; // false = online-assign suggestion, true = user-confirmed
     bool    ignored = false;   // user hid this detection (Picasa ]ignoreface) — excluded from people
     bool    manual = false;    // user drew this rectangle by hand (no detector/embedding)
+    // Profile that embedded this face (model_registry.h). '' = legacy rows,
+    // attributed to the default profile. Non-active rows are STALE: their
+    // vec_row indexes a different per-profile vectors file, so they are
+    // excluded from prototype folds/rebuilds until rescanned.
+    std::string model_id;
 };
 
 // A person = a confirmed cluster, with a prototype template (mean of its best

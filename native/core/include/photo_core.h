@@ -1053,6 +1053,22 @@ PHOTO_API size_t   photo_saved_search_query(photo_engine_t* engine, uint64_t id,
 PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
                                          uint64_t face_id, int32_t ignored);
 
+/*
+ * Face model registry. The active model profile is resolved by probing the
+ * models directory (model_registry.h); faces embedded by a non-active profile
+ * are STALE — excluded from prototypes/clustering until rescanned.
+ *   photo_face_model_id: NUL-terminated active profile id into out (cap incl.
+ *     NUL). PHOTO_STATUS_INVALID_ARG when cap is too small.
+ *   photo_face_stale_count: embedded faces from non-active profiles.
+ *   photo_face_prune_stale: delete UNCONFIRMED stale rows (a fresh scan
+ *     repopulates them); returns rows deleted. Confirmed rows keep their
+ *     person link but sit out of prototypes until rescanned.
+ */
+PHOTO_API int32_t photo_face_model_id(photo_engine_t* engine, char* out,
+                                      size_t cap);
+PHOTO_API int64_t photo_face_stale_count(photo_engine_t* engine);
+PHOTO_API int64_t photo_face_prune_stale(photo_engine_t* engine);
+
 /* Add a user-drawn face rectangle to an asset, in source-image pixels. Stores
  * the box as a manual face (no embedding). If the face models are loaded the
  * region is also embedded so recognition can suggest it. Returns the new

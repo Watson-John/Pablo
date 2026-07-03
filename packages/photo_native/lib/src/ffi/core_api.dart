@@ -623,6 +623,10 @@ typedef _SavedQueryDart = int Function(Pointer<Void>, int, Pointer<Uint8>, int);
 // Face editing (§7): ignore / manual rect / assign / remove / XMP write-back.
 typedef _FaceSetIgnoredC = Int32 Function(Pointer<Void>, Uint64, Int32);
 typedef _FaceSetIgnoredDart = int Function(Pointer<Void>, int, int);
+typedef _FaceModelIdC = Int32 Function(Pointer<Void>, Pointer<Utf8>, IntPtr);
+typedef _FaceModelIdDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _FaceStaleCountC = Int64 Function(Pointer<Void>);
+typedef _FaceStaleCountDart = int Function(Pointer<Void>);
 typedef _FaceAddManualC =
     Uint64 Function(Pointer<Void>, Uint64, Float, Float, Float, Float);
 typedef _FaceAddManualDart =
@@ -1710,6 +1714,26 @@ final class Engine {
   int setFaceIgnored(int faceId, bool ignored) =>
       _Bindings.faceSetIgnored(_handle, faceId, ignored ? 1 : 0);
 
+  /// Active face-model profile id (e.g. "scrfd10g+auraface"); '' when faces
+  /// are unavailable. Settings diagnostics.
+  String get faceModelId {
+    final buf = calloc<Uint8>(128);
+    try {
+      final st = _Bindings.faceModelId(_handle, buf.cast(), 128);
+      return st == 0 ? buf.cast<Utf8>().toDartString() : '';
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Faces embedded by a non-active model profile (stale: excluded from
+  /// prototypes/clustering until rescanned).
+  int get faceStaleCount => _Bindings.faceStaleCount(_handle);
+
+  /// Delete UNCONFIRMED stale face rows so a fresh scan repopulates them
+  /// (confirmed rows keep their person link). Returns rows deleted.
+  int pruneStaleFaces() => _Bindings.facePruneStale(_handle);
+
   /// Add a user-drawn face rectangle (source-image pixels) to an asset. Returns
   /// the new face id, or 0 on failure.
   int addManualFace(int assetId,
@@ -2394,6 +2418,19 @@ final class _Bindings {
   static final _FaceSetIgnoredDart faceSetIgnored = _dylib
       .lookupFunction<_FaceSetIgnoredC, _FaceSetIgnoredDart>(
         'photo_face_set_ignored',
+      );
+
+  static final _FaceModelIdDart faceModelId = _dylib
+      .lookupFunction<_FaceModelIdC, _FaceModelIdDart>('photo_face_model_id');
+
+  static final _FaceStaleCountDart faceStaleCount = _dylib
+      .lookupFunction<_FaceStaleCountC, _FaceStaleCountDart>(
+        'photo_face_stale_count',
+      );
+
+  static final _FaceStaleCountDart facePruneStale = _dylib
+      .lookupFunction<_FaceStaleCountC, _FaceStaleCountDart>(
+        'photo_face_prune_stale',
       );
   static final _FaceAddManualDart faceAddManual = _dylib
       .lookupFunction<_FaceAddManualC, _FaceAddManualDart>(

@@ -1451,6 +1451,60 @@ PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// Face model registry (model_registry.h) — diagnostics + stale-row upkeep.
+// ---------------------------------------------------------------------------
+
+PHOTO_API int32_t photo_face_model_id(photo_engine_t* engine, char* out,
+                                      size_t cap) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine || !out || cap == 0) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        const std::string id = cast(engine)->faces().active_model_id();
+        if (id.size() + 1 > cap) return PHOTO_STATUS_INVALID_ARG;
+        std::memcpy(out, id.c_str(), id.size() + 1);
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_model_id: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)cap;
+    if (out && cap > 0) out[0] = '\0';
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int64_t photo_face_stale_count(photo_engine_t* engine) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try {
+        return cast(engine)->faces().stale_face_count();
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_stale_count: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine;
+    return 0;
+#endif
+}
+
+PHOTO_API int64_t photo_face_prune_stale(photo_engine_t* engine) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try {
+        return cast(engine)->faces().prune_stale_faces();
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_prune_stale: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine;
+    return 0;
+#endif
+}
+
 PHOTO_API size_t photo_embedding_pending(photo_engine_t* engine, int32_t limit,
                                          uint64_t* out, size_t cap) {
 #ifdef PHOTO_HAVE_SQLITE

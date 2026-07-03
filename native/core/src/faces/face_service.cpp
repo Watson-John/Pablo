@@ -31,8 +31,10 @@ constexpr int kFaceLane = 32;
 // clusters in eval/. Tuned alongside the detector bake-off.
 constexpr float kMinFacePx = 48.0f;
 constexpr float kMinSharpness = 8.0f;
-constexpr float kMergeDistance = 0.45f;  // cluster.h ClusterParams default
-constexpr int   kEmbedDim = 512;         // AuraFace
+// Legacy fallbacks for a store opened with NO resolved profile (read-back
+// without model files): match the pre-registry AuraFace layout.
+constexpr float kFallbackMergeDistance = 0.45f;
+constexpr int   kFallbackEmbedDim = 512;
 
 photo_face_t to_face_pod(const FaceRecord& r) {
     photo_face_t f{};
@@ -63,6 +65,23 @@ FaceService::FaceService(EventRing* events, JobSystem* jobs,
 
 FaceService::~FaceService() = default;
 
+std::string FaceService::active_model_id() {
+    if (!ensure_store() || !store_) return {};
+    return profile_ ? profile_->model_id : kDefaultFaceModelId;
+}
+
+int64_t FaceService::stale_face_count() {
+    if (!ensure_store() || !store_) return 0;
+    std::lock_guard lk(store_mu_);
+    return store_->count_stale();
+}
+
+int64_t FaceService::prune_stale_faces() {
+    if (!ensure_store() || !store_) return 0;
+    std::lock_guard lk(store_mu_);
+    return store_->prune_stale_unconfirmed();
+}
+
 bool FaceService::available() {
 #ifdef FACES_HAVE_ORT
     return true;
@@ -71,11 +90,71 @@ bool FaceService::available() {
 #endif
 }
 
+// ── FacePipeline: the swappable detect+embed stack ──────────────────────────
+// Interface so a future stack (different detector, quantized embedder, a
+// plugin) drops in behind the same two calls; OnnxFacePipeline is the ORT
+// implementation driven entirely by a FaceModelProfile.
+#if defined(PHOTO_HAVE_FACES) && defined(FACES_HAVE_ORT)
+class FacePipeline {
+public:
+    virtual ~FacePipeline() = default;
+    FacePipeline(const FacePipeline&) = delete;
+    FacePipeline& operator=(const FacePipeline&) = delete;
+
+    virtual const FaceModelProfile& profile() const = 0;
+    virtual std::vector<DetectedFace> detect(const cv::Mat& bgr) = 0;
+    // Embed one aligned 112x112 BGR crop (L2-normalized; applies profile tta).
+    virtual Embedding embed(const cv::Mat& aligned_112) = 0;
+
+protected:
+    FacePipeline() = default;
+};
+
+namespace {
+class OnnxFacePipeline final : public FacePipeline {
+public:
+    OnnxFacePipeline(const FaceModelProfile& p, const std::filesystem::path& dir)
+        : profile_(p),
+          detector_((dir / p.detector_file).string(), p.det_score_threshold,
+                    p.det_nms_threshold),
+          embedder_((dir / p.embedder_file).string(), p.embed_mean,
+                    p.embed_scale) {}
+
+    const FaceModelProfile& profile() const override { return profile_; }
+    std::vector<DetectedFace> detect(const cv::Mat& bgr) override {
+        return detector_.detect(bgr);
+    }
+    Embedding embed(const cv::Mat& aligned_112) override {
+        return embedder_.embed(aligned_112, profile_.tta);
+    }
+
+private:
+    const FaceModelProfile& profile_;
+    Detector detector_;
+    Embedder embedder_;
+};
+}  // namespace
+#else
+class FacePipeline {
+public:
+    virtual ~FacePipeline() = default;
+};
+#endif
+
 bool FaceService::ensure_store() {
     std::call_once(store_once_, [this] {
 #ifdef FACES_HAVE_SQLITE
         try {
-            store_ = std::make_unique<FaceStore>(catalog_path_.string(), kEmbedDim);
+            // Resolve the active profile by model-file probe (model_registry.h).
+            // No files → legacy layout so read-back of existing data still works.
+            profile_ = resolve_face_profile(models_dir_);
+            const int dim = profile_ ? profile_->embed_dim : kFallbackEmbedDim;
+            const std::string suffix =
+                profile_ ? vectors_suffix_for(*profile_) : ".faces.vec";
+            store_ = std::make_unique<FaceStore>(catalog_path_.string(), dim, suffix);
+            store_->set_active_model(
+                profile_ ? profile_->model_id : kDefaultFaceModelId,
+                profile_ ? profile_->model_version : "1");
             prototypes_ = std::make_unique<PrototypeIndex>();
             prototypes_->rebuild(store_->confirmed_by_person());
             store_ok_ = true;
@@ -97,12 +176,17 @@ bool FaceService::ensure_models() {
     std::call_once(models_once_, [this] {
 #if defined(PHOTO_HAVE_FACES) && defined(FACES_HAVE_ORT)
         try {
-            const auto det = models_dir_ / "scrfd_10g.onnx";
-            const auto emb = models_dir_ / "auraface.onnx";
-            detector_ = std::make_unique<Detector>(det.string());
-            embedder_ = std::make_unique<Embedder>(emb.string(), 127.5f, 127.5f);
+            if (!profile_) {
+                PHOTO_LOGF(PHOTO_LOG_WARN,
+                           "faces: no model profile resolved in %s",
+                           models_dir_.string().c_str());
+                models_ok_ = false;
+                return;
+            }
+            pipeline_ = std::make_unique<OnnxFacePipeline>(*profile_, models_dir_);
             models_ok_ = true;
-            PHOTO_LOGF(PHOTO_LOG_INFO, "faces: models loaded (scrfd_10g + auraface)");
+            PHOTO_LOGF(PHOTO_LOG_INFO, "faces: model profile loaded (%s v%s)",
+                       profile_->model_id, profile_->model_version);
         } catch (const std::exception& e) {
             PHOTO_LOGF(PHOTO_LOG_ERROR, "faces: model load failed: %s", e.what());
             models_ok_ = false;
@@ -130,11 +214,14 @@ uint64_t FaceService::submit_face_job(int lane, std::function<void(uint64_t)> fn
 }
 
 void FaceService::confirm_face_locked(const FaceRecord& f, int64_t person) {
-    const Embedding v = store_->vectors().row(f.vec_row);
     store_->set_person(f.id, person);
     store_->set_cluster(f.id, person);
     store_->set_confirmed(f.id, true);
-    prototypes_->add_confirmed(person, v);
+    // Fold into the prototype only for an ACTIVE-profile vector: a stale row's
+    // vec_row indexes another profile's file (wrong matrix, maybe wrong dim);
+    // manual rects (vec_row<0) have no vector at all.
+    if (f.vec_row >= 0 && store_->matches_active(f.model_id))
+        prototypes_->add_confirmed(person, store_->vectors().row(f.vec_row));
 }
 
 uint64_t FaceService::submit_scan(uint64_t asset_id, const char* path_utf8,
@@ -227,7 +314,7 @@ void FaceService::run_scan(uint64_t request_id, uint64_t asset_id, std::string p
         return;
     }
 
-    std::vector<DetectedFace> faces = detector_->detect(bgr);
+    std::vector<DetectedFace> faces = pipeline_->detect(bgr);
     uint32_t kept = 0;
     for (const auto& df : faces) {
         if (std::min(df.box.w, df.box.h) < kMinFacePx) continue;  // size gate
@@ -235,7 +322,7 @@ void FaceService::run_scan(uint64_t request_id, uint64_t asset_id, std::string p
         const float q = face_quality(aligned);
         if (q < kMinSharpness) continue;                          // blur gate
 
-        Embedding vec = embedder_->embed(aligned, /*tta=*/true);  // slow; no lock
+        Embedding vec = pipeline_->embed(aligned);  // slow; no lock
 
         FaceRecord rec;
         rec.asset_id = static_cast<int64_t>(asset_id);
@@ -248,7 +335,9 @@ void FaceService::run_scan(uint64_t request_id, uint64_t asset_id, std::string p
             store_->insert_face(rec, vec.data());
             // Online assignment: nearest confirmed prototype within threshold.
             auto match = prototypes_->nearest(vec);
-            if (match.person_id >= 0 && (1.0f - match.similarity) <= kMergeDistance) {
+            const float merge = profile_ ? profile_->merge_distance
+                                         : kFallbackMergeDistance;
+            if (match.person_id >= 0 && (1.0f - match.similarity) <= merge) {
                 store_->set_cluster(rec.id, match.person_id);
                 store_->set_person(rec.id, match.person_id);  // suggestion (unconfirmed)
             }
@@ -273,7 +362,8 @@ void FaceService::run_rebuild(uint64_t request_id) {
     for (const auto& f : faces) embs.push_back(store_->vectors().row(f.vec_row));
 
     ClusterParams params;
-    params.merge_distance = kMergeDistance;
+    params.merge_distance =
+        profile_ ? profile_->merge_distance : kFallbackMergeDistance;
     std::vector<int64_t> labels = cluster_agglomerative(embs, params);
     // Preserve confirmed faces' person-cluster binding; only relabel unconfirmed.
     for (size_t i = 0; i < faces.size(); ++i)
@@ -408,8 +498,10 @@ bool FaceService::assign_face(uint64_t face_id, const std::string& name) {
     store_->set_person(f->id, person);
     store_->set_cluster(f->id, person);
     store_->set_confirmed(f->id, true);
-    // Fold a real embedding into the prototype; manual rects (vec_row<0) can't.
-    if (f->vec_row >= 0) prototypes_->add_confirmed(person, store_->vectors().row(f->vec_row));
+    // Fold a real embedding into the prototype; manual rects (vec_row<0) and
+    // stale-profile rows (vector in another file) can't.
+    if (f->vec_row >= 0 && store_->matches_active(f->model_id))
+        prototypes_->add_confirmed(person, store_->vectors().row(f->vec_row));
     return true;
 }
 

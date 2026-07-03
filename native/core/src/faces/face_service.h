@@ -22,14 +22,14 @@
 #include <unordered_map>
 #include <vector>
 
+#include "faces/model_registry.h"
 #include "photo_core.h"
 #include "runtime/event_ring.h"
 #include "runtime/job_system.h"
 
 namespace photo::faces {
 
-class Detector;
-class Embedder;
+class FacePipeline;
 class FaceStore;
 class PrototypeIndex;
 struct FaceRecord;
@@ -92,6 +92,16 @@ public:
 
     static bool available();  // FACES_HAVE_ORT
 
+    // --- model registry (model_registry.h) ---
+    // Active profile id ("scrfd10g+auraface"); resolved by filesystem probe.
+    std::string active_model_id();
+    // Embedded faces whose profile is no longer active (their vectors live in
+    // another per-profile file, so they sit out of prototypes until rescanned).
+    int64_t stale_face_count();
+    // Delete unconfirmed stale rows so a fresh scan can repopulate them.
+    // Confirmed rows keep their person link. Returns rows deleted.
+    int64_t prune_stale_faces();
+
 private:
     // Allocate a request id, submit `fn(request_id)` on `lane`, and uniformly
     // track the in-flight job in request_to_job_ (erasing on completion). Every
@@ -127,8 +137,10 @@ private:
     bool models_ok_ = false;
     // Serializes all FaceStore access: UI read queries vs. worker writes.
     std::mutex store_mu_;
-    std::unique_ptr<Detector> detector_;
-    std::unique_ptr<Embedder> embedder_;
+    // The active profile (nullptr = no model files found) + the pipeline
+    // constructed from it. Model specifics live in the profile, not here.
+    const FaceModelProfile* profile_ = nullptr;
+    std::unique_ptr<FacePipeline> pipeline_;
     std::unique_ptr<FaceStore> store_;
     std::unique_ptr<PrototypeIndex> prototypes_;
 
