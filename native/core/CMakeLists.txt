@@ -28,6 +28,11 @@ set(PHOTO_CORE_SOURCES
     src/runtime/job_system.cpp
     src/thumb/thumb_service.cpp
 
+    # Face-pipeline math (pure std::vector — no OpenCV/ORT): compiled in EVERY
+    # build so cluster/prototype behavior is unit-testable in the lean config.
+    src/faces/cluster.cpp
+    src/faces/prototype.cpp
+
     # M3 — on-disk thumbnail cache
     src/thumb/thumb_cache.cpp
 
@@ -182,8 +187,6 @@ if(PHOTO_BUILD_FACES)
             src/faces/detector.cpp
             src/faces/align.cpp
             src/faces/embed.cpp
-            src/faces/cluster.cpp
-            src/faces/prototype.cpp
             src/faces/face_service.cpp
         )
         target_compile_definitions(photo_core_objects PUBLIC PHOTO_HAVE_FACES=1)
