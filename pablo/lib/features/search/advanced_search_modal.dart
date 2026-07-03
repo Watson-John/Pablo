@@ -8,10 +8,10 @@ import '../../components/pablo_checkbox.dart';
 import '../../components/pablo_icon.dart';
 import '../../components/pablo_icon_button.dart';
 import '../../components/pablo_radio.dart';
-import '../../components/pablo_text_field.dart';
 import '../../data/constants.dart';
 import '../../data/saved_search_store.dart';
 import '../../theme/tokens.dart';
+import 'widgets/save_search_dialog.dart';
 
 /// Colour-search options (must match SearchService's `_ColorMatcher`).
 const List<String> kAdvSearchColors = [
@@ -108,7 +108,7 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
     _saveNameCtl.clear();
     final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => _SaveSearchDialog(controller: _saveNameCtl),
+      builder: (ctx) => SaveSearchDialog(controller: _saveNameCtl),
     );
     if (!mounted) return;
     if (name != null && name.trim().isNotEmpty) {
@@ -693,63 +693,3 @@ class _AdvancedSearchModalState extends State<AdvancedSearchModal> {
   }
 }
 
-/// A small themed dialog to name a saved search.
-class _SaveSearchDialog extends StatelessWidget {
-  const _SaveSearchDialog({required this.controller});
-  final TextEditingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    void submit() => Navigator.of(context).pop(controller.text);
-    return Center(
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: 360,
-          padding: const EdgeInsets.all(PabloSpacing.xxxl),
-          decoration: BoxDecoration(
-            color: PabloColors.backgroundSurface,
-            borderRadius: PabloRadius.panelAll,
-            boxShadow: PabloShadows.lg,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Save Search',
-                style: PabloTypography.serif(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: PabloSpacing.lg),
-              PabloTextField(
-                controller: controller,
-                placeholder: 'Name this search…',
-                autoFocus: true,
-                onSubmitted: (_) => submit(),
-              ),
-              const SizedBox(height: PabloSpacing.xl),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  PabloButton(
-                    label: 'Cancel',
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                  const SizedBox(width: PabloSpacing.lg),
-                  PabloButton(
-                    label: 'Save',
-                    variant: PabloButtonVariant.primary,
-                    onPressed: submit,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
