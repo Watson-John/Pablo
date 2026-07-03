@@ -710,4 +710,152 @@ TEST(EditExport, ExportedFileCarriesToneEdit) {
     g_object_unref(got);
 }
 
+
+// ── In-place save mode (overwrite with backup, Picasa-style) ────────────────
+
+namespace {
+std::vector<char> slurp(const std::string& p) {
+    std::ifstream in(p, std::ios::binary);
+    return std::vector<char>(std::istreambuf_iterator<char>(in), {});
+}
+
+photo_event_t wait_import_ev(photo::Engine& eng, uint64_t req,
+                             int timeout_ms = 10000) {
+    using namespace std::chrono;
+    const auto deadline = steady_clock::now() + milliseconds(timeout_ms);
+    photo_event_t buf[32];
+    while (steady_clock::now() < deadline) {
+        size_t n = eng.events().pop_n(buf, 32);
+        for (size_t i = 0; i < n; ++i)
+            if (buf[i].kind == PHOTO_EVT_IMPORT_COMPLETE &&
+                buf[i].request_id == req)
+                return buf[i];
+        if (n == 0) std::this_thread::sleep_for(milliseconds(5));
+    }
+    photo_event_t none{};
+    none.status = PHOTO_STATUS_CANCELLED;
+    return none;
+}
+
+bool wait_import_ok(photo::Engine& eng, uint64_t req, int timeout_ms = 10000) {
+    return wait_import_ev(eng, req, timeout_ms).status == PHOTO_STATUS_OK;
+}
+
+bool wait_has_backup(photo::Engine& eng, const std::string& src, bool want,
+                     int timeout_ms = 10000) {
+    using namespace std::chrono;
+    const auto deadline = steady_clock::now() + milliseconds(timeout_ms);
+    while (steady_clock::now() < deadline) {
+        if (eng.has_inplace_backup(src) == want) return true;
+        std::this_thread::sleep_for(milliseconds(10));
+    }
+    return false;
+}
+}  // namespace
+
+TEST(EditInPlace, SaveBacksUpBakesAndClearsSpecThenRevertRestores) {
+    auto dir = exportns::temp_directory_path() / "photo_edit_inplace";
+    exportns::remove_all(dir);
+    exportns::create_directories(dir);
+    // JPEG source: the mode's real-world case (same-extension re-encode).
+    const std::string png = write_src(dir, 80, 80);
+    const std::string src = (dir / "photo.jpg").string();
+    {   // transcode the quadrant fixture to jpg via vips
+        VipsImage* im = vips_image_new_from_file(png.c_str(), nullptr);
+        ASSERT_NE(im, nullptr);
+        ASSERT_EQ(vips_image_write_to_file(im, src.c_str(), nullptr), 0);
+        g_object_unref(im);
+    }
+    const std::vector<char> original_bytes = slurp(src);
+
+    auto eng = export_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    ASSERT_TRUE(wait_import_ok(*eng, eng->import_path(dir.string())));
+    int64_t id = 0;
+    for (const auto& a : eng->list_assets())
+        if (a.path == src) id = a.id;
+    ASSERT_GT(id, 0);
+    eng->set_starred(id, true);
+    ASSERT_GT(eng->set_edits(id, "saturation=-100;"), 0u);
+
+    // Save in place: backup appears, file changes, spec clears (rev stays >0
+    // per the kept-row rule so caches rebind).
+    EXPECT_FALSE(eng->has_inplace_backup(src));
+    const uint64_t req = eng->save_in_place(id, src, "saturation=-100;", 95);
+    ASSERT_GT(req, 0u);
+    ASSERT_TRUE(wait_export(*eng, req));
+    EXPECT_TRUE(eng->has_inplace_backup(src));
+    EXPECT_NE(slurp(src), original_bytes) << "file was not rewritten";
+    EXPECT_TRUE(eng->get_edits(id).empty()) << "spec must clear after bake";
+    {   // backup holds the pristine original
+        const auto backup =
+            (dir / ".pablo-originals" / "photo.jpg").string();
+        EXPECT_EQ(slurp(backup), original_bytes);
+    }
+
+    // Second save must NOT clobber the first backup (first-save-wins).
+    ASSERT_GT(eng->set_edits(id, "exposure=30;"), 0u);
+    const uint64_t req2 = eng->save_in_place(id, src, "exposure=30;", 95);
+    ASSERT_GT(req2, 0u);
+    ASSERT_TRUE(wait_export(*eng, req2));
+    EXPECT_EQ(slurp((dir / ".pablo-originals" / "photo.jpg").string()),
+              original_bytes);
+
+    // Rescan: same id, user state intact, backup dir NOT imported.
+    auto ev = wait_import_ev(*eng, eng->rescan());
+    ASSERT_EQ(ev.status, PHOTO_STATUS_OK);
+    bool found = false;
+    for (const auto& a : eng->list_assets()) {
+        EXPECT_EQ(a.path.find(".pablo-originals"), std::string::npos)
+            << "backup dir leaked into the catalog: " << a.path;
+        if (a.path == src) {
+            found = true;
+            EXPECT_EQ(a.id, id) << "asset identity lost across in-place save";
+            EXPECT_TRUE(a.starred);
+        }
+    }
+    EXPECT_TRUE(found);
+
+    // Revert: byte-identical original restored, backup gone.
+    const uint64_t req3 = eng->revert_in_place(id, src);
+    ASSERT_GT(req3, 0u);
+    ASSERT_TRUE(wait_export(*eng, req3));
+    EXPECT_EQ(slurp(src), original_bytes);
+    EXPECT_FALSE(eng->has_inplace_backup(src));
+    EXPECT_TRUE(eng->get_edits(id).empty());
+}
+
+TEST(EditInPlace, BackupFailureAbortsWithoutTouchingTheSource) {
+    auto dir = exportns::temp_directory_path() / "photo_edit_inplace_abort";
+    exportns::remove_all(dir);
+    exportns::create_directories(dir);
+    const std::string src = write_src(dir, 40, 40);
+    const std::vector<char> original_bytes = slurp(src);
+    // Occupy the backup path with a FILE so create_directories fails.
+    { std::ofstream((dir / ".pablo-originals").string()) << "not a dir"; }
+
+    auto eng = export_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    ASSERT_TRUE(wait_import_ok(*eng, eng->import_path(dir.string())));
+    int64_t id = eng->list_assets().at(0).id;
+
+    const uint64_t req = eng->save_in_place(id, src, "saturation=-100;", 95);
+    ASSERT_GT(req, 0u);
+    EXPECT_FALSE(wait_export(*eng, req)) << "save must FAIL without a backup";
+    EXPECT_EQ(slurp(src), original_bytes) << "source must be untouched";
+}
+
+TEST(EditInPlace, RevertWithoutBackupReportsNotFound) {
+    auto dir = exportns::temp_directory_path() / "photo_edit_inplace_nf";
+    exportns::remove_all(dir);
+    exportns::create_directories(dir);
+    const std::string src = write_src(dir, 40, 40);
+    auto eng = export_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    ASSERT_TRUE(wait_import_ok(*eng, eng->import_path(dir.string())));
+    const uint64_t req = eng->revert_in_place(eng->list_assets().at(0).id, src);
+    ASSERT_GT(req, 0u);
+    EXPECT_FALSE(wait_export(*eng, req));  // NOT_FOUND status → not OK
+}
+
 #endif  // PHOTO_HAVE_VIPS

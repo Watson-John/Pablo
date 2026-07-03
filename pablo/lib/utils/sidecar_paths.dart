@@ -12,6 +12,15 @@
 /// The face-region XMP sidecar beside [src].
 String xmpSidecarPathFor(String src) => '$src.xmp';
 
+/// The in-place save-mode backup: `<folder>/.pablo-originals/<name>`.
+String inplaceBackupPathFor(String src) {
+  final cut = src.lastIndexOf(RegExp(r'[/\\]'));
+  final dir = cut < 0 ? '' : src.substring(0, cut + 1);
+  final name = cut < 0 ? src : src.substring(cut + 1);
+  final sep = dir.contains('\\') ? '\\' : '/';
+  return '$dir.pablo-originals$sep$name';
+}
+
 /// The `<stem>.pablo.tif` layered-TIFF save beside [src].
 String layeredTiffPathFor(String src) {
   final dot = src.lastIndexOf('.');
@@ -25,4 +34,7 @@ String layeredTiffPathFor(String src) {
 List<(String, String)> sidecarMovesFor(String from, String to) => [
       (xmpSidecarPathFor(from), xmpSidecarPathFor(to)),
       (layeredTiffPathFor(from), layeredTiffPathFor(to)),
+      // The overwrite-mode backup must follow too, or Revert would restore a
+      // photo that no longer lives there.
+      (inplaceBackupPathFor(from), inplaceBackupPathFor(to)),
     ];

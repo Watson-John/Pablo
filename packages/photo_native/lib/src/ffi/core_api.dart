@@ -635,6 +635,14 @@ typedef _SavedQueryDart = int Function(Pointer<Void>, int, Pointer<Uint8>, int);
 // Face editing (§7): ignore / manual rect / assign / remove / XMP write-back.
 typedef _FaceSetIgnoredC = Int32 Function(Pointer<Void>, Uint64, Int32);
 typedef _FaceSetIgnoredDart = int Function(Pointer<Void>, int, int);
+typedef _SaveInPlaceC = Uint64 Function(
+    Pointer<Void>, Uint64, Pointer<Utf8>, Pointer<Utf8>, Int32);
+typedef _SaveInPlaceDart = int Function(
+    Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, int);
+typedef _RevertInPlaceC = Uint64 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _RevertInPlaceDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _HasBackupC = Int32 Function(Pointer<Void>, Pointer<Utf8>);
+typedef _HasBackupDart = int Function(Pointer<Void>, Pointer<Utf8>);
 typedef _DedupSimilarC = IntPtr Function(Pointer<Void>, Pointer<Uint64>,
     IntPtr, Float, Pointer<_NativeSimilarPair>, IntPtr);
 typedef _DedupSimilarDart = int Function(Pointer<Void>, Pointer<Uint64>, int,
@@ -1739,6 +1747,46 @@ final class Engine {
   int setFaceIgnored(int faceId, bool ignored) =>
       _Bindings.faceSetIgnored(_handle, faceId, ignored ? 1 : 0);
 
+  /// In-place save ("overwrite with backup"): secures the untouched original
+  /// in <folder>/.pablo-originals/ FIRST (aborts without it), bakes [spec]
+  /// into the source file atomically, clears the parametric spec, refreshes
+  /// the catalog row. Async: request id + exportComplete event. 0 = rejected.
+  int saveInPlace(
+      {required int assetId,
+      required String srcPath,
+      required String spec,
+      int quality = 95}) {
+    final sp = srcPath.toNativeUtf8();
+    final ss = spec.toNativeUtf8();
+    try {
+      return _Bindings.saveInPlace(_handle, assetId, sp, ss, quality);
+    } finally {
+      calloc.free(sp);
+      calloc.free(ss);
+    }
+  }
+
+  /// Restore the in-place backup over the source and delete it (Picasa's
+  /// "Undo Save"). Same async contract as [saveInPlace]. 0 = rejected.
+  int revertInPlace({required int assetId, required String srcPath}) {
+    final sp = srcPath.toNativeUtf8();
+    try {
+      return _Bindings.revertInPlace(_handle, assetId, sp);
+    } finally {
+      calloc.free(sp);
+    }
+  }
+
+  /// True when [srcPath] has an in-place backup (drives Revert enablement).
+  bool hasInplaceBackup(String srcPath) {
+    final sp = srcPath.toNativeUtf8();
+    try {
+      return _Bindings.hasInplaceBackup(_handle, sp) != 0;
+    } finally {
+      calloc.free(sp);
+    }
+  }
+
   /// Visually-similar pairs over [assetIds] (Find Duplicates): pairwise
   /// cosine over the catalog's semantic embeddings; pairs scoring >=
   /// [minCosine] return as (a, b, score). Scoped + synchronous — pass the
@@ -2549,6 +2597,21 @@ final class _Bindings {
   static final _FaceSetIgnoredDart faceSetIgnored = _dylib
       .lookupFunction<_FaceSetIgnoredC, _FaceSetIgnoredDart>(
         'photo_face_set_ignored',
+      );
+
+  static final _SaveInPlaceDart saveInPlace = _dylib
+      .lookupFunction<_SaveInPlaceC, _SaveInPlaceDart>(
+        'photo_asset_save_in_place',
+      );
+
+  static final _RevertInPlaceDart revertInPlace = _dylib
+      .lookupFunction<_RevertInPlaceC, _RevertInPlaceDart>(
+        'photo_asset_revert_in_place',
+      );
+
+  static final _HasBackupDart hasInplaceBackup = _dylib
+      .lookupFunction<_HasBackupC, _HasBackupDart>(
+        'photo_asset_has_inplace_backup',
       );
 
   static final _DedupSimilarDart dedupSimilar = _dylib

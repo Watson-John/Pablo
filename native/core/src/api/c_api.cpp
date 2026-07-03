@@ -1452,6 +1452,48 @@ PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
+// In-place save mode ("overwrite with backup", Picasa-style).
+// ---------------------------------------------------------------------------
+
+PHOTO_API uint64_t photo_asset_save_in_place(photo_engine_t* engine,
+                                             uint64_t asset_id,
+                                             const char* src_utf8,
+                                             const char* spec_utf8,
+                                             int32_t quality) {
+    if (!engine || !src_utf8 || !spec_utf8) return 0;
+    try {
+        return cast(engine)->save_in_place(static_cast<int64_t>(asset_id),
+                                           src_utf8, spec_utf8, quality);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_save_in_place: %s", e.what());
+        return 0;
+    }
+}
+
+PHOTO_API uint64_t photo_asset_revert_in_place(photo_engine_t* engine,
+                                               uint64_t asset_id,
+                                               const char* src_utf8) {
+    if (!engine || !src_utf8) return 0;
+    try {
+        return cast(engine)->revert_in_place(static_cast<int64_t>(asset_id),
+                                             src_utf8);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_revert_in_place: %s", e.what());
+        return 0;
+    }
+}
+
+PHOTO_API int32_t photo_asset_has_inplace_backup(photo_engine_t* engine,
+                                                 const char* src_utf8) {
+    if (!engine || !src_utf8) return 0;
+    try {
+        return cast(engine)->has_inplace_backup(src_utf8) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Visually-similar pairs (Find Duplicates) — scoped pairwise semantic cosine.
 // ---------------------------------------------------------------------------
 

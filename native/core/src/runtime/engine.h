@@ -158,6 +158,18 @@ public:
     // (status = per-item result). Returns a request id (0 if no catalog).
     uint64_t embedding_scan(int64_t asset_id);
 
+    // ── in-place save mode ("overwrite with backup", Picasa-style) ──
+    // save: secure <folder>/.pablo-originals/<name> FIRST (first-save-wins;
+    // abort without it), render the spec full-res to a same-dir temp, atomic-
+    // rename over the source, clear the parametric spec, refresh the asset
+    // row. revert: restore the backup over the source and delete it. Both
+    // async on the idle lane; PHOTO_EVT_EXPORT_COMPLETE with the request id.
+    uint64_t save_in_place(int64_t asset_id, const std::string& src,
+                           const std::string& spec_utf8, int quality);
+    uint64_t revert_in_place(int64_t asset_id, const std::string& src);
+    // Synchronous stat: does src have an in-place backup (Revert enabled)?
+    bool has_inplace_backup(const std::string& src) const;
+
     // ── visually-similar pairs (Find Duplicates) ──
     // Pairwise cosine over the SUPPLIED assets' semantic embeddings (catalog
     // rows, status done). Scoped + synchronous on purpose: the dedup flow
@@ -325,6 +337,8 @@ public:
 private:
     // Rebuild the map with one entry set (entry != nullptr) or erased (nullptr).
     void store_edit_entry(int64_t asset_id, const edit::EditEntry* entry);
+    // Shared tail of save/revert-in-place (spec clear + asset stat refresh).
+    void finish_in_place(int64_t asset_id, const std::string& src);
 
     // Owned thumbnail cache. Declared first so it is destroyed last — after
     // the job system's workers, which reference it through ThumbService.

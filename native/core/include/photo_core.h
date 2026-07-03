@@ -1069,6 +1069,30 @@ PHOTO_API int32_t photo_face_model_id(photo_engine_t* engine, char* out,
 PHOTO_API int64_t photo_face_stale_count(photo_engine_t* engine);
 PHOTO_API int64_t photo_face_prune_stale(photo_engine_t* engine);
 
+/*
+ * In-place save mode ("overwrite with backup", Picasa-style; opt-in via the
+ * app's Edit-save setting — catalog-only stays the default, D1 amended).
+ *   save_in_place: back the untouched original up to
+ *     <folder>/.pablo-originals/<name> FIRST (first-save-wins; the save
+ *     ABORTS if the backup cannot be secured), render `spec` full-res to a
+ *     same-directory temp, atomically rename over the source, clear the
+ *     parametric spec (content_rev bumps → caches rebind), refresh the asset
+ *     row. Async idle lane; PHOTO_EVT_EXPORT_COMPLETE with the returned id.
+ *   revert_in_place: restore the backup over the source and delete it
+ *     (NOT_FOUND when no backup). Same async event contract.
+ *   has_inplace_backup: synchronous 0/1 — drives Revert enablement.
+ */
+PHOTO_API uint64_t photo_asset_save_in_place(photo_engine_t* engine,
+                                             uint64_t asset_id,
+                                             const char* src_utf8,
+                                             const char* spec_utf8,
+                                             int32_t quality);
+PHOTO_API uint64_t photo_asset_revert_in_place(photo_engine_t* engine,
+                                               uint64_t asset_id,
+                                               const char* src_utf8);
+PHOTO_API int32_t photo_asset_has_inplace_backup(photo_engine_t* engine,
+                                                 const char* src_utf8);
+
 /* One visually-similar pair: two catalog assets + their cosine (0..1). */
 typedef struct {
     uint64_t asset_a;

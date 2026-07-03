@@ -11,13 +11,17 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-/// How "Save Edits" persists a non-destructive edit (Settings → Edit save).
+/// How "Save Edits" persists an edit (Settings → Edit save).
 /// `catalog` (default) keeps the parametric spec in the app catalog and never
 /// touches the file. `layeredTiff` additionally writes a self-contained layered
 /// TIFF (edited render + embedded original + spec) beside the photo.
+/// `overwriteBackup` (Picasa-style) bakes the pixels into the original file,
+/// keeping the untouched original in a hidden `.pablo-originals` folder so
+/// Revert restores it — the one mode where other apps see the edited photo.
 abstract final class EditSaveMode {
   static const String catalog = 'catalog';
   static const String layeredTiff = 'layeredTiff';
+  static const String overwriteBackup = 'overwriteBackup';
 }
 
 class AppConfig {
@@ -87,8 +91,9 @@ class AppConfig {
         final mode = j['editSaveMode'] as String?;
         return AppConfig(
           catalogDir: (dir != null && dir.isNotEmpty) ? dir : defaultCatalogDir,
-          editSaveMode: mode == EditSaveMode.layeredTiff
-              ? EditSaveMode.layeredTiff
+          editSaveMode: mode == EditSaveMode.layeredTiff ||
+                  mode == EditSaveMode.overwriteBackup
+              ? mode!
               : EditSaveMode.catalog,
           exportFolder: (j['exportFolder'] as String?) ?? '',
           exportMaxDim: (j['exportMaxDim'] as num?)?.toInt() ?? 0,

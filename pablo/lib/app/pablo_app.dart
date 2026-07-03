@@ -759,6 +759,7 @@ class _BodyState extends State<_Body> {
     if (lightboxPhoto == null) return shell;
     return EditSessionProvider(
       engine: NativeBackendScope.maybeOf(context)?.engine,
+      events: NativeBackendScope.maybeOf(context)?.events,
       assetId: assetIdFor(lightboxPhoto.id),
       path: lightboxPhoto.filePath,
       child: shell,

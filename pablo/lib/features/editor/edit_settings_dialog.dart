@@ -45,8 +45,8 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
                   fontSize: 12.5, fontWeight: FontWeight.w600)),
           const SizedBox(height: PabloSpacing.sm),
           Text(
-            'How "Save Edits" stores a non-destructive edit. Either way the '
-            'original is never destroyed and edits stay reversible.',
+            'How "Save Edits" stores an edit. In every mode a pristine '
+            'original survives and Revert restores it.',
             style: PabloTypography.sans(
                 fontSize: 11.5, color: PabloColors.textSecondary),
           ),
@@ -68,6 +68,16 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
                 'from the file itself; larger and slower.',
             selected: _mode == EditSaveMode.layeredTiff,
             onTap: () => _set(EditSaveMode.layeredTiff),
+          ),
+          const SizedBox(height: PabloSpacing.base),
+          DialogOptionTile(
+            label: 'Overwrite the photo (backup kept)',
+            detail: 'Picasa-style: writes your edits into the original file '
+                'so every app sees them. The untouched original is kept in a '
+                'hidden .pablo-originals folder next to it; Revert restores '
+                'it. Re-encodes JPEGs.',
+            selected: _mode == EditSaveMode.overwriteBackup,
+            onTap: () => _set(EditSaveMode.overwriteBackup),
           ),
           const SizedBox(height: PabloSpacing.xxl),
           _FaceModelDiagnostics(

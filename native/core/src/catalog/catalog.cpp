@@ -1122,6 +1122,10 @@ void Catalog::set_rating(int64_t, int32_t) {}
 void Catalog::set_caption(int64_t, const std::string&) {}
 void Catalog::set_hidden(int64_t, bool) {}
 void Catalog::remove_asset(int64_t) {}
+void Catalog::upsert_analysis(const AnalysisRow&) {}
+bool Catalog::get_analysis(const std::string&, int64_t, AnalysisRow&) const {
+    return false;
+}
 int64_t Catalog::relocate_assets(const std::vector<RelocateEntry>& moves,
                                  std::vector<uint8_t>* out_ok) {
     if (out_ok) out_ok->assign(moves.size(), 0);

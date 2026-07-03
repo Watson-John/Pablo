@@ -2075,6 +2075,85 @@ class PhotoBindings {
   late final _photo_face_prune_stale = _photo_face_prune_stalePtr
       .asFunction<int Function(ffi.Pointer<photo_engine_t>)>();
 
+  /// In-place save mode ("overwrite with backup", Picasa-style; opt-in via the
+  /// app's Edit-save setting — catalog-only stays the default, D1 amended).
+  /// save_in_place: back the untouched original up to
+  /// <folder>/.pablo-originals/<name> FIRST (first-save-wins; the save
+  /// ABORTS if the backup cannot be secured), render `spec` full-res to a
+  /// same-directory temp, atomically rename over the source, clear the
+  /// parametric spec (content_rev bumps → caches rebind), refresh the asset
+  /// row. Async idle lane; PHOTO_EVT_EXPORT_COMPLETE with the returned id.
+  /// revert_in_place: restore the backup over the source and delete it
+  /// (NOT_FOUND when no backup). Same async event contract.
+  /// has_inplace_backup: synchronous 0/1 — drives Revert enablement.
+  int photo_asset_save_in_place(
+    ffi.Pointer<photo_engine_t> engine,
+    int asset_id,
+    ffi.Pointer<ffi.Char> src_utf8,
+    ffi.Pointer<ffi.Char> spec_utf8,
+    int quality,
+  ) {
+    return _photo_asset_save_in_place(
+      engine,
+      asset_id,
+      src_utf8,
+      spec_utf8,
+      quality,
+    );
+  }
+
+  late final _photo_asset_save_in_placePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Uint64 Function(
+              ffi.Pointer<photo_engine_t>,
+              ffi.Uint64,
+              ffi.Pointer<ffi.Char>,
+              ffi.Pointer<ffi.Char>,
+              ffi.Int32)>>('photo_asset_save_in_place');
+  late final _photo_asset_save_in_place =
+      _photo_asset_save_in_placePtr.asFunction<
+          int Function(ffi.Pointer<photo_engine_t>, int, ffi.Pointer<ffi.Char>,
+              ffi.Pointer<ffi.Char>, int)>();
+
+  int photo_asset_revert_in_place(
+    ffi.Pointer<photo_engine_t> engine,
+    int asset_id,
+    ffi.Pointer<ffi.Char> src_utf8,
+  ) {
+    return _photo_asset_revert_in_place(
+      engine,
+      asset_id,
+      src_utf8,
+    );
+  }
+
+  late final _photo_asset_revert_in_placePtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Uint64 Function(ffi.Pointer<photo_engine_t>, ffi.Uint64,
+              ffi.Pointer<ffi.Char>)>>('photo_asset_revert_in_place');
+  late final _photo_asset_revert_in_place =
+      _photo_asset_revert_in_placePtr.asFunction<
+          int Function(
+              ffi.Pointer<photo_engine_t>, int, ffi.Pointer<ffi.Char>)>();
+
+  int photo_asset_has_inplace_backup(
+    ffi.Pointer<photo_engine_t> engine,
+    ffi.Pointer<ffi.Char> src_utf8,
+  ) {
+    return _photo_asset_has_inplace_backup(
+      engine,
+      src_utf8,
+    );
+  }
+
+  late final _photo_asset_has_inplace_backupPtr = _lookup<
+      ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<photo_engine_t>,
+              ffi.Pointer<ffi.Char>)>>('photo_asset_has_inplace_backup');
+  late final _photo_asset_has_inplace_backup =
+      _photo_asset_has_inplace_backupPtr.asFunction<
+          int Function(ffi.Pointer<photo_engine_t>, ffi.Pointer<ffi.Char>)>();
+
   /// Visually-similar pairs over the SUPPLIED assets (Find Duplicates). Pairwise
   /// cosine over the catalog's semantic embeddings (SigLIP2 "similar scene");
   /// pairs with score >= min_cosine fill `out` up to `cap`. Returns the TOTAL
