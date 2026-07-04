@@ -218,13 +218,13 @@ List<ContextMenuItem> buildPhotoMenuItems({
         ),
       if (actions.onShare != null)
         ContextMenuItem(
-          label: withCount('Share', 'Photos'),
+          label: multi ? 'Share $n Photos…' : 'Share…',
           iconCharacter: '📤',
           onPressed: () => actions.onShare!(targets),
         ),
       if (actions.onPrint != null)
         ContextMenuItem(
-          label: withCount('Print', 'Photos'),
+          label: multi ? 'Print $n Photos…' : 'Print…',
           iconCharacter: '🖨',
           onPressed: () => actions.onPrint!(targets),
         ),

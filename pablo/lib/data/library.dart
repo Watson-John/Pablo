@@ -84,6 +84,12 @@ bool isVideoPath(String path) {
   return dot >= 0 && _kVideoExts.contains(path.substring(dot).toLowerCase());
 }
 
+/// True when [path] is any library media (image OR §11 video). Post-move
+/// folder-cleanup checks use this so a folder still holding a video is never
+/// treated as emptied.
+bool hasMediaExtension(String path) =>
+    hasImageExtension(path) || isVideoPath(path);
+
 const List<String> _kMonthNames = [
   '',
   'January',
