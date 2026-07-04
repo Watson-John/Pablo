@@ -68,12 +68,29 @@ int64_t now_ns() {
         .count();
 }
 
+// Idempotent ALTER TABLE ADD COLUMN — swallows only "duplicate column", so
+// the schema reconciler can re-assert columns that a collided version history
+// may have skipped (mirrors faces/store.cpp's helper).
+void add_column_if_missing(sqlite3* db, const char* table, const char* coldef);
+
 void exec(sqlite3* db, const char* sql) {
     char* err = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
         std::string m = err ? err : "unknown";
         sqlite3_free(err);
         throw std::runtime_error("sqlite exec: " + m);
+    }
+}
+
+void add_column_if_missing(sqlite3* db, const char* table, const char* coldef) {
+    const std::string sql =
+        std::string("ALTER TABLE ") + table + " ADD COLUMN " + coldef;
+    char* err = nullptr;
+    if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
+        const std::string m = err ? err : "";
+        sqlite3_free(err);
+        if (m.find("duplicate column") == std::string::npos)
+            throw std::runtime_error("sqlite alter: " + m);
     }
 }
 
@@ -301,6 +318,64 @@ void Catalog::migrate() {
              " PRIMARY KEY(analyzer_id, asset_id));"
              "PRAGMA user_version=10;");
     }
+
+    // ── Schema reconciliation (collision self-heal) ─────────────────────────
+    // Version numbers have COLLIDED across branches before (three branches
+    // once claimed v7; the merge convention renumbers the losers). A catalog
+    // created by a fork whose numbering ran PAST a migration it never executed
+    // skips that block forever — user_version can't tell. Seen in the wild: a
+    // v9 catalog with no `embedding`/`saved_search`/`geo_override` (the v7
+    // trio), which made photo_embedding_counts fail on every poll. All side-
+    // table DDL is idempotent (IF NOT EXISTS / add_column_if_missing), so
+    // re-assert the pieces every open regardless of user_version.
+    exec(db_,
+         "CREATE TABLE IF NOT EXISTS embedding("
+         " asset_id INTEGER PRIMARY KEY REFERENCES asset(id) ON DELETE CASCADE,"
+         " model_id TEXT NOT NULL DEFAULT '',"
+         " model_version TEXT NOT NULL DEFAULT '',"
+         " dim INTEGER NOT NULL DEFAULT 0,"
+         " vec BLOB,"
+         " dominant_rgb INTEGER NOT NULL DEFAULT -1,"
+         " status INTEGER NOT NULL DEFAULT 0,"
+         " tags TEXT NOT NULL DEFAULT '',"
+         " error TEXT NOT NULL DEFAULT '',"
+         " created_ns INTEGER NOT NULL DEFAULT 0,"
+         " updated_ns INTEGER NOT NULL DEFAULT 0);"
+         "CREATE INDEX IF NOT EXISTS embedding_status ON embedding(status);"
+         "CREATE INDEX IF NOT EXISTS embedding_model ON embedding(model_id,model_version);"
+         "CREATE TABLE IF NOT EXISTS saved_search("
+         " id INTEGER PRIMARY KEY,"
+         " name TEXT NOT NULL DEFAULT '',"
+         " query_json TEXT NOT NULL DEFAULT '',"
+         " created_ns INTEGER NOT NULL DEFAULT 0);"
+         "CREATE TABLE IF NOT EXISTS geo_override("
+         " asset_id INTEGER PRIMARY KEY,"
+         " lat REAL NOT NULL, lon REAL NOT NULL);"
+         "CREATE TABLE IF NOT EXISTS asset_edit("
+         " asset_id INTEGER PRIMARY KEY REFERENCES asset(id) ON DELETE CASCADE,"
+         " spec TEXT NOT NULL DEFAULT '',"
+         " content_rev INTEGER NOT NULL DEFAULT 0,"
+         " updated_ns INTEGER NOT NULL DEFAULT 0);"
+         "CREATE TABLE IF NOT EXISTS video_edit("
+         " asset_id INTEGER PRIMARY KEY"
+         "   REFERENCES asset(id) ON DELETE CASCADE,"
+         " trim_start_ms INTEGER NOT NULL DEFAULT 0,"
+         " trim_end_ms INTEGER NOT NULL DEFAULT 0,"
+         " updated_ns INTEGER NOT NULL DEFAULT 0);"
+         "CREATE TABLE IF NOT EXISTS analysis("
+         " analyzer_id TEXT NOT NULL,"
+         " asset_id INTEGER NOT NULL"
+         "   REFERENCES asset(id) ON DELETE CASCADE,"
+         " version TEXT NOT NULL DEFAULT '',"
+         " status INTEGER NOT NULL DEFAULT 0,"
+         " payload TEXT NOT NULL DEFAULT '',"
+         " updated_ns INTEGER NOT NULL DEFAULT 0,"
+         " PRIMARY KEY(analyzer_id, asset_id));"
+         "CREATE TABLE IF NOT EXISTS hidden_folder("
+         " path TEXT PRIMARY KEY);");
+    add_column_if_missing(db_, "asset", "kind INTEGER NOT NULL DEFAULT 0");
+    add_column_if_missing(db_, "asset",
+                          "duration_ms INTEGER NOT NULL DEFAULT 0");
 }
 
 void Catalog::upsert_analysis(const AnalysisRow& row) {
