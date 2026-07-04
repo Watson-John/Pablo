@@ -52,7 +52,6 @@ jobs:
           -DCMAKE_BUILD_TYPE=Debug
           -DPHOTO_BUILD_FACES=OFF
           -DPHOTO_BUILD_TESTS=ON
-          -DPHOTO_BUILD_BENCHMARKS=OFF
       - name: Build
         run: cmake --build build/ci --target photo_core photo_core_tests
       - name: Test
@@ -76,8 +75,7 @@ jobs:
           cmake -S . -B build/ffi -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
           -DPHOTO_BUILD_FACES=OFF
-          -DPHOTO_BUILD_TESTS=OFF
-          -DPHOTO_BUILD_BENCHMARKS=OFF &&
+          -DPHOTO_BUILD_TESTS=OFF &&
           cmake --build build/ffi --target photo_core
       - uses: subosito/flutter-action@v2
         with:
@@ -115,6 +113,34 @@ jobs:
       # — path separators, case-sensitivity, reserved names, MAX_PATH — differs by
       # platform. Keep all three OSes here; do not collapse to one.
       - name: Tests
+        run: flutter test --reporter compact
+
+  # ── FFI drift gate: the hand-written bindings in photo_native must match
+  #    photo_core.h. Regenerates the ffigen reference artifact and fails on
+  #    any diff, then runs the package's abi_drift_test (enum + struct-layout
+  #    equality between the hand mirrors and the generated bindings). ──
+  ffi-drift:
+    name: ffi drift gate (ubuntu-latest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/photo_native
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+      - name: Install libclang (ffigen backend)
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - run: flutter pub get
+      - name: Regenerate bindings and fail on drift
+        run: |
+          dart run ffigen --config ffigen.yaml
+          git diff --exit-code -- lib/src/ffi/bindings_generated.dart \
+            || { echo '::error::bindings_generated.dart is stale — run ffigen and commit'; exit 1; }
+      - name: ABI drift tests
         run: flutter test --reporter compact
 
   # ── Deeper smoke: actually build the desktop app (compiles the native

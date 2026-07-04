@@ -203,6 +203,203 @@ void main() {
     expect(reopened.listSavedSearches().any((s) => s.name == 'persist'), isTrue);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
+  test('relocateAssets keeps ids attached and rescan is churn-free', () async {
+    final sep = Platform.pathSeparator;
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_reloc_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    final libDir = '${tmp.path}${sep}lib';
+    Directory('$libDir${sep}inbox').createSync(recursive: true);
+    File('$libDir${sep}inbox${sep}one.jpg').writeAsBytesSync(List.filled(8, 1));
+    File('$libDir${sep}inbox${sep}two.jpg').writeAsBytesSync(List.filled(8, 2));
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null (no catalog support in lib)');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final importReq = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
+    final assets = engine.listAssets();
+    expect(assets.length, 2);
+    final oneId = assets.firstWhere((a) => a.path.endsWith('one.jpg')).assetId;
+    final twoPath = assets.firstWhere((a) => a.path.endsWith('two.jpg')).path;
+    engine.setStarred(oneId, true);
+
+    // Move the file on disk (what MoveService will do), then relocate the row.
+    final destDir = '$libDir${sep}sorted';
+    Directory(destDir).createSync(recursive: true);
+    final dest = '$destDir${sep}one.jpg';
+    File('$libDir${sep}inbox${sep}one.jpg').renameSync(dest);
+
+    // Mixed batch: one clean move, one collision (onto two.jpg's path).
+    final outcome = engine.relocateAssets([
+      (oneId, dest),
+      (oneId, twoPath), // collides with a different asset — must be skipped
+    ]);
+    expect(outcome.applied, 1);
+    expect(outcome.okByIndex, [true, false]);
+
+    // The catalog row followed the file: same id, new path, star intact.
+    final after = engine.listAssets();
+    final moved = after.firstWhere((a) => a.assetId == oneId);
+    expect(moved.path, dest);
+    expect(engine.starredAssets(), contains(oneId));
+
+    // Rescan sees nothing to do — no add/remove churn for the moved file.
+    final rescanReq = engine.rescan();
+    final rescanned = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
+    expect(rescanned.importAdded, 0);
+    expect(rescanned.importRemoved, 0);
+    expect(rescanned.importSkipped, 2);
+    expect(engine.listAssets().length, 2);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('MoveService end-to-end: disk + catalog + id maps stay convergent',
+      () async {
+    final sep = Platform.pathSeparator;
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_movesvc_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    final libDir = '${tmp.path}${sep}lib';
+    Directory('$libDir${sep}inbox').createSync(recursive: true);
+    final srcPath = '$libDir${sep}inbox${sep}a.jpg';
+    File(srcPath).writeAsBytesSync(List.filled(8, 1));
+    File('$srcPath.xmp').writeAsStringSync('<xmp/>');
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null (no catalog support in lib)');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final importReq = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
+    final asset = engine.listAssets().single;
+    engine.setStarred(asset.assetId, true);
+    // The app hydrates this map after import (library_import.dart); mirror it.
+    hydrateCatalogIds({asset.path: asset.assetId});
+
+    final destDir = '$libDir${sep}sorted';
+    final undo = UndoStack();
+    final out =
+        MoveService.moveInto([srcPath], destDir, engine: engine, undo: undo);
+    expect(out.movedCount, 1);
+    final newPath = '$destDir${sep}a.jpg';
+    expect(File(newPath).existsSync(), isTrue);
+    expect(File('$newPath.xmp').existsSync(), isTrue, reason: 'sidecar moved');
+
+    // Catalog followed: same id at the new path; star intact; id map remapped.
+    final row = engine.listAssets().single;
+    expect(row.assetId, asset.assetId);
+    expect(row.path, newPath);
+    expect(engine.starredAssets(), contains(asset.assetId));
+    expect(assetIdFor(newPath), asset.assetId);
+    expect(pathForAssetId(asset.assetId), newPath);
+
+    // Rescan is churn-free after the coordinated move.
+    final rescanReq = engine.rescan();
+    final rescanned = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
+    expect(rescanned.importAdded, 0);
+    expect(rescanned.importRemoved, 0);
+
+    // Undo restores everything, including the catalog row and the id map.
+    MoveService.undoOp(undo.pop()!, engine: engine);
+    expect(File(srcPath).existsSync(), isTrue);
+    expect(File('$srcPath.xmp').existsSync(), isTrue);
+    expect(engine.listAssets().single.path, srcPath);
+    expect(engine.listAssets().single.assetId, asset.assetId);
+    expect(pathForAssetId(asset.assetId), srcPath);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test('folder rename via rebaseLibrary preserves ids for all descendants',
+      () async {
+    final sep = Platform.pathSeparator;
+    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_rename_');
+    addTearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    final libDir = '${tmp.path}${sep}lib';
+    final oldFolder = '$libDir${sep}2024';
+    Directory(oldFolder).createSync(recursive: true);
+    File('$oldFolder${sep}a.jpg').writeAsBytesSync(List.filled(8, 1));
+    File('$oldFolder${sep}b.jpg').writeAsBytesSync(List.filled(8, 2));
+
+    Engine? engine;
+    try {
+      engine = Engine.open(EngineConfig(
+        catalogPath: '${tmp.path}${sep}catalog.db',
+        cachePath: '${tmp.path}${sep}cache',
+      ));
+    } catch (e) {
+      markTestSkipped('libphoto_core not loadable ($e)');
+      return;
+    }
+    if (engine == null) {
+      markTestSkipped('Engine.open returned null (no catalog support in lib)');
+      return;
+    }
+    addTearDown(engine.dispose);
+    final pump = EventPump(engine)..start();
+    addTearDown(pump.dispose);
+
+    final importReq = engine.importPath(libDir);
+    await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
+    final before = {for (final a in engine.listAssets()) a.path: a.assetId};
+    expect(before.length, 2);
+
+    // Rename on disk, then rebase the catalog (what folder_ops.renameFolder does).
+    final newFolder = '$libDir${sep}Trip 2024';
+    Directory(oldFolder).renameSync(newFolder);
+    expect(engine.rebaseLibrary(oldFolder, newFolder), 0);
+
+    final after = {for (final a in engine.listAssets()) a.path: a.assetId};
+    expect(after['$newFolder${sep}a.jpg'], before['$oldFolder${sep}a.jpg']);
+    expect(after['$newFolder${sep}b.jpg'], before['$oldFolder${sep}b.jpg']);
+
+    // Rescan is churn-free: the rebased rows match the moved files.
+    final rescanReq = engine.rescan();
+    final rescanned = await _waitFor(pump.stream,
+        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
+    expect(rescanned.importAdded, 0);
+    expect(rescanned.importRemoved, 0);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
   // ── Stage V1: export-with-options through the real render pipeline ──
   // Uses the committed real JPEG fixture (the catalog test's 8-byte files are
   // not decodable, so they can't exercise export). Skips when the dylib has no
@@ -437,201 +634,4 @@ void main() {
     expect(dims!.width, 128);
     expect(dims.height, 64);
   }, timeout: const Timeout(Duration(seconds: 60)));
-
-  test('relocateAssets keeps ids attached and rescan is churn-free', () async {
-    final sep = Platform.pathSeparator;
-    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_reloc_');
-    addTearDown(() {
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-    });
-
-    final libDir = '${tmp.path}${sep}lib';
-    Directory('$libDir${sep}inbox').createSync(recursive: true);
-    File('$libDir${sep}inbox${sep}one.jpg').writeAsBytesSync(List.filled(8, 1));
-    File('$libDir${sep}inbox${sep}two.jpg').writeAsBytesSync(List.filled(8, 2));
-
-    Engine? engine;
-    try {
-      engine = Engine.open(EngineConfig(
-        catalogPath: '${tmp.path}${sep}catalog.db',
-        cachePath: '${tmp.path}${sep}cache',
-      ));
-    } catch (e) {
-      markTestSkipped('libphoto_core not loadable ($e)');
-      return;
-    }
-    if (engine == null) {
-      markTestSkipped('Engine.open returned null (no catalog support in lib)');
-      return;
-    }
-    addTearDown(engine.dispose);
-    final pump = EventPump(engine)..start();
-    addTearDown(pump.dispose);
-
-    final importReq = engine.importPath(libDir);
-    await _waitFor(pump.stream,
-        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
-    final assets = engine.listAssets();
-    expect(assets.length, 2);
-    final oneId = assets.firstWhere((a) => a.path.endsWith('one.jpg')).assetId;
-    final twoPath = assets.firstWhere((a) => a.path.endsWith('two.jpg')).path;
-    engine.setStarred(oneId, true);
-
-    // Move the file on disk (what MoveService will do), then relocate the row.
-    final destDir = '$libDir${sep}sorted';
-    Directory(destDir).createSync(recursive: true);
-    final dest = '$destDir${sep}one.jpg';
-    File('$libDir${sep}inbox${sep}one.jpg').renameSync(dest);
-
-    // Mixed batch: one clean move, one collision (onto two.jpg's path).
-    final outcome = engine.relocateAssets([
-      (oneId, dest),
-      (oneId, twoPath), // collides with a different asset — must be skipped
-    ]);
-    expect(outcome.applied, 1);
-    expect(outcome.okByIndex, [true, false]);
-
-    // The catalog row followed the file: same id, new path, star intact.
-    final after = engine.listAssets();
-    final moved = after.firstWhere((a) => a.assetId == oneId);
-    expect(moved.path, dest);
-    expect(engine.starredAssets(), contains(oneId));
-
-    // Rescan sees nothing to do — no add/remove churn for the moved file.
-    final rescanReq = engine.rescan();
-    final rescanned = await _waitFor(pump.stream,
-        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
-    expect(rescanned.importAdded, 0);
-    expect(rescanned.importRemoved, 0);
-    expect(rescanned.importSkipped, 2);
-    expect(engine.listAssets().length, 2);
-  }, timeout: const Timeout(Duration(seconds: 90)));
-
-  test('MoveService end-to-end: disk + catalog + id maps stay convergent',
-      () async {
-    final sep = Platform.pathSeparator;
-    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_movesvc_');
-    addTearDown(() {
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-    });
-
-    final libDir = '${tmp.path}${sep}lib';
-    Directory('$libDir${sep}inbox').createSync(recursive: true);
-    final srcPath = '$libDir${sep}inbox${sep}a.jpg';
-    File(srcPath).writeAsBytesSync(List.filled(8, 1));
-    File('$srcPath.xmp').writeAsStringSync('<xmp/>');
-
-    Engine? engine;
-    try {
-      engine = Engine.open(EngineConfig(
-        catalogPath: '${tmp.path}${sep}catalog.db',
-        cachePath: '${tmp.path}${sep}cache',
-      ));
-    } catch (e) {
-      markTestSkipped('libphoto_core not loadable ($e)');
-      return;
-    }
-    if (engine == null) {
-      markTestSkipped('Engine.open returned null (no catalog support in lib)');
-      return;
-    }
-    addTearDown(engine.dispose);
-    final pump = EventPump(engine)..start();
-    addTearDown(pump.dispose);
-
-    final importReq = engine.importPath(libDir);
-    await _waitFor(pump.stream,
-        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
-    final asset = engine.listAssets().single;
-    engine.setStarred(asset.assetId, true);
-    // The app hydrates this map after import (library_import.dart); mirror it.
-    hydrateCatalogIds({asset.path: asset.assetId});
-
-    final destDir = '$libDir${sep}sorted';
-    final undo = UndoStack();
-    final out =
-        MoveService.moveInto([srcPath], destDir, engine: engine, undo: undo);
-    expect(out.movedCount, 1);
-    final newPath = '$destDir${sep}a.jpg';
-    expect(File(newPath).existsSync(), isTrue);
-    expect(File('$newPath.xmp').existsSync(), isTrue, reason: 'sidecar moved');
-
-    // Catalog followed: same id at the new path; star intact; id map remapped.
-    final row = engine.listAssets().single;
-    expect(row.assetId, asset.assetId);
-    expect(row.path, newPath);
-    expect(engine.starredAssets(), contains(asset.assetId));
-    expect(assetIdFor(newPath), asset.assetId);
-    expect(pathForAssetId(asset.assetId), newPath);
-
-    // Rescan is churn-free after the coordinated move.
-    final rescanReq = engine.rescan();
-    final rescanned = await _waitFor(pump.stream,
-        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
-    expect(rescanned.importAdded, 0);
-    expect(rescanned.importRemoved, 0);
-
-    // Undo restores everything, including the catalog row and the id map.
-    MoveService.undoOp(undo.pop()!, engine: engine);
-    expect(File(srcPath).existsSync(), isTrue);
-    expect(File('$srcPath.xmp').existsSync(), isTrue);
-    expect(engine.listAssets().single.path, srcPath);
-    expect(engine.listAssets().single.assetId, asset.assetId);
-    expect(pathForAssetId(asset.assetId), srcPath);
-  }, timeout: const Timeout(Duration(seconds: 90)));
-
-  test('folder rename via rebaseLibrary preserves ids for all descendants',
-      () async {
-    final sep = Platform.pathSeparator;
-    final tmp = Directory.systemTemp.createTempSync('pablo_ffi_rename_');
-    addTearDown(() {
-      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
-    });
-
-    final libDir = '${tmp.path}${sep}lib';
-    final oldFolder = '$libDir${sep}2024';
-    Directory(oldFolder).createSync(recursive: true);
-    File('$oldFolder${sep}a.jpg').writeAsBytesSync(List.filled(8, 1));
-    File('$oldFolder${sep}b.jpg').writeAsBytesSync(List.filled(8, 2));
-
-    Engine? engine;
-    try {
-      engine = Engine.open(EngineConfig(
-        catalogPath: '${tmp.path}${sep}catalog.db',
-        cachePath: '${tmp.path}${sep}cache',
-      ));
-    } catch (e) {
-      markTestSkipped('libphoto_core not loadable ($e)');
-      return;
-    }
-    if (engine == null) {
-      markTestSkipped('Engine.open returned null (no catalog support in lib)');
-      return;
-    }
-    addTearDown(engine.dispose);
-    final pump = EventPump(engine)..start();
-    addTearDown(pump.dispose);
-
-    final importReq = engine.importPath(libDir);
-    await _waitFor(pump.stream,
-        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == importReq);
-    final before = {for (final a in engine.listAssets()) a.path: a.assetId};
-    expect(before.length, 2);
-
-    // Rename on disk, then rebase the catalog (what folder_ops.renameFolder does).
-    final newFolder = '$libDir${sep}Trip 2024';
-    Directory(oldFolder).renameSync(newFolder);
-    expect(engine.rebaseLibrary(oldFolder, newFolder), 0);
-
-    final after = {for (final a in engine.listAssets()) a.path: a.assetId};
-    expect(after['$newFolder${sep}a.jpg'], before['$oldFolder${sep}a.jpg']);
-    expect(after['$newFolder${sep}b.jpg'], before['$oldFolder${sep}b.jpg']);
-
-    // Rescan is churn-free: the rebased rows match the moved files.
-    final rescanReq = engine.rescan();
-    final rescanned = await _waitFor(pump.stream,
-        (e) => e.kind == PhotoEventKind.importComplete && e.requestId == rescanReq);
-    expect(rescanned.importAdded, 0);
-    expect(rescanned.importRemoved, 0);
-  }, timeout: const Timeout(Duration(seconds: 90)));
 }

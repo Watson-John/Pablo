@@ -3,6 +3,8 @@
 // image renders a live preview from it. Created per-asset by [EditSessionScope]
 // and exposed to both siblings via an [InheritedNotifier].
 
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:photo_native/photo_native.dart';
 
@@ -18,6 +20,7 @@ class EditSession extends ChangeNotifier {
     required this.path,
     required EditSpec saved,
     required this.contentRev,
+    this.events,
   })  : _saved = saved,
         spec = saved.clone(),
         _savedEncoded = saved.encode();
@@ -25,6 +28,12 @@ class EditSession extends ChangeNotifier {
   final Engine? engine;
   final int assetId;
   final String path;
+
+  /// Engine event stream (exportComplete drives the overwrite-mode bake
+  /// completion). Null in tests / engine-less contexts — the overwrite mode
+  /// then leaves the parametric spec in place (still correct, just unbaked
+  /// in the session UI until reopen).
+  final Stream<PhotoEvent>? events;
 
   /// The working copy the panel mutates and the preview renders.
   EditSpec spec;
@@ -175,13 +184,58 @@ class EditSession extends ChangeNotifier {
     EditsStore.instance.setRev(assetId, rev, edited: !_saved.isIdentity);
     // layeredTiff save mode: also write the self-contained file beside the photo
     // (page 0 edited, page 1 untouched original, spec embedded).
-    if (!_saved.isIdentity &&
-        AppConfig.load().editSaveMode == EditSaveMode.layeredTiff) {
+    final mode = AppConfig.load().editSaveMode;
+    if (!_saved.isIdentity && mode == EditSaveMode.layeredTiff) {
       eng.saveLayered(
           srcPath: path, dstPath: layeredDestFor(path), spec: encoded);
     }
+    // overwriteBackup (Picasa-style): bake the pixels into the original file.
+    // The parametric spec was ALREADY persisted above, so a failed/interrupted
+    // bake degrades to catalog-only — never lost work. On completion the
+    // native side cleared the spec (pixels carry it now); mirror that here.
+    if (!_saved.isIdentity && mode == EditSaveMode.overwriteBackup) {
+      final hadGeometry = _saved.hasGeometry;
+      final req =
+          eng.saveInPlace(assetId: assetId, srcPath: path, spec: encoded);
+      final stream = events;
+      if (req != 0 && stream != null) {
+        late final StreamSubscription<PhotoEvent> sub;
+        sub = stream.listen((e) {
+          if (e.kind != PhotoEventKind.exportComplete || e.requestId != req) {
+            return;
+          }
+          sub.cancel();
+          if (e.status != 0) return; // backup/render failed → catalog-only
+          _onBakedInPlace(eng, hadGeometry);
+        });
+      }
+    }
     notifyListeners();
     return rev;
+  }
+
+  /// The in-place bake landed: the file now CARRIES the edit and the native
+  /// side cleared the parametric spec. Reset the session to identity and
+  /// refresh derived data whose source pixels changed.
+  void _onBakedInPlace(Engine eng, bool hadGeometry) {
+    spec.reset();
+    _saved = EditSpec();
+    _savedEncoded = '';
+    contentRev = eng.assetContentRev(assetId);
+    EditsStore.instance.clear(assetId);
+    // Pixels changed → the semantic embedding is stale; re-embed.
+    eng.embeddingScan(assetId);
+    // Geometry bakes move stored face boxes/landmarks into stale coordinates:
+    // drop this asset's face rows and rescan (confirmed names re-surface as
+    // suggestions). Tone-only bakes keep face rows — coordinates still match.
+    if (hadGeometry) {
+      for (final f in eng.listFacesForAsset(assetId)) {
+        eng.removeFace(f.faceId);
+      }
+      eng.scanFaces(assetId: assetId);
+    }
+    specRevision++;
+    notifyListeners();
   }
 
   /// Export a flattened full-res copy to [dstPath] (Save as Copy). Returns the
@@ -199,8 +253,13 @@ class EditSession extends ChangeNotifier {
   static String layeredDestFor(String src) => layeredTiffPathFor(src);
 
   /// Revert to the original: clears the saved edit and the working spec.
+  /// When the photo was saved in-place (overwrite mode), this restores the
+  /// untouched original from .pablo-originals — Picasa's "Undo Save".
   void revertToOriginal() {
     final eng = engine;
+    if (eng != null && eng.hasInplaceBackup(path)) {
+      eng.revertInPlace(assetId: assetId, srcPath: path);
+    }
     if (eng != null) eng.revertAsset(assetId);
     spec.reset();
     _saved = EditSpec();
@@ -235,12 +294,14 @@ class EditSessionProvider extends StatefulWidget {
     required this.assetId,
     required this.path,
     required this.child,
+    this.events,
     super.key,
   });
 
   final Engine? engine;
   final int assetId;
   final String path;
+  final Stream<PhotoEvent>? events;
   final Widget child;
 
   @override
@@ -262,6 +323,7 @@ class _EditSessionProviderState extends State<EditSessionProvider> {
       path: widget.path,
       saved: saved,
       contentRev: rev,
+      events: widget.events,
     );
   }
 

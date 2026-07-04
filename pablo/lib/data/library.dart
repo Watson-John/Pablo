@@ -21,17 +21,22 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:photo_native/photo_native.dart' show AssetMetadata;
 
 import 'aspect_store.dart';
 import 'models.dart';
 import '../utils/asset_id.dart';
 import '../utils/exif.dart';
-import '../utils/hash.dart';
 import '../utils/image_dims.dart';
 
 /// Bumped when [Library.instance] is replaced (e.g. when the background boot
 /// scan finishes), so the app can rebuild against the freshly-scanned library.
 final ValueNotifier<int> libraryRevision = ValueNotifier<int>(0);
+
+/// Catalog-first EXIF source, installed at boot (LibraryImport.run) as
+/// Engine.assetMetadata. Null in engine-less contexts (pure-Dart tests), where
+/// [Library.exifFor] falls back to the in-Dart header parse (utils/exif.dart).
+AssetMetadata? Function(int assetId)? catalogMetadataLookup;
 
 /// True while the initial background scan is still in flight.
 bool libraryScanning = false;
@@ -42,8 +47,24 @@ const Set<String> _kImageExts = {
   '.png',
   '.webp',
   '.gif',
-  '.bmp'
+  '.bmp',
+  // Decoded by the libvips path everywhere (thumbs/edit/faces/semantic).
+  // Mirrors engine.cpp image_exts(); RAW/JXL wait on embedded-preview decode.
+  '.tif',
+  '.tiff',
+  '.heic',
+  '.heif',
+  '.avif',
 };
+
+/// True when [path] has an extension the library scan treats as an image.
+/// The move service uses this to decide when a source folder has been emptied
+/// of photos (leftover sidecars don't count).
+bool hasImageExtension(String path) {
+  final dot = path.lastIndexOf('.');
+  if (dot < 0) return false;
+  return _kImageExts.contains(path.substring(dot).toLowerCase());
+}
 
 /// §11 video containers. Mirrors native engine.cpp video_exts() +
 /// video::is_video_path so the Dart gallery and the catalog agree.
@@ -61,15 +82,6 @@ const Set<String> _kVideoExts = {
 bool isVideoPath(String path) {
   final dot = path.lastIndexOf('.');
   return dot >= 0 && _kVideoExts.contains(path.substring(dot).toLowerCase());
-}
-
-/// True when [path] has an extension the library scan treats as an image.
-/// The move service uses this to decide when a source folder has been emptied
-/// of photos (leftover sidecars don't count).
-bool hasImageExtension(String path) {
-  final dot = path.lastIndexOf('.');
-  if (dot < 0) return false;
-  return _kImageExts.contains(path.substring(dot).toLowerCase());
 }
 
 /// True when [path] is any library media (image OR §11 video). Post-move
@@ -238,7 +250,6 @@ class Library {
     if (cached != null) return cached;
     final photo = byId[id];
     final path = photo?.filePath ?? id;
-    final dims = readImageDimensions(path);
     int sizeBytes = 0;
     DateTime? modified;
     try {
@@ -247,6 +258,40 @@ class Library {
       modified = st.modified;
     } catch (_) {}
 
+    // Catalog first: imported assets already carry libexif-extracted metadata
+    // in the native catalog — a synchronous DB read instead of re-parsing
+    // ~192 KB of file header per photo. Falls through to the Dart parser for
+    // engine-less contexts and not-yet-imported files.
+    final cid = catalogIdForPath(path);
+    final meta = cid != null ? catalogMetadataLookup?.call(cid) : null;
+    if (meta != null) {
+      final date = meta.captureDate ?? modified;
+      final dims = (meta.width > 0 && meta.height > 0)
+          ? null
+          : readImageDimensions(path);
+      final result = ExifData(
+        camera: meta.camera.isEmpty ? null : meta.camera,
+        lens: meta.lens.isEmpty ? null : meta.lens,
+        aperture: meta.aperture.isEmpty ? null : meta.aperture,
+        shutter: meta.shutter.isEmpty ? null : meta.shutter,
+        iso: meta.iso > 0 ? meta.iso : null,
+        focalLength: meta.focal.isEmpty ? null : meta.focal,
+        dateLabel: date != null ? _dateLabel(date) : null,
+        timeLabel: date != null ? _timeLabel(date) : null,
+        width: meta.width > 0 ? meta.width : (dims?.width ?? 0),
+        height: meta.height > 0 ? meta.height : (dims?.height ?? 0),
+        fileSize: _humanSize(sizeBytes),
+        format: _formatOf(path),
+        location: meta.hasGps
+            ? '${meta.gpsLat!.toStringAsFixed(5)}, '
+                '${meta.gpsLon!.toStringAsFixed(5)}'
+            : null,
+      );
+      _exifCache[id] = result;
+      return result;
+    }
+
+    final dims = readImageDimensions(path);
     final exif = readExif(path);
     final date = exif?.dateTimeOriginal ?? modified;
 
@@ -721,7 +766,17 @@ Photo? photoById(String id) => Library.instance.byId[id];
 double aspectFor(Photo p) =>
     AspectStore.instance.aspectOf(p.filePath) ??
     p.aspect ??
-    _kAspects[pabloHash(p.id) % _kAspects.length];
+    _kAspects[_stableHash(p.id) % _kAspects.length];
+
+/// djb2 over the id: a stable positive hash so the aspect fallback doesn't
+/// reshuffle across runs (unlike String.hashCode, which isn't guaranteed).
+int _stableHash(String s) {
+  int h = 5381;
+  for (int i = 0; i < s.length; i++) {
+    h = (((h << 5) + h) ^ s.codeUnitAt(i)) & 0xFFFFFFFF;
+  }
+  return h;
+}
 
 /// Best-effort EXIF + file metadata for the info panel.
 ExifData getPhotoExif(String id) => Library.instance.exifFor(id);

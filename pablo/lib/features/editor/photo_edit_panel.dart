@@ -19,6 +19,8 @@ import 'edit_session.dart';
 import 'edit_spec.dart';
 import 'filter_row.dart';
 import 'tools_grid.dart';
+import 'widgets/panel_buttons.dart';
+import 'widgets/text_item_card.dart';
 
 class PhotoEditPanel extends StatefulWidget {
   const PhotoEditPanel({required this.photo, required this.width, super.key});
@@ -156,7 +158,7 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _AutoFixButton(
+                  AutoFixButton(
                     active: spec.autoFix,
                     onTap: session.toggleAutoFix,
                   ),
@@ -322,21 +324,21 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
                       padding: const EdgeInsets.only(top: PabloSpacing.md),
                       child: Align(
                         alignment: Alignment.centerLeft,
-                        child: _LinkButton(
+                        child: LinkButton(
                             label: 'Reset curve', onTap: session.resetCurve),
                       ),
                     ),
                   const SizedBox(height: PabloSpacing.xxl),
                   _groupTitle('Text'),
                   for (var i = 0; i < spec.texts.length; i++)
-                    _TextItemCard(
+                    TextItemCard(
                       key: ValueKey('text$i'),
                       item: spec.texts[i],
                       onChanged: (f) => session.updateText(i, f),
                       onDelete: () => session.removeText(i),
                     ),
                   const SizedBox(height: PabloSpacing.base),
-                  _AddTextButton(
+                  AddTextButton(
                     onTap: () => session.addText(TextOverlay(text: 'Text')),
                   ),
                 ],
@@ -414,248 +416,5 @@ class _PhotoEditPanelState extends State<PhotoEditPanel> {
   void dispose() {
     _fallback?.dispose();
     super.dispose();
-  }
-}
-
-/// One-click "Auto-Fix" toggle (auto-levels). Copper-filled when active.
-class _AutoFixButton extends StatelessWidget {
-  const _AutoFixButton({required this.active, required this.onTap});
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: PabloDurations.control,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color:
-                active ? PabloColors.accentPrimary : PabloColors.backgroundSurfaceAlt,
-            border: Border.all(
-              color: active ? PabloColors.accentPrimary : PabloColors.borderStrong,
-            ),
-            borderRadius: PabloRadius.pillAll,
-            boxShadow: active ? null : PabloShadows.sm,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              PabloIcon(
-                PabloIconName.sparkle,
-                size: 15,
-                color:
-                    active ? PabloColors.textOnAccent : PabloColors.accentPrimary,
-              ),
-              const SizedBox(width: PabloSpacing.base),
-              Text(
-                active ? 'Auto-Fix On' : 'Auto-Fix',
-                style: PabloTypography.sans(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color:
-                      active ? PabloColors.textOnAccent : PabloColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A plain copper text link.
-class _LinkButton extends StatelessWidget {
-  const _LinkButton({required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Text(
-          label,
-          style: PabloTypography.sans(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: PabloColors.accentPrimary,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// "+ Add text" button for the Text section.
-class _AddTextButton extends StatelessWidget {
-  const _AddTextButton({required this.onTap});
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          height: 30,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: PabloColors.backgroundSurfaceAlt,
-            border: Border.all(color: PabloColors.borderStrong),
-            borderRadius: PabloRadius.pillAll,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const PabloIcon(PabloIconName.plus,
-                  size: 12, strokeWidth: 2, color: PabloColors.accentPrimary),
-              const SizedBox(width: PabloSpacing.sm),
-              Text('Add text',
-                  style: PabloTypography.sans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: PabloColors.textSecondary)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Per-text-overlay editor: content + size + colour + position + delete.
-class _TextItemCard extends StatefulWidget {
-  const _TextItemCard({
-    required this.item,
-    required this.onChanged,
-    required this.onDelete,
-    super.key,
-  });
-  final TextOverlay item;
-  final void Function(void Function(TextOverlay)) onChanged;
-  final VoidCallback onDelete;
-
-  @override
-  State<_TextItemCard> createState() => _TextItemCardState();
-}
-
-class _TextItemCardState extends State<_TextItemCard> {
-  late final TextEditingController _ctl =
-      TextEditingController(text: widget.item.text);
-
-  static const List<int> _swatches = [
-    0xFFFFFF, 0x000000, 0xC0392B, 0xF1C40F, 0x2563EB, 0x27AE60,
-  ];
-
-  @override
-  void dispose() {
-    _ctl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final t = widget.item;
-    return Container(
-      margin: const EdgeInsets.only(bottom: PabloSpacing.base),
-      padding: const EdgeInsets.all(PabloSpacing.lg),
-      decoration: BoxDecoration(
-        color: PabloColors.backgroundSurfaceAlt,
-        border: Border.all(color: PabloColors.borderStrong),
-        borderRadius: PabloRadius.mdAll,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _ctl,
-                  onChanged: (v) => widget.onChanged((x) => x.text = v),
-                  style: PabloTypography.sans(fontSize: 12.5),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Text…',
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: PabloSpacing.base,
-                        vertical: PabloSpacing.sm),
-                    border: OutlineInputBorder(borderRadius: PabloRadius.smAll),
-                  ),
-                ),
-              ),
-              const SizedBox(width: PabloSpacing.sm),
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: widget.onDelete,
-                  child: const PabloIcon(PabloIconName.trash,
-                      size: 15, color: PabloColors.textMuted),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: PabloSpacing.sm),
-          Row(
-            children: [
-              for (final c in _swatches)
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: () => widget.onChanged((x) => x.color = c),
-                    child: Container(
-                      width: 18,
-                      height: 18,
-                      margin: const EdgeInsets.only(right: PabloSpacing.sm),
-                      decoration: BoxDecoration(
-                        color: Color.fromARGB(
-                            255, (c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: t.color == c
-                              ? PabloColors.accentPrimary
-                              : PabloColors.borderStrong,
-                          width: t.color == c ? 2 : 1,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          EditSlider(
-            label: 'Size',
-            value: t.size * 100,
-            min: 2,
-            max: 40,
-            onChanged: (v) => widget.onChanged((x) => x.size = v / 100),
-          ),
-          EditSlider(
-            label: 'X',
-            value: t.x * 100,
-            min: 0,
-            max: 100,
-            onChanged: (v) => widget.onChanged((x) => x.x = v / 100),
-          ),
-          EditSlider(
-            label: 'Y',
-            value: t.y * 100,
-            min: 0,
-            max: 100,
-            onChanged: (v) => widget.onChanged((x) => x.y = v / 100),
-          ),
-        ],
-      ),
-    );
   }
 }

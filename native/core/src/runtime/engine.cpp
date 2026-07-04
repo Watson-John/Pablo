@@ -344,9 +344,14 @@ namespace {
 
 const std::unordered_set<std::string>& image_exts() {
     // Mirrors pablo/lib/data/library.dart's _kImageExts so the catalog and the
-    // Dart gallery agree on what counts as an importable image.
+    // Dart gallery agree on what counts as an importable image. TIFF/HEIC/AVIF
+    // ride the libvips decode the thumb/edit/face paths already use; builds
+    // without those loaders show a placeholder rather than dropping the file.
+    // RAW/JXL stay out until the embedded-preview decode lands (D4 follow-up)
+    // — a full vips RAW develop per tile is too slow to admit by default.
     static const std::unordered_set<std::string> kExts = {
-        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"};
+        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",
+        ".tif", ".tiff", ".heic", ".heif", ".avif"};
     return kExts;
 }
 
@@ -437,6 +442,16 @@ void Engine::run_import(uint64_t request_id, std::vector<std::string> roots,
              end;
              it != end; it.increment(ec)) {
             if (ec) { ec.clear(); continue; }
+            // Never descend into dot-directories: .pablo-originals (the
+            // in-place save backups), .picasaoriginals, VCS/metadata dirs.
+            // Importing a backup as a fresh asset would duplicate the photo.
+            if (it->is_directory(ec)) {
+                const auto name = it->path().filename().string();
+                if (!name.empty() && name[0] == '.') {
+                    it.disable_recursion_pending();
+                }
+                continue;
+            }
             if (it->is_regular_file(ec) && is_media(it->path())) add_file(it->path());
         }
     }
@@ -581,6 +596,245 @@ uint64_t Engine::rescan() {
 }
 
 // ── Semantic search & discovery (Stage 9) ────────────────────────────────────
+
+#ifdef PHOTO_HAVE_SQLITE
+namespace {
+// <folder>/.pablo-originals/<filename> — Picasa-parity backup location for the
+// in-place ("overwrite with backup") save mode.
+fs::path inplace_backup_path(const fs::path& src) {
+    return src.parent_path() / ".pablo-originals" / src.filename();
+}
+}  // namespace
+
+bool Engine::has_inplace_backup(const std::string& src) const {
+    std::error_code ec;
+    return fs::exists(inplace_backup_path(fs::path(src)), ec);
+}
+
+uint64_t Engine::save_in_place(int64_t asset_id, const std::string& src,
+                               const std::string& spec_str, int quality) {
+    if (src.empty() || !catalog_) return 0;
+    edit::EditSpec spec = edit::parse_edit_spec(spec_str);
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, asset_id, src, spec, quality] {
+        auto fail = [&](const char* what, const std::error_code& ec) {
+            PHOTO_LOGF(PHOTO_LOG_ERROR, "save_in_place: %s failed for %s (%s)",
+                       what, src.c_str(), ec.message().c_str());
+            photo_event_t ev{};
+            ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+            ev.status = PHOTO_STATUS_IO_ERROR;
+            ev.request_id = req;
+            ev.asset_id = static_cast<uint64_t>(asset_id);
+            events_.push(ev);
+        };
+        const fs::path source(src);
+        const fs::path backup = inplace_backup_path(source);
+        std::error_code ec;
+
+        // 1. Secure the original FIRST (D1: no save proceeds unless the
+        //    untouched original is safe). First-save-wins: the backup is
+        //    written only if absent so Revert always restores the TRUE
+        //    original across N saves.
+        fs::create_directories(backup.parent_path(), ec);
+        if (ec) return fail("backup mkdir", ec);
+        if (!fs::exists(backup, ec)) {
+            fs::copy_file(source, backup, ec);
+            if (ec) return fail("backup copy", ec);
+        }
+
+        // 2. Render full-res to a temp INSIDE .pablo-originals (same volume ⇒
+        //    atomic rename; the walk never descends into dot-dirs so a racing
+        //    rescan can't import it) keeping the REAL extension — vips picks
+        //    its saver by suffix. Then replace the source.
+        const fs::path tmp = backup.parent_path() /
+                             (source.stem().string() + ".saving" +
+                              source.extension().string());
+        const bool rendered =
+            thumbs_.export_to_file(src, tmp.string(), spec, quality);
+        if (!rendered) {
+            fs::remove(tmp, ec);
+            return fail("render", std::error_code());
+        }
+        fs::rename(tmp, source, ec);
+        if (ec) {
+            std::error_code rm;
+            fs::remove(tmp, rm);
+            return fail("rename", ec);
+        }
+
+        // 3. The pixels are baked in: clear the parametric spec (kept-row
+        //    rev bump — a re-edit can't reuse a rev) and refresh the asset
+        //    row so the next rescan sees size+mtime as already-known.
+        finish_in_place(asset_id, src);
+
+        photo_event_t ev{};
+        ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+        ev.status = PHOTO_STATUS_OK;
+        ev.request_id = req;
+        ev.asset_id = static_cast<uint64_t>(asset_id);
+        events_.push(ev);
+    });
+    return req;
+}
+
+uint64_t Engine::revert_in_place(int64_t asset_id, const std::string& src) {
+    if (src.empty() || !catalog_) return 0;
+    const uint64_t req = next_export_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, req, asset_id, src] {
+        auto done = [&](int32_t status) {
+            photo_event_t ev{};
+            ev.kind = PHOTO_EVT_EXPORT_COMPLETE;
+            ev.status = status;
+            ev.request_id = req;
+            ev.asset_id = static_cast<uint64_t>(asset_id);
+            events_.push(ev);
+        };
+        const fs::path source(src);
+        const fs::path backup = inplace_backup_path(source);
+        std::error_code ec;
+        if (!fs::exists(backup, ec)) return done(PHOTO_STATUS_NOT_FOUND);
+
+        // Restore via copy-to-temp + atomic rename (the backup itself is only
+        // deleted after the restore landed), then drop the backup + any spec.
+        const fs::path tmp = backup.parent_path() /
+                             (source.stem().string() + ".saving" +
+                              source.extension().string());
+        fs::copy_file(backup, tmp, fs::copy_options::overwrite_existing, ec);
+        if (ec) { std::error_code rm; fs::remove(tmp, rm);
+                  return done(PHOTO_STATUS_IO_ERROR); }
+        fs::rename(tmp, source, ec);
+        if (ec) { std::error_code rm; fs::remove(tmp, rm);
+                  return done(PHOTO_STATUS_IO_ERROR); }
+        fs::remove(backup, ec);
+        // Prune the backup dir when this was its last entry (best-effort).
+        std::error_code dec;
+        if (fs::is_empty(backup.parent_path(), dec) && !dec)
+            fs::remove(backup.parent_path(), dec);
+
+        finish_in_place(asset_id, src);
+        done(PHOTO_STATUS_OK);
+    });
+    return req;
+}
+
+// Shared tail of save/revert-in-place: clear the parametric edit (rev bump →
+// caches rebind) and refresh the asset row's stat + EXIF-derived fields so the
+// catalog is coherent before any rescan (same-id upsert preserves user state).
+void Engine::finish_in_place(int64_t asset_id, const std::string& src) {
+    revert_edits(asset_id);
+    const fs::path p(src);
+    std::error_code ec;
+    catalog::AssetRecord r;
+    r.path = src;
+    r.folder = p.parent_path().string();
+    r.filename = p.filename().string();
+    const auto sz = static_cast<int64_t>(fs::file_size(p, ec));
+    r.size = ec ? 0 : sz;
+    r.mtime_ns = mtime_ns_of(p);
+    r.format = format_of(p);
+    const exif::AssetMetadata meta = exif::extract(src);
+    r.width = meta.width;
+    r.height = meta.height;
+    r.orientation = meta.orientation;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    try {
+        catalog_->upsert_asset(r);
+        catalog_->upsert_metadata(r.id, meta);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_WARN, "in-place stat refresh failed: %s", e.what());
+    }
+}
+
+#else  // !PHOTO_HAVE_SQLITE — in-place save needs the catalog.
+bool Engine::has_inplace_backup(const std::string&) const { return false; }
+uint64_t Engine::save_in_place(int64_t, const std::string&, const std::string&,
+                               int) { return 0; }
+uint64_t Engine::revert_in_place(int64_t, const std::string&) { return 0; }
+void Engine::finish_in_place(int64_t, const std::string&) {}
+#endif  // PHOTO_HAVE_SQLITE
+
+size_t Engine::similar_pairs(const std::vector<int64_t>& ids, float min_cosine,
+                             std::vector<SimilarPair>& out) const {
+    out.clear();
+    if (!catalog_ || ids.size() < 2) return 0;
+    // Snapshot the needed vectors under the lock, compute pairwise outside it.
+    std::vector<std::pair<int64_t, std::vector<float>>> vecs;
+    vecs.reserve(ids.size());
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        for (const int64_t id : ids) {
+            auto rec = catalog_->get_embedding(id);
+            if (!rec || rec->status != catalog::Catalog::kEmbedDone ||
+                rec->vec.empty())
+                continue;
+            vecs.emplace_back(id, std::move(rec->vec));
+        }
+    }
+    if (vecs.size() < 2) return 0;
+    const size_t dim = vecs[0].second.size();
+    for (size_t i = 0; i < vecs.size(); ++i) {
+        if (vecs[i].second.size() != dim) continue;  // mixed models: skip
+        for (size_t j = i + 1; j < vecs.size(); ++j) {
+            if (vecs[j].second.size() != dim) continue;
+            float dot = 0;
+            const float* a = vecs[i].second.data();
+            const float* b = vecs[j].second.data();
+            for (size_t k = 0; k < dim; ++k) dot += a[k] * b[k];
+            // Embeddings are L2-normalized (semantic contract) → dot = cosine.
+            if (dot >= min_cosine)
+                out.push_back({vecs[i].first, vecs[j].first, dot});
+        }
+    }
+    return out.size();
+}
+
+uint64_t Engine::analyzer_run(const std::string& analyzer_id, int64_t asset_id) {
+    if (!catalog_) return 0;
+    auto* a = analyzers_.find(analyzer_id);
+    if (!a || !a->available()) return 0;
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        path = catalog_->path_by_id(asset_id);
+        if (path.empty()) return 0;
+        catalog::Catalog::AnalysisRow pending;
+        pending.analyzer_id = analyzer_id;
+        pending.asset_id = asset_id;
+        pending.version = a->version();
+        pending.status = 0;  // pending — Dart polls analysis_get
+        pending.updated_ns = now_ns();
+        catalog_->upsert_analysis(pending);
+    }
+    const uint64_t req = next_import_id_.fetch_add(1, std::memory_order_relaxed);
+    jobs_.submit(PHOTO_PRIORITY_IDLE, [this, a, analyzer_id, asset_id, path] {
+        // Decode + analyze OFF the catalog lock (mirrors embedding_scan).
+        catalog::Catalog::AnalysisRow row;
+        row.analyzer_id = analyzer_id;
+        row.asset_id = asset_id;
+        row.version = a->version();
+        std::vector<uint8_t> rgba;
+        int w = 0, h = 0;
+        if (semantic::SemanticService::decode_rgba(path, 1024, rgba, w, h)) {
+            semantic::PixelView px{rgba.data(), w, h, 4, 0};
+            const auto res = a->analyze(asset_id, px);
+            row.status = res.status == 0 ? 1 : 2;  // done / failed
+            row.payload_json = res.payload_json;
+        } else {
+            row.status = 2;  // failed: no decodable pixels in this build
+        }
+        row.updated_ns = now_ns();
+        std::lock_guard<std::mutex> lk(catalog_mu_);
+        if (catalog_) catalog_->upsert_analysis(row);
+    });
+    return req;
+}
+
+bool Engine::analysis_get(const std::string& analyzer_id, int64_t asset_id,
+                          catalog::Catalog::AnalysisRow& out) const {
+    if (!catalog_) return false;
+    std::lock_guard<std::mutex> lk(catalog_mu_);
+    return catalog_->get_analysis(analyzer_id, asset_id, out);
+}
 
 uint64_t Engine::embedding_scan(int64_t asset_id) {
     if (!catalog_ || !semantic_service()) return 0;

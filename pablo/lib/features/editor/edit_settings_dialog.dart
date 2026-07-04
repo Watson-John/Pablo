@@ -2,7 +2,10 @@
 // "Edit save" mode: where "Save Edits" persists. Default = catalog-only.
 
 import 'package:flutter/material.dart';
+import 'package:photo_native/photo_native.dart' show Engine;
 
+import '../../backend/native_backend.dart';
+import '../../components/dialog_option.dart';
 import '../../data/app_config.dart';
 import '../../theme/tokens.dart';
 
@@ -42,13 +45,13 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
                   fontSize: 12.5, fontWeight: FontWeight.w600)),
           const SizedBox(height: PabloSpacing.sm),
           Text(
-            'How "Save Edits" stores a non-destructive edit. Either way the '
-            'original is never destroyed and edits stay reversible.',
+            'How "Save Edits" stores an edit. In every mode a pristine '
+            'original survives and Revert restores it.',
             style: PabloTypography.sans(
                 fontSize: 11.5, color: PabloColors.textSecondary),
           ),
           const SizedBox(height: PabloSpacing.lg),
-          _ModeOption(
+          DialogOptionTile(
             label: 'Catalog only (recommended)',
             detail:
                 'Edits live in the app database; the original file is never '
@@ -57,7 +60,7 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
             onTap: () => _set(EditSaveMode.catalog),
           ),
           const SizedBox(height: PabloSpacing.base),
-          _ModeOption(
+          DialogOptionTile(
             label: 'Layered TIFF beside the photo',
             detail:
                 'Also writes a self-contained .pablo.tif (edited render + the '
@@ -66,6 +69,19 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
             selected: _mode == EditSaveMode.layeredTiff,
             onTap: () => _set(EditSaveMode.layeredTiff),
           ),
+          const SizedBox(height: PabloSpacing.base),
+          DialogOptionTile(
+            label: 'Overwrite the photo (backup kept)',
+            detail: 'Picasa-style: writes your edits into the original file '
+                'so every app sees them. The untouched original is kept in a '
+                'hidden .pablo-originals folder next to it; Revert restores '
+                'it. Re-encodes JPEGs.',
+            selected: _mode == EditSaveMode.overwriteBackup,
+            onTap: () => _set(EditSaveMode.overwriteBackup),
+          ),
+          const SizedBox(height: PabloSpacing.xxl),
+          _FaceModelDiagnostics(
+              engine: NativeBackendScope.maybeOf(context)?.engine),
         ],
       ),
       actions: [
@@ -78,91 +94,52 @@ class _EditSettingsDialogState extends State<_EditSettingsDialog> {
   }
 }
 
-class _ModeOption extends StatelessWidget {
-  const _ModeOption({
-    required this.label,
-    required this.detail,
-    required this.selected,
-    required this.onTap,
-  });
-  final String label;
-  final String detail;
-  final bool selected;
-  final VoidCallback onTap;
+/// Face-recognition diagnostics: the active model profile (model_registry.h)
+/// and, when model switches have stranded old face rows, a one-click cleanup
+/// that prunes unconfirmed stale rows so the next scan repopulates them.
+class _FaceModelDiagnostics extends StatefulWidget {
+  const _FaceModelDiagnostics({required this.engine});
+  final Engine? engine;
 
   @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: 360,
-          padding: const EdgeInsets.all(PabloSpacing.lg),
-          decoration: BoxDecoration(
-            color: selected
-                ? PabloColors.accentBackground
-                : PabloColors.backgroundSurfaceAlt,
-            border: Border.all(
-              color:
-                  selected ? PabloColors.accentPrimary : PabloColors.borderStrong,
-            ),
-            borderRadius: PabloRadius.mdAll,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              PabloIconRadio(selected: selected),
-              const SizedBox(width: PabloSpacing.lg),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label,
-                        style: PabloTypography.sans(
-                            fontSize: 12.5, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text(detail,
-                        style: PabloTypography.sans(
-                            fontSize: 11, color: PabloColors.textSecondary)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  State<_FaceModelDiagnostics> createState() => _FaceModelDiagnosticsState();
 }
 
-/// A simple radio dot (avoids pulling in Material Radio's group plumbing).
-class PabloIconRadio extends StatelessWidget {
-  const PabloIconRadio({required this.selected, super.key});
-  final bool selected;
+class _FaceModelDiagnosticsState extends State<_FaceModelDiagnostics> {
+  late final String _modelId = widget.engine?.faceModelId ?? '';
+  late int _stale = widget.engine == null ? 0 : widget.engine!.faceStaleCount;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 16,
-      height: 16,
-      margin: const EdgeInsets.only(top: PabloSpacing.xs),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: selected ? PabloColors.accentPrimary : PabloColors.borderStrong,
-          width: 2,
+    if (_modelId.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Face recognition',
+            style: PabloTypography.sans(
+                fontSize: 12.5, fontWeight: FontWeight.w600)),
+        const SizedBox(height: PabloSpacing.sm),
+        Text(
+          'Model: $_modelId'
+          '${_stale > 0 ? '  ·  $_stale faces from an older model' : ''}',
+          style: PabloTypography.mono(
+              fontSize: 10.5, color: PabloColors.textMuted),
         ),
-      ),
-      alignment: Alignment.center,
-      child: selected
-          ? Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                  shape: BoxShape.circle, color: PabloColors.accentPrimary),
-            )
-          : null,
+        if (_stale > 0) ...[
+          const SizedBox(height: PabloSpacing.base),
+          TextButton(
+            onPressed: () {
+              final removed = widget.engine!.pruneStaleFaces();
+              setState(() => _stale = widget.engine!.faceStaleCount);
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+                  content: Text('Removed $removed outdated face entries — '
+                      'the next face scan re-detects them with the current '
+                      'model. Named faces keep their names.')));
+            },
+            child: const Text('Rebuild face index'),
+          ),
+        ],
+      ],
     );
   }
 }

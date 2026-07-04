@@ -19,7 +19,7 @@ abstract final class PhotoEventKind {
   static const int importComplete = 4;
   static const int scanProgress = 5;
   static const int clusterUpdated = 6;
-  static const int providerProbed = 7;
+  // 7 reserved — was providerProbed (removed; never emitted).
   static const int log = 8;
   static const int maintenanceComplete = 9;
   static const int embedProgress = 10;

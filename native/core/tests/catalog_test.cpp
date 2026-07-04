@@ -12,6 +12,8 @@
 #include <filesystem>
 #include <string>
 
+#include <sqlite3.h>
+
 #include "catalog/catalog.h"
 
 namespace fs = std::filesystem;
@@ -276,6 +278,85 @@ TEST(Catalog, SavedSearchCrud) {
     cat.delete_saved_search(id1);
     EXPECT_EQ(cat.list_saved_searches().size(), 1u);
     EXPECT_FALSE(cat.get_saved_search(id1).has_value());
+}
+
+
+TEST(Catalog, AnalysisCrudAndCascade) {
+    Catalog cat(fresh_db("analysis"));
+    ASSERT_TRUE(cat.ok());
+    auto rec = sample("/lib/a.jpg");
+    const int64_t id = cat.upsert_asset(rec);
+
+    // No row until an analyzer ran.
+    Catalog::AnalysisRow got;
+    EXPECT_FALSE(cat.get_analysis("meme.detector", id, got));
+
+    // Pending → done upsert round-trip (same PK overwrites).
+    Catalog::AnalysisRow row;
+    row.analyzer_id = "meme.detector";
+    row.asset_id = id;
+    row.version = "1";
+    row.status = 0;
+    row.updated_ns = 111;
+    cat.upsert_analysis(row);
+    ASSERT_TRUE(cat.get_analysis("meme.detector", id, got));
+    EXPECT_EQ(got.status, 0);
+
+    row.status = 1;
+    row.payload_json = "{\"meme\":true,\"score\":0.93}";
+    row.updated_ns = 222;
+    cat.upsert_analysis(row);
+    ASSERT_TRUE(cat.get_analysis("meme.detector", id, got));
+    EXPECT_EQ(got.status, 1);
+    EXPECT_EQ(got.payload_json, "{\"meme\":true,\"score\":0.93}");
+    EXPECT_EQ(got.version, "1");
+    EXPECT_EQ(got.updated_ns, 222);
+
+    // Distinct analyzers coexist per asset.
+    row.analyzer_id = "aesthetic.scorer";
+    cat.upsert_analysis(row);
+    ASSERT_TRUE(cat.get_analysis("meme.detector", id, got));
+    ASSERT_TRUE(cat.get_analysis("aesthetic.scorer", id, got));
+
+    // FK CASCADE: removing the asset drops its analysis rows.
+    cat.remove_asset(id);
+    EXPECT_FALSE(cat.get_analysis("meme.detector", id, got));
+    EXPECT_FALSE(cat.get_analysis("aesthetic.scorer", id, got));
+}
+
+
+TEST(Catalog, CollidedVersionHistorySelfHeals) {
+    // Version numbers collided across branches before (three forks once
+    // claimed v7). A catalog whose numbering ran PAST a migration it never
+    // executed skips that block forever — seen in the wild as a v9 catalog
+    // with no embedding/saved_search/geo_override. The reconciliation pass
+    // must re-create the missing pieces on open regardless of user_version.
+    const std::string db = fresh_db("collided");
+    {
+        Catalog cat(db);
+        ASSERT_TRUE(cat.ok());
+        auto r = sample("/lib/a.jpg");
+        ASSERT_GT(cat.upsert_asset(r), 0);
+    }
+    {   // Simulate the collided fork: drop the v7 trio, keep the version high.
+        sqlite3* raw = nullptr;
+        ASSERT_EQ(sqlite3_open(db.c_str(), &raw), SQLITE_OK);
+        ASSERT_EQ(sqlite3_exec(raw,
+                               "DROP TABLE embedding;"
+                               "DROP TABLE saved_search;"
+                               "DROP TABLE geo_override;",
+                               nullptr, nullptr, nullptr),
+                  SQLITE_OK);
+        sqlite3_close(raw);
+    }
+    Catalog cat(db);  // reopen: numbered chain is a no-op, reconciler heals
+    ASSERT_TRUE(cat.ok());
+    const auto counts = cat.embedding_counts();  // used to throw "no such table"
+    EXPECT_EQ(counts.done, 0);
+    EXPECT_EQ(counts.total, 1);
+    cat.create_saved_search("healed", "{}", 1);
+    EXPECT_EQ(cat.list_saved_searches().size(), 1u);
+    cat.set_geo_override(1, 1.0, 2.0);
 }
 
 #endif  // PHOTO_HAVE_SQLITE

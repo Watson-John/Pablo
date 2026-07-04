@@ -57,20 +57,33 @@ std::string num(double v) {
     return s;
 }
 
-// Case-insensitive attribute value fetch: find `attr="..."` after `from`.
+// Attribute value fetch: find `attr="..."` (or attr='...') in s[from, to).
+// Tolerates whitespace around '=', but requires the quote to follow the '='
+// directly (modulo whitespace). Occurrences of the attribute name that are not
+// followed by `="` — e.g. the literal text "stArea:y" inside an XML-escaped
+// region Name, which contains no raw quotes — are skipped, not misread as the
+// attribute. (A lax version of this scanner once matched such text and then
+// returned the next quoted value anywhere downstream, corrupting the rect.)
 bool find_attr(const std::string& s, size_t from, size_t to,
                const std::string& attr, std::string& out) {
-    const size_t pos = s.find(attr, from);
-    if (pos == std::string::npos || pos >= to) return false;
-    size_t eq = s.find('=', pos + attr.size());
-    if (eq == std::string::npos || eq >= to) return false;
-    size_t q1 = s.find_first_of("\"'", eq);
-    if (q1 == std::string::npos || q1 >= to) return false;
-    const char quote = s[q1];
-    size_t q2 = s.find(quote, q1 + 1);
-    if (q2 == std::string::npos || q2 > to) return false;
-    out = s.substr(q1 + 1, q2 - q1 - 1);
-    return true;
+    size_t pos = from;
+    while ((pos = s.find(attr, pos)) != std::string::npos && pos < to) {
+        size_t i = pos + attr.size();
+        while (i < to && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+        if (i < to && s[i] == '=') {
+            ++i;
+            while (i < to && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+            if (i < to && (s[i] == '"' || s[i] == '\'')) {
+                const char quote = s[i];
+                const size_t q2 = s.find(quote, i + 1);
+                if (q2 == std::string::npos || q2 > to) return false;
+                out = s.substr(i + 1, q2 - i - 1);
+                return true;
+            }
+        }
+        pos += attr.size();
+    }
+    return false;
 }
 
 double to_d(const std::string& s) {

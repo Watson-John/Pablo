@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "edit/edit_spec.h"
+#include "runtime/analyzer.h"
 #include "photo_core.h"
 #include "runtime/event_ring.h"
 #include "runtime/job_system.h"
@@ -156,6 +157,42 @@ public:
     // resulting row is persisted under catalog_mu_. Emits PHOTO_EVT_EMBED_PROGRESS
     // (status = per-item result). Returns a request id (0 if no catalog).
     uint64_t embedding_scan(int64_t asset_id);
+
+    // ── in-place save mode ("overwrite with backup", Picasa-style) ──
+    // save: secure <folder>/.pablo-originals/<name> FIRST (first-save-wins;
+    // abort without it), render the spec full-res to a same-dir temp, atomic-
+    // rename over the source, clear the parametric spec, refresh the asset
+    // row. revert: restore the backup over the source and delete it. Both
+    // async on the idle lane; PHOTO_EVT_EXPORT_COMPLETE with the request id.
+    uint64_t save_in_place(int64_t asset_id, const std::string& src,
+                           const std::string& spec_utf8, int quality);
+    uint64_t revert_in_place(int64_t asset_id, const std::string& src);
+    // Synchronous stat: does src have an in-place backup (Revert enabled)?
+    bool has_inplace_backup(const std::string& src) const;
+
+    // ── visually-similar pairs (Find Duplicates) ──
+    // Pairwise cosine over the SUPPLIED assets' semantic embeddings (catalog
+    // rows, status done). Scoped + synchronous on purpose: the dedup flow
+    // passes its scope (a folder / the library subset the user picked), which
+    // keeps the O(n²) pass small; SigLIP2 cosine reads as "similar scene",
+    // strictly better than the old synthetic scores. Pairs with
+    // cos >= min_cosine land in `out` as (a, b, cosine01). Returns pair count.
+    struct SimilarPair { int64_t a = 0, b = 0; float score = 0; };
+    size_t similar_pairs(const std::vector<int64_t>& ids, float min_cosine,
+                         std::vector<SimilarPair>& out) const;
+
+    // ── analyzers (runtime/analyzer.h) — the plugin-ready analysis seam ──
+    // Registration happens during engine construction only; the registry is
+    // immutable afterwards (lock-free lookups). Exposed non-const for tests
+    // and future built-ins registered in the ctor.
+    runtime::AnalyzerRegistry& analyzers() { return analyzers_; }
+    // Run `analyzer_id` over one asset on the idle lane. Persists a pending
+    // row immediately and the result row when done (status done/failed).
+    // Returns a request id; 0 = unknown analyzer / unavailable / no catalog.
+    uint64_t analyzer_run(const std::string& analyzer_id, int64_t asset_id);
+    // Read a persisted result. False when no row exists.
+    bool analysis_get(const std::string& analyzer_id, int64_t asset_id,
+                      catalog::Catalog::AnalysisRow& out) const;
     // Asset ids that still need embedding for the ACTIVE model — the resume
     // queue (no row, pending, or a done row from a different model). limit<0 =
     // no cap. Locked.
@@ -300,6 +337,8 @@ public:
 private:
     // Rebuild the map with one entry set (entry != nullptr) or erased (nullptr).
     void store_edit_entry(int64_t asset_id, const edit::EditEntry* entry);
+    // Shared tail of save/revert-in-place (spec clear + asset stat refresh).
+    void finish_in_place(int64_t asset_id, const std::string& src);
 
     // Owned thumbnail cache. Declared first so it is destroyed last — after
     // the job system's workers, which reference it through ThumbService.
@@ -319,6 +358,8 @@ private:
     // interleave their snapshot→diff→apply→prune phases. Held for a whole job.
     std::mutex                        import_mu_;
     std::atomic<uint64_t>             next_import_id_{1};
+    // Analyzer registry (runtime/analyzer.h). Populated in the ctor only.
+    runtime::AnalyzerRegistry         analyzers_;
     // The semantic embedder: the real ONNX model when present, else the
     // dependency-free deterministic backend. Constructed at engine start and
     // hot-swappable via reload_semantic (after the first-run model download).

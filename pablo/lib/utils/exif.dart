@@ -1,4 +1,9 @@
-// exif.dart — read a small, useful subset of EXIF from a JPEG file header.
+// exif.dart — FALLBACK-ONLY EXIF parser. The primary metadata source is the
+// native catalog (libexif on import → Engine.assetMetadata, see
+// library.catalogMetadataLookup); this pure-Dart parser serves engine-less
+// contexts (pure-Dart tests, not-yet-imported files in scheme previews) and
+// the separate make/model split the combined catalog "camera" string loses.
+// Read a small, useful subset of EXIF from a JPEG file header.
 // Pure Dart, no dependencies, no pixel decode. Reads only the APP1/"Exif"
 // segment and walks the TIFF IFD tree for the handful of tags Pablo surfaces:
 // capture date, camera make/model, exposure triple, focal length, and GPS.

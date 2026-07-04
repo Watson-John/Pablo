@@ -9,13 +9,19 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// How "Save Edits" persists a non-destructive edit (Settings → Edit save).
+import 'package:flutter/foundation.dart';
+
+/// How "Save Edits" persists an edit (Settings → Edit save).
 /// `catalog` (default) keeps the parametric spec in the app catalog and never
 /// touches the file. `layeredTiff` additionally writes a self-contained layered
 /// TIFF (edited render + embedded original + spec) beside the photo.
+/// `overwriteBackup` (Picasa-style) bakes the pixels into the original file,
+/// keeping the untouched original in a hidden `.pablo-originals` folder so
+/// Revert restores it — the one mode where other apps see the edited photo.
 abstract final class EditSaveMode {
   static const String catalog = 'catalog';
   static const String layeredTiff = 'layeredTiff';
+  static const String overwriteBackup = 'overwriteBackup';
 }
 
 class AppConfig {
@@ -66,6 +72,11 @@ class AppConfig {
 
   static const _fileName = 'config.json';
 
+  /// Test seam: when set, config reads/writes here instead of the user config
+  /// dir (mirrors FolderPrefs.configDirOverride).
+  @visibleForTesting
+  static String? configDirOverride;
+
   /// The default catalog directory (the pre-AppConfig hardcoded location).
   static String get defaultCatalogDir =>
       '${Directory.systemTemp.path}${Platform.pathSeparator}pablo_native_backend';
@@ -80,8 +91,9 @@ class AppConfig {
         final mode = j['editSaveMode'] as String?;
         return AppConfig(
           catalogDir: (dir != null && dir.isNotEmpty) ? dir : defaultCatalogDir,
-          editSaveMode: mode == EditSaveMode.layeredTiff
-              ? EditSaveMode.layeredTiff
+          editSaveMode: mode == EditSaveMode.layeredTiff ||
+                  mode == EditSaveMode.overwriteBackup
+              ? mode!
               : EditSaveMode.catalog,
           exportFolder: (j['exportFolder'] as String?) ?? '',
           exportMaxDim: (j['exportMaxDim'] as num?)?.toInt() ?? 0,
@@ -117,6 +129,7 @@ class AppConfig {
   /// Pablo's per-user config dir, resolved without path_provider (mirrors
   /// scheme_store.dart so both stores live side by side).
   static String _configDir() {
+    if (configDirOverride != null) return configDirOverride!;
     final env = Platform.environment;
     final sep = Platform.pathSeparator;
     final fallback = Directory.systemTemp.path;

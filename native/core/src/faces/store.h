@@ -48,8 +48,11 @@ private:
 class FaceStore {
 public:
     // Opens (creates) the face tables in the catalog at `catalog_path` and the
-    // sibling vectors file. `dim` is the embedder dimension (512 AuraFace).
-    FaceStore(const std::string& catalog_path, int dim);
+    // sibling vectors file. `dim` is the embedder dimension and `vec_suffix`
+    // the per-profile vectors filename suffix (model_registry.h) — a dim
+    // change must never write into another profile's fixed-width matrix.
+    FaceStore(const std::string& catalog_path, int dim,
+              const std::string& vec_suffix = ".faces.vec");
     ~FaceStore();
 
     FaceStore(const FaceStore&) = delete;
@@ -99,11 +102,25 @@ public:
     // person_id -> confirmed embeddings, to rebuild the prototype index on load.
     std::unordered_map<int64_t, std::vector<Embedding>> confirmed_by_person();
 
+    // --- model registry (model_registry.h) ---
+    // Record the active profile; insert_face stamps it on every new row.
+    void set_active_model(const std::string& id, const std::string& version);
+    // True when `model_id` belongs to the active profile ('' = legacy rows of
+    // the default profile).
+    bool matches_active(const std::string& model_id) const;
+    // Embedded rows from a non-active profile (candidates for rescan).
+    int64_t count_stale() const;
+    // Delete UNCONFIRMED stale rows (confirmed ones keep their person link but
+    // stay out of prototypes until rescanned). Returns rows deleted.
+    int64_t prune_stale_unconfirmed();
+
     // --- vectors ---
     VectorStore& vectors() { return *vectors_; }
 
 private:
     sqlite3* db_ = nullptr;
+    std::string active_model_id_;
+    std::string active_model_version_;
     std::string vectors_path_;
     std::unique_ptr<VectorStore> vectors_;
     void init_schema();

@@ -42,17 +42,6 @@ abstract final class Priority {
   static const int idle = 2;
 }
 
-/// photo_provider_t mirror (for [Engine.probeProvider]). Values MUST match the
-/// C enum order in photo_core.h (CPU, WINML, DML, COREML, CUDA, OPENVINO).
-abstract final class Provider {
-  static const int cpu = 0;
-  static const int winml = 1;
-  static const int directml = 2;
-  static const int coreml = 3;
-  static const int cuda = 4;
-  static const int openvino = 5;
-}
-
 // ---------------------------------------------------------------------------
 // photo_config_t mirror — kept POD-compatible with the C struct
 // ---------------------------------------------------------------------------
@@ -207,6 +196,53 @@ final class _NativeAsset extends Struct {
 /// PHOTO_ASSET_FLAG_HIDDEN.
 const int _kAssetFlagHidden = 1 << 0;
 const int _kAssetFlagVideo = 1 << 1;
+
+/// photo_similar_pair_t mirror — one visually-similar pair (Find Duplicates).
+final class _NativeSimilarPair extends Struct {
+  @Uint64()
+  external int asset_a;
+  @Uint64()
+  external int asset_b;
+  @Float()
+  external double score;
+  @Uint32()
+  external int pad;
+}
+
+/// photo_metadata_t mirror — stored EXIF for an asset (extracted by libexif on
+/// import; strings arrive pre-formatted, e.g. aperture "f/2.8").
+final class _NativeMetadata extends Struct {
+  @Uint64()
+  external int asset_id;
+  @Int32()
+  external int width;
+  @Int32()
+  external int height;
+  @Int32()
+  external int orientation;
+  @Int32()
+  external int iso;
+  @Int64()
+  external int datetime_unix;
+  @Int32()
+  external int has_gps;
+  @Int32()
+  external int pad;
+  @Double()
+  external double gps_lat;
+  @Double()
+  external double gps_lon;
+  @Array(128)
+  external Array<Uint8> camera;
+  @Array(128)
+  external Array<Uint8> lens;
+  @Array(32)
+  external Array<Uint8> aperture;
+  @Array(32)
+  external Array<Uint8> shutter;
+  @Array(32)
+  external Array<Uint8> focal;
+}
 
 /// photo_geopoint_t mirror.
 final class _NativeGeoPoint extends Struct {
@@ -370,14 +406,6 @@ typedef _PollEventsC =
     IntPtr Function(Pointer<Void>, Pointer<NativeEvent>, IntPtr);
 typedef _PollEventsDart = int Function(Pointer<Void>, Pointer<NativeEvent>, int);
 
-// TEST-ONLY (M1): publishes a solid BGRA color for a slot. Replaced in M2
-// by the real photo_thumb_request pipeline. Kept on Engine so integration
-// code doesn't need implementation_import to reach the symbol.
-typedef _TestPublishSolidC =
-    Void Function(Pointer<Void>, Uint64, Uint8, Uint8, Uint8, Uint8);
-typedef _TestPublishSolidDart =
-    void Function(Pointer<Void>, int, int, int, int, int);
-
 // M2 — request pipeline hot path. Scalar args; no per-call alloc on the
 // Dart side beyond the UTF-8 path buffer (reused via RequestArena).
 typedef _ThumbRequestFastC = Uint64 Function(
@@ -417,6 +445,11 @@ typedef _ListAssetsC =
     IntPtr Function(Pointer<Void>, Pointer<_NativeAsset>, IntPtr);
 typedef _ListAssetsDart =
     int Function(Pointer<Void>, Pointer<_NativeAsset>, int);
+
+typedef _AssetMetadataC =
+    Int32 Function(Pointer<Void>, Uint64, Pointer<_NativeMetadata>);
+typedef _AssetMetadataDart =
+    int Function(Pointer<Void>, int, Pointer<_NativeMetadata>);
 
 typedef _ListGeotaggedC =
     IntPtr Function(Pointer<Void>, Pointer<_NativeGeoPoint>, IntPtr);
@@ -542,8 +575,6 @@ typedef _FaceApproveDart = int Function(Pointer<Void>, int, int);
 typedef _ClusterRebuildC = Uint64 Function(Pointer<Void>, Uint32);
 typedef _ClusterRebuildDart = int Function(Pointer<Void>, int);
 
-typedef _ProviderProbeC = Int32 Function(Pointer<Void>, Int32);
-typedef _ProviderProbeDart = int Function(Pointer<Void>, int);
 
 // Face read-back: fill up to `cap` rows, return total count available.
 typedef _ListPeopleC =
@@ -604,6 +635,31 @@ typedef _SavedQueryDart = int Function(Pointer<Void>, int, Pointer<Uint8>, int);
 // Face editing (§7): ignore / manual rect / assign / remove / XMP write-back.
 typedef _FaceSetIgnoredC = Int32 Function(Pointer<Void>, Uint64, Int32);
 typedef _FaceSetIgnoredDart = int Function(Pointer<Void>, int, int);
+typedef _SaveInPlaceC = Uint64 Function(
+    Pointer<Void>, Uint64, Pointer<Utf8>, Pointer<Utf8>, Int32);
+typedef _SaveInPlaceDart = int Function(
+    Pointer<Void>, int, Pointer<Utf8>, Pointer<Utf8>, int);
+typedef _RevertInPlaceC = Uint64 Function(Pointer<Void>, Uint64, Pointer<Utf8>);
+typedef _RevertInPlaceDart = int Function(Pointer<Void>, int, Pointer<Utf8>);
+typedef _HasBackupC = Int32 Function(Pointer<Void>, Pointer<Utf8>);
+typedef _HasBackupDart = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _DedupSimilarC = IntPtr Function(Pointer<Void>, Pointer<Uint64>,
+    IntPtr, Float, Pointer<_NativeSimilarPair>, IntPtr);
+typedef _DedupSimilarDart = int Function(Pointer<Void>, Pointer<Uint64>, int,
+    double, Pointer<_NativeSimilarPair>, int);
+typedef _AnalyzerListC = IntPtr Function(Pointer<Void>, Pointer<Utf8>, IntPtr);
+typedef _AnalyzerListDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _AnalyzerRunC =
+    Uint64 Function(Pointer<Void>, Pointer<Utf8>, Uint64);
+typedef _AnalyzerRunDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _AnalysisGetC = Int32 Function(Pointer<Void>, Pointer<Utf8>, Uint64,
+    Pointer<Int32>, Pointer<Utf8>, IntPtr, Pointer<IntPtr>);
+typedef _AnalysisGetDart = int Function(Pointer<Void>, Pointer<Utf8>, int,
+    Pointer<Int32>, Pointer<Utf8>, int, Pointer<IntPtr>);
+typedef _FaceModelIdC = Int32 Function(Pointer<Void>, Pointer<Utf8>, IntPtr);
+typedef _FaceModelIdDart = int Function(Pointer<Void>, Pointer<Utf8>, int);
+typedef _FaceStaleCountC = Int64 Function(Pointer<Void>);
+typedef _FaceStaleCountDart = int Function(Pointer<Void>);
 typedef _FaceAddManualC =
     Uint64 Function(Pointer<Void>, Uint64, Float, Float, Float, Float);
 typedef _FaceAddManualDart =
@@ -803,6 +859,20 @@ final class Engine {
       }
       final count = n < cap ? n : cap;
       return [for (var i = 0; i < count; i++) AssetRow._(buf[i])];
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Stored EXIF metadata for [assetId] (extracted on import), or null when
+  /// the asset has no metadata row. Synchronous catalog read — no file I/O,
+  /// so it replaces the Dart-side per-photo header parse for imported assets.
+  AssetMetadata? assetMetadata(int assetId) {
+    final buf = calloc<_NativeMetadata>();
+    try {
+      final st = _Bindings.assetMetadata(_handle, assetId, buf);
+      if (st != 0) return null; // NOT_FOUND / error → caller falls back
+      return AssetMetadata._(buf.ref);
     } finally {
       calloc.free(buf);
     }
@@ -1620,11 +1690,6 @@ final class Engine {
   int rebuildClusters({int flags = 0}) =>
       _Bindings.clusterRebuild(_handle, flags);
 
-  /// Probe whether an ML [Provider] is usable. Synchronous; returns a
-  /// photo_status_t (0 == OK/usable).
-  int probeProvider(int provider) =>
-      _Bindings.providerProbe(_handle, provider);
-
   // -------------------------------------------------------------------------
   // Face read-back (UI queries). Synchronous; metadata only — no image bytes
   // cross the boundary. A returned [FaceRow] carries its asset id + source
@@ -1681,6 +1746,172 @@ final class Engine {
   /// person/cluster and excludes it from People + re-clustering. photo_status_t.
   int setFaceIgnored(int faceId, bool ignored) =>
       _Bindings.faceSetIgnored(_handle, faceId, ignored ? 1 : 0);
+
+  /// In-place save ("overwrite with backup"): secures the untouched original
+  /// in <folder>/.pablo-originals/ FIRST (aborts without it), bakes [spec]
+  /// into the source file atomically, clears the parametric spec, refreshes
+  /// the catalog row. Async: request id + exportComplete event. 0 = rejected.
+  int saveInPlace(
+      {required int assetId,
+      required String srcPath,
+      required String spec,
+      int quality = 95}) {
+    final sp = srcPath.toNativeUtf8();
+    final ss = spec.toNativeUtf8();
+    try {
+      return _Bindings.saveInPlace(_handle, assetId, sp, ss, quality);
+    } finally {
+      calloc.free(sp);
+      calloc.free(ss);
+    }
+  }
+
+  /// Restore the in-place backup over the source and delete it (Picasa's
+  /// "Undo Save"). Same async contract as [saveInPlace]. 0 = rejected.
+  int revertInPlace({required int assetId, required String srcPath}) {
+    final sp = srcPath.toNativeUtf8();
+    try {
+      return _Bindings.revertInPlace(_handle, assetId, sp);
+    } finally {
+      calloc.free(sp);
+    }
+  }
+
+  /// True when [srcPath] has an in-place backup (drives Revert enablement).
+  bool hasInplaceBackup(String srcPath) {
+    final sp = srcPath.toNativeUtf8();
+    try {
+      return _Bindings.hasInplaceBackup(_handle, sp) != 0;
+    } finally {
+      calloc.free(sp);
+    }
+  }
+
+  /// Visually-similar pairs over [assetIds] (Find Duplicates): pairwise
+  /// cosine over the catalog's semantic embeddings; pairs scoring >=
+  /// [minCosine] return as (a, b, score). Scoped + synchronous — pass the
+  /// dedup scope, not the whole library. Assets without a done embedding are
+  /// skipped (empty until indexing has run).
+  List<({int a, int b, double score})> dedupSimilar(
+      List<int> assetIds, double minCosine) {
+    if (assetIds.length < 2) return const [];
+    final ids = calloc<Uint64>(assetIds.length);
+    for (var i = 0; i < assetIds.length; i++) {
+      ids[i] = assetIds[i];
+    }
+    var cap = 1024;
+    var buf = calloc<_NativeSimilarPair>(cap);
+    try {
+      var n = _Bindings.dedupSimilar(
+          _handle, ids, assetIds.length, minCosine, buf, cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<_NativeSimilarPair>(cap);
+        n = _Bindings.dedupSimilar(
+            _handle, ids, assetIds.length, minCosine, buf, cap);
+      }
+      final count = n < cap ? n : cap;
+      return [
+        for (var i = 0; i < count; i++)
+          (a: buf[i].asset_a, b: buf[i].asset_b, score: buf[i].score),
+      ];
+    } finally {
+      calloc.free(ids);
+      calloc.free(buf);
+    }
+  }
+
+  /// Registered analyzers (runtime/analyzer.h) as (id, version) records.
+  /// Empty until built-ins/plugins register; the seam ships ahead of them.
+  List<({String id, String version})> listAnalyzers() {
+    var cap = 512;
+    var buf = calloc<Uint8>(cap);
+    try {
+      var n = _Bindings.analyzerList(_handle, buf.cast(), cap);
+      if (n > cap) {
+        calloc.free(buf);
+        cap = n;
+        buf = calloc<Uint8>(cap);
+        n = _Bindings.analyzerList(_handle, buf.cast(), cap);
+      }
+      final out = <({String id, String version})>[];
+      var start = 0;
+      final bytes = buf.asTypedList(n < cap ? n : cap);
+      for (var i = 0; i < bytes.length; i++) {
+        if (bytes[i] != 0) continue;
+        final entry = String.fromCharCodes(bytes.sublist(start, i));
+        start = i + 1;
+        final tab = entry.indexOf('\t');
+        if (tab > 0) {
+          out.add(
+              (id: entry.substring(0, tab), version: entry.substring(tab + 1)));
+        }
+      }
+      return out;
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Schedule [analyzerId] over [assetId] (idle lane). Returns a request id;
+  /// 0 = unknown analyzer / unavailable / no catalog. Poll [analysisFor].
+  int runAnalyzer(String analyzerId, int assetId) {
+    final a = analyzerId.toNativeUtf8();
+    try {
+      return _Bindings.analyzerRun(_handle, a, assetId);
+    } finally {
+      calloc.free(a);
+    }
+  }
+
+  /// Persisted analysis for (analyzer, asset): status 0 pending / 1 done /
+  /// 2 failed + the analyzer's JSON payload. Null when never run.
+  ({int status, String payload})? analysisFor(String analyzerId, int assetId) {
+    final a = analyzerId.toNativeUtf8();
+    final st = calloc<Int32>();
+    final needed = calloc<IntPtr>();
+    var cap = 4096;
+    var buf = calloc<Uint8>(cap);
+    try {
+      var rc = _Bindings.analysisGet(
+          _handle, a, assetId, st, buf.cast(), cap, needed);
+      if (rc == 1 && needed.value > cap) {
+        calloc.free(buf);
+        cap = needed.value;
+        buf = calloc<Uint8>(cap);
+        rc = _Bindings.analysisGet(
+            _handle, a, assetId, st, buf.cast(), cap, needed);
+      }
+      if (rc != 0) return null;
+      return (status: st.value, payload: buf.cast<Utf8>().toDartString());
+    } finally {
+      calloc.free(a);
+      calloc.free(st);
+      calloc.free(needed);
+      calloc.free(buf);
+    }
+  }
+
+  /// Active face-model profile id (e.g. "scrfd10g+auraface"); '' when faces
+  /// are unavailable. Settings diagnostics.
+  String get faceModelId {
+    final buf = calloc<Uint8>(128);
+    try {
+      final st = _Bindings.faceModelId(_handle, buf.cast(), 128);
+      return st == 0 ? buf.cast<Utf8>().toDartString() : '';
+    } finally {
+      calloc.free(buf);
+    }
+  }
+
+  /// Faces embedded by a non-active model profile (stale: excluded from
+  /// prototypes/clustering until rescanned).
+  int get faceStaleCount => _Bindings.faceStaleCount(_handle);
+
+  /// Delete UNCONFIRMED stale face rows so a fresh scan repopulates them
+  /// (confirmed rows keep their person link). Returns rows deleted.
+  int pruneStaleFaces() => _Bindings.facePruneStale(_handle);
 
   /// Add a user-drawn face rectangle (source-image pixels) to an asset. Returns
   /// the new face id, or 0 on failure.
@@ -1766,17 +1997,6 @@ final class Engine {
     } finally {
       calloc.free(buf);
     }
-  }
-
-  /// **M1 TEST HOOK** — publishes a solid BGRA color as the slot's current
-  /// frame. Replaced in M2 by the real `requestThumbnail` pipeline that
-  /// dispatches actual decode jobs. Kept on Engine so that integration
-  /// callers do not need to reach into `implementation_imports`.
-  ///
-  /// Channel values are 0..255. Alpha is straight (premultiplication is done
-  /// inside the engine).
-  void testPublishSolid(int slotId, int r, int g, int b, int a) {
-    _Bindings.testPublishSolid(_handle, slotId, r, g, b, a);
   }
 
   /// Borrow the latest frame for [slotId]. The caller must call [releaseFrame]
@@ -1914,6 +2134,58 @@ final class AssetRow {
   /// True when this asset is a video (§11); [durationMs] then holds its length.
   final bool isVideo;
   final int durationMs;
+}
+
+/// Stored EXIF metadata for an asset (immutable projection of
+/// photo_metadata_t). String fields are '' when absent; [captureUnix] is 0
+/// when the file carried no DateTimeOriginal; GPS is null unless [hasGps].
+final class AssetMetadata {
+  AssetMetadata._(_NativeMetadata m)
+    : assetId = m.asset_id,
+      width = m.width,
+      height = m.height,
+      orientation = m.orientation,
+      iso = m.iso,
+      captureUnix = m.datetime_unix,
+      hasGps = m.has_gps != 0,
+      gpsLat = m.has_gps != 0 ? m.gps_lat : null,
+      gpsLon = m.has_gps != 0 ? m.gps_lon : null,
+      camera = _readCName(m.camera, 128),
+      lens = _readCName(m.lens, 128),
+      aperture = _readCName(m.aperture, 32),
+      shutter = _readCName(m.shutter, 32),
+      focal = _readCName(m.focal, 32);
+
+  final int assetId;
+  final int width;
+  final int height;
+  final int orientation;
+  final int iso;
+  final int captureUnix;
+  final bool hasGps;
+  final double? gpsLat;
+  final double? gpsLon;
+
+  /// "Make Model" as one display string (how the catalog stores it).
+  final String camera;
+  final String lens;
+  final String aperture;
+  final String shutter;
+  final String focal;
+
+  /// DateTimeOriginal as a naive wall-clock DateTime, or null when absent.
+  ///
+  /// EXIF capture time has no timezone; the native side encodes the civil
+  /// "as shot" fields with timegm (as-if-UTC). Decode with isUtc and strip
+  /// the zone so the photo displays at the wall-clock time it was taken —
+  /// treating the value as a local epoch instant would shift it by the
+  /// machine's UTC offset (caught by metadata_ffi_test parity).
+  DateTime? get captureDate {
+    if (captureUnix == 0) return null;
+    final u =
+        DateTime.fromMillisecondsSinceEpoch(captureUnix * 1000, isUtc: true);
+    return DateTime(u.year, u.month, u.day, u.hour, u.minute, u.second);
+  }
 }
 
 /// One collage cell for [Engine.createCollage]: a normalized rect [0,1] on the
@@ -2115,11 +2387,6 @@ final class _Bindings {
   static final _PollEventsDart pollEvents = _dylib
       .lookupFunction<_PollEventsC, _PollEventsDart>('photo_poll_events');
 
-  static final _TestPublishSolidDart testPublishSolid = _dylib
-      .lookupFunction<_TestPublishSolidC, _TestPublishSolidDart>(
-        'photo_test_publish_solid',
-      );
-
   static final _ThumbRequestFastDart thumbRequestFast = _dylib
       .lookupFunction<_ThumbRequestFastC, _ThumbRequestFastDart>(
         'photo_thumb_request_fast',
@@ -2139,6 +2406,11 @@ final class _Bindings {
 
   static final _ListAssetsDart listAssets = _dylib
       .lookupFunction<_ListAssetsC, _ListAssetsDart>('photo_list_assets');
+
+  static final _AssetMetadataDart assetMetadata = _dylib
+      .lookupFunction<_AssetMetadataC, _AssetMetadataDart>(
+        'photo_asset_metadata',
+      );
 
   static final _ListGeotaggedDart listGeotagged = _dylib
       .lookupFunction<_ListGeotaggedC, _ListGeotaggedDart>(
@@ -2261,11 +2533,6 @@ final class _Bindings {
         'photo_cluster_rebuild',
       );
 
-  static final _ProviderProbeDart providerProbe = _dylib
-      .lookupFunction<_ProviderProbeC, _ProviderProbeDart>(
-        'photo_provider_probe',
-      );
-
   static final _ListPeopleDart listPeople = _dylib
       .lookupFunction<_ListPeopleC, _ListPeopleDart>('photo_face_list_people');
 
@@ -2331,6 +2598,46 @@ final class _Bindings {
       .lookupFunction<_FaceSetIgnoredC, _FaceSetIgnoredDart>(
         'photo_face_set_ignored',
       );
+
+  static final _SaveInPlaceDart saveInPlace = _dylib
+      .lookupFunction<_SaveInPlaceC, _SaveInPlaceDart>(
+        'photo_asset_save_in_place',
+      );
+
+  static final _RevertInPlaceDart revertInPlace = _dylib
+      .lookupFunction<_RevertInPlaceC, _RevertInPlaceDart>(
+        'photo_asset_revert_in_place',
+      );
+
+  static final _HasBackupDart hasInplaceBackup = _dylib
+      .lookupFunction<_HasBackupC, _HasBackupDart>(
+        'photo_asset_has_inplace_backup',
+      );
+
+  static final _DedupSimilarDart dedupSimilar = _dylib
+      .lookupFunction<_DedupSimilarC, _DedupSimilarDart>('photo_dedup_similar');
+
+  static final _AnalyzerListDart analyzerList = _dylib
+      .lookupFunction<_AnalyzerListC, _AnalyzerListDart>('photo_analyzer_list');
+
+  static final _AnalyzerRunDart analyzerRun = _dylib
+      .lookupFunction<_AnalyzerRunC, _AnalyzerRunDart>('photo_analyzer_run');
+
+  static final _AnalysisGetDart analysisGet = _dylib
+      .lookupFunction<_AnalysisGetC, _AnalysisGetDart>('photo_analysis_get');
+
+  static final _FaceModelIdDart faceModelId = _dylib
+      .lookupFunction<_FaceModelIdC, _FaceModelIdDart>('photo_face_model_id');
+
+  static final _FaceStaleCountDart faceStaleCount = _dylib
+      .lookupFunction<_FaceStaleCountC, _FaceStaleCountDart>(
+        'photo_face_stale_count',
+      );
+
+  static final _FaceStaleCountDart facePruneStale = _dylib
+      .lookupFunction<_FaceStaleCountC, _FaceStaleCountDart>(
+        'photo_face_prune_stale',
+      );
   static final _FaceAddManualDart faceAddManual = _dylib
       .lookupFunction<_FaceAddManualC, _FaceAddManualDart>(
         'photo_face_add_manual',
@@ -2352,3 +2659,34 @@ final class _Bindings {
         'photo_asset_clear_geo',
       );
 }
+
+// ---------------------------------------------------------------------------
+// ABI drift-gate seam.
+//
+// Byte sizes of every hand-mirrored native struct above, keyed by the C
+// typedef name. photo_native's abi_drift_test compares these against the
+// ffigen-generated layouts (bindings_generated.dart) and against the pins in
+// c_api.cpp's static_assert block, so a header change that isn't propagated
+// here fails a test instead of corrupting memory at runtime.
+// ---------------------------------------------------------------------------
+
+Map<String, int> debugNativeStructSizes() => {
+      'photo_config_t': sizeOf<_NativeConfig>(),
+      'photo_frame_view_t': sizeOf<_NativeFrameView>(),
+      'photo_event_t': sizeOf<NativeEvent>(),
+      'photo_catalog_stats_t': sizeOf<_NativeCatalogStats>(),
+      'photo_person_t': sizeOf<_NativePerson>(),
+      'photo_face_t': sizeOf<_NativeFace>(),
+      'photo_asset_t': sizeOf<_NativeAsset>(),
+      'photo_geopoint_t': sizeOf<_NativeGeoPoint>(),
+      'photo_organize_t': sizeOf<_NativeOrganize>(),
+      'photo_album_t': sizeOf<_NativeAlbum>(),
+      'photo_embed_counts_t': sizeOf<_NativeEmbedCounts>(),
+      'photo_metadata_t': sizeOf<_NativeMetadata>(),
+      'photo_similar_pair_t': sizeOf<_NativeSimilarPair>(),
+      'photo_search_hit_t': sizeOf<_NativeSearchHit>(),
+      'photo_asset_color_t': sizeOf<_NativeAssetColor>(),
+      'photo_saved_search_t': sizeOf<_NativeSavedSearch>(),
+      'photo_export_options_t': sizeOf<_NativeExportOptions>(),
+      'photo_collage_cell_t': sizeOf<_NativeCollageCell>(),
+    };

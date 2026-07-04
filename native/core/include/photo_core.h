@@ -116,7 +116,7 @@ typedef enum {
     PHOTO_EVT_IMPORT_COMPLETE  = 4,
     PHOTO_EVT_SCAN_PROGRESS    = 5,
     PHOTO_EVT_CLUSTER_UPDATED  = 6,
-    PHOTO_EVT_PROVIDER_PROBED  = 7,
+    /* 7 reserved — was PROVIDER_PROBED (removed; never emitted) */
     PHOTO_EVT_LOG              = 8,
     /* Async catalog maintenance (compaction) finished. status is the result. */
     PHOTO_EVT_MAINTENANCE_COMPLETE = 9,
@@ -130,15 +130,6 @@ typedef enum {
      * (11, not 10: Stage 9 landed EMBED_PROGRESS=10 on main first.) */
     PHOTO_EVT_EXPORT_COMPLETE      = 11
 } photo_event_kind_t;
-
-typedef enum {
-    PHOTO_PROVIDER_CPU      = 0,
-    PHOTO_PROVIDER_WINML    = 1,
-    PHOTO_PROVIDER_DML      = 2,
-    PHOTO_PROVIDER_COREML   = 3,
-    PHOTO_PROVIDER_CUDA     = 4,
-    PHOTO_PROVIDER_OPENVINO = 5
-} photo_provider_t;
 
 typedef enum {
     PHOTO_LOG_TRACE = 0,
@@ -735,7 +726,7 @@ PHOTO_API uint64_t photo_create_collage(photo_engine_t* engine,
 
 /*
  * §11 video trim (non-destructive, catalog-only). set(0,0) clears. get fills
- * *start_ms/*end_ms (end 0 = to the end; both 0 = no trim); returns
+ * *start_ms / *end_ms (end 0 = to the end; both 0 = no trim); returns
  * photo_status_t. export_trimmed stream-copies [start,end) of `src` to `dst`
  * (no re-encode) on the idle lane, sharing the export event stream.
  */
@@ -821,14 +812,6 @@ PHOTO_API int32_t photo_redeye_auto_supported(void);
 /* ------------------------------------------------------------------------- */
 /* ML (added in M6)                                                          */
 /* ------------------------------------------------------------------------- */
-
-/*
- * Probe whether a provider is usable on this machine. Results are cached
- * per (provider, driver_version, gpu_uuid, ort_version). Synchronous; bounded
- * to ~2s per probe. Returns photo_status_t.
- */
-PHOTO_API int32_t photo_provider_probe(photo_engine_t* engine,
-                                       int32_t provider);
 
 /*
  * Schedule a face scan for an asset. Detection -> alignment -> embedding,
@@ -1069,6 +1052,90 @@ PHOTO_API size_t   photo_saved_search_query(photo_engine_t* engine, uint64_t id,
  * (Picasa's ]ignoreface). Returns photo_status_t. */
 PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
                                          uint64_t face_id, int32_t ignored);
+
+/*
+ * Face model registry. The active model profile is resolved by probing the
+ * models directory (model_registry.h); faces embedded by a non-active profile
+ * are STALE — excluded from prototypes/clustering until rescanned.
+ *   photo_face_model_id: NUL-terminated active profile id into out (cap incl.
+ *     NUL). PHOTO_STATUS_INVALID_ARG when cap is too small.
+ *   photo_face_stale_count: embedded faces from non-active profiles.
+ *   photo_face_prune_stale: delete UNCONFIRMED stale rows (a fresh scan
+ *     repopulates them); returns rows deleted. Confirmed rows keep their
+ *     person link but sit out of prototypes until rescanned.
+ */
+PHOTO_API int32_t photo_face_model_id(photo_engine_t* engine, char* out,
+                                      size_t cap);
+PHOTO_API int64_t photo_face_stale_count(photo_engine_t* engine);
+PHOTO_API int64_t photo_face_prune_stale(photo_engine_t* engine);
+
+/*
+ * In-place save mode ("overwrite with backup", Picasa-style; opt-in via the
+ * app's Edit-save setting — catalog-only stays the default, D1 amended).
+ *   save_in_place: back the untouched original up to
+ *     <folder>/.pablo-originals/<name> FIRST (first-save-wins; the save
+ *     ABORTS if the backup cannot be secured), render `spec` full-res to a
+ *     same-directory temp, atomically rename over the source, clear the
+ *     parametric spec (content_rev bumps → caches rebind), refresh the asset
+ *     row. Async idle lane; PHOTO_EVT_EXPORT_COMPLETE with the returned id.
+ *   revert_in_place: restore the backup over the source and delete it
+ *     (NOT_FOUND when no backup). Same async event contract.
+ *   has_inplace_backup: synchronous 0/1 — drives Revert enablement.
+ */
+PHOTO_API uint64_t photo_asset_save_in_place(photo_engine_t* engine,
+                                             uint64_t asset_id,
+                                             const char* src_utf8,
+                                             const char* spec_utf8,
+                                             int32_t quality);
+PHOTO_API uint64_t photo_asset_revert_in_place(photo_engine_t* engine,
+                                               uint64_t asset_id,
+                                               const char* src_utf8);
+PHOTO_API int32_t photo_asset_has_inplace_backup(photo_engine_t* engine,
+                                                 const char* src_utf8);
+
+/* One visually-similar pair: two catalog assets + their cosine (0..1). */
+typedef struct {
+    uint64_t asset_a;
+    uint64_t asset_b;
+    float    score;
+    uint32_t _pad;
+} photo_similar_pair_t;
+
+/*
+ * Visually-similar pairs over the SUPPLIED assets (Find Duplicates). Pairwise
+ * cosine over the catalog's semantic embeddings (SigLIP2 "similar scene");
+ * pairs with score >= min_cosine fill `out` up to `cap`. Returns the TOTAL
+ * pair count (grow-and-retry). Scoped + synchronous: pass the dedup scope,
+ * not the whole library. Assets without a done embedding are skipped.
+ */
+PHOTO_API size_t photo_dedup_similar(photo_engine_t* engine,
+                                     const uint64_t* asset_ids, size_t n_ids,
+                                     float min_cosine,
+                                     photo_similar_pair_t* out, size_t cap);
+
+/*
+ * Analyzers — the plugin-ready per-asset analysis seam (runtime/analyzer.h).
+ * Results persist in the catalog analysis table keyed (analyzer_id, asset_id)
+ * with a small JSON payload whose schema is each analyzer's own contract.
+ * NOT yet a stable third-party API (see docs/EXTENDING.md).
+ *   photo_analyzer_list: NUL-separated "id\tversion" entries into out;
+ *     returns TOTAL bytes needed (grow-and-retry, like photo_asset_tags).
+ *   photo_analyzer_run: schedule on the idle lane; a pending row is written
+ *     immediately, the result row (status done/failed) when finished. Poll
+ *     photo_analysis_get. Returns a request id; 0 = unknown/unavailable.
+ *   photo_analysis_get: *out_status = 0 pending / 1 done / 2 failed;
+ *     payload copied when cap >= *out_needed. NOT_FOUND when never run.
+ */
+PHOTO_API size_t photo_analyzer_list(photo_engine_t* engine, char* out,
+                                     size_t cap);
+PHOTO_API uint64_t photo_analyzer_run(photo_engine_t* engine,
+                                      const char* analyzer_id_utf8,
+                                      uint64_t asset_id);
+PHOTO_API int32_t photo_analysis_get(photo_engine_t* engine,
+                                     const char* analyzer_id_utf8,
+                                     uint64_t asset_id, int32_t* out_status,
+                                     char* out_payload, size_t cap,
+                                     size_t* out_needed);
 
 /* Add a user-drawn face rectangle to an asset, in source-image pixels. Stores
  * the box as a manual face (no embedding). If the face models are loaded the

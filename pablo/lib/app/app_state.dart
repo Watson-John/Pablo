@@ -1,5 +1,35 @@
 // Single ChangeNotifier holding the whole app's UI state.
 // Per-feature state stays local in the relevant widget.
+//
+// ── STATE-MANAGEMENT CONVENTION (where does new state go?) ──────────────────
+//
+// 1. AppState (this class, via AppScope) — cross-feature UI state: what's
+//    selected/active/open, the tray, search text + results, scheme list.
+//    Anything two features must agree on lives here; mutate + notifyListeners.
+//
+// 2. Feature controller + InheritedNotifier scope (PeopleController/
+//    PeopleScope, EditSession/EditSessionScope) — for a feature with its OWN
+//    event-driven state machine (native event streams, sessions). The scope
+//    confines rebuilds to that feature's widgets. Add one ONLY when the
+//    feature has push-updates of its own; a controller that just computes on
+//    demand does not need a scope — e.g. PabloSearchController is installed
+//    as the [searchRunner] seam and its RESULTS live here, because the grid
+//    (a different feature) renders them.
+//
+// 3. Shared caches observed by many widgets (AspectStore, CaptionStore,
+//    EditsStore) — singleton with a ValueListenable revision (or
+//    ChangeNotifier when consumers need per-key granularity).
+//
+// 4. Persistence-only backends (AppConfig, SchemeStore, FolderPrefs,
+//    SavedSearchStore) — dumb load/save, NO notification: their single
+//    orchestrating owner (usually this class) mutates state and notifies.
+//    Don't add ChangeNotifier to these; observability belongs to the layer
+//    that owns the in-memory truth.
+//
+// KNOWN DEBT: selection is multi-rooted — the gallery selection lives here
+// (selectedPhotos) but dedup-review and people flows keep widget-local
+// selection sets. Unifying them touches gallery/tray/dedup/compare at once;
+// deferred (see docs/FUTURE_WORK.md).
 
 import 'dart:async';
 

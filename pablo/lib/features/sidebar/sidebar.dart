@@ -22,11 +22,14 @@ import '../gallery/native_asset_texture.dart';
 import '../organize/folder_ops.dart';
 import '../organize/reorganize_controller.dart';
 import '../people/people_scope.dart';
+import '../people/person_row.dart';
+import '../people/unnamed_faces_row.dart';
 import 'folder_group.dart';
 import 'folder_leaf.dart';
-import '../people/person_row.dart';
 import 'timeline_tree_node.dart';
-import '../people/unnamed_faces_row.dart';
+import 'widgets/folder_sort_toggle.dart';
+import 'widgets/map_card.dart';
+import 'widgets/sidebar_rows.dart';
 
 class Sidebar extends StatelessWidget {
   const Sidebar({super.key});
@@ -73,7 +76,7 @@ class Sidebar extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Map (standalone nav card)
-                  _MapCard(
+                  SidebarMapCard(
                     active: st.activeSection == NavSection.map,
                     onTap: () => st.setSelectedItem('map', NavSection.map),
                   ),
@@ -97,7 +100,7 @@ class Sidebar extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _SmartRow(
+                        SmartRow(
                           label: 'All Photos',
                           icon: PabloIconName.grid,
                           iconColor: PabloColors.sectionFolders,
@@ -107,7 +110,7 @@ class Sidebar extends StatelessWidget {
                           onSelect: () => st.setSelectedItem(
                               'smart:all', NavSection.smart),
                         ),
-                        _SmartRow(
+                        SmartRow(
                           label: 'Recently Added',
                           icon: PabloIconName.clock,
                           iconColor: PabloColors.sectionTimeline,
@@ -117,7 +120,7 @@ class Sidebar extends StatelessWidget {
                           onSelect: () => st.setSelectedItem(
                               'smart:recent', NavSection.smart),
                         ),
-                        _SmartRow(
+                        SmartRow(
                           label: 'Starred',
                           icon: PabloIconName.starFill,
                           iconColor: PabloColors.amber,
@@ -194,7 +197,7 @@ class Sidebar extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               for (final a in st.albums)
-                                _AlbumRow(
+                                AlbumRow(
                                   album: a,
                                   leading: _albumLeading(context, a),
                                   selected:
@@ -252,7 +255,7 @@ class Sidebar extends StatelessWidget {
                     icon: PabloIconName.folder,
                     iconColor: PabloColors.sectionFolders,
                     collapsedCount: '$folderCount',
-                    trailing: _FolderSortToggle(
+                    trailing: FolderSortToggle(
                       sort: st.folderSort,
                       onToggle: () => st.setFolderSort(
                         st.folderSort == FolderSort.tree
@@ -322,7 +325,7 @@ class Sidebar extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           for (final path in hiddenDirs)
-                            _HiddenFolderRow(
+                            HiddenFolderRow(
                               path: path,
                               onUnhide: () {
                                 backend!.engine.setFolderHidden(path, false);
@@ -557,313 +560,6 @@ class Sidebar extends StatelessWidget {
             child: Text(initial == null ? 'Create' : 'Save'),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// A hidden-folder row: the folder name + an Unhide action (click the eye).
-class _HiddenFolderRow extends StatelessWidget {
-  const _HiddenFolderRow({required this.path, required this.onUnhide});
-
-  final String path;
-  final VoidCallback onUnhide;
-
-  @override
-  Widget build(BuildContext context) {
-    final name = path.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        PabloSpacing.xxxl,
-        PabloSpacing.sm,
-        PabloSpacing.xl,
-        PabloSpacing.sm,
-      ),
-      child: Row(
-        children: [
-          const PabloIcon(
-            PabloIconName.folder,
-            size: 13,
-            color: PabloColors.textMuted,
-          ),
-          const SizedBox(width: PabloSpacing.base),
-          Expanded(
-            child: Text(
-              name,
-              overflow: TextOverflow.ellipsis,
-              style: PabloTypography.sans(
-                fontSize: 12,
-                color: PabloColors.textMuted,
-              ),
-            ),
-          ),
-          PabloIconButton(
-            icon: PabloIconName.unlock,
-            size: 20,
-            iconSize: 12,
-            tooltip: 'Unhide folder',
-            onPressed: onUnhide,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A selectable smart-collection row in the sidebar (icon + label + count).
-class _SmartRow extends StatelessWidget {
-  const _SmartRow({
-    required this.label,
-    required this.icon,
-    required this.iconColor,
-    required this.count,
-    required this.selected,
-    required this.onSelect,
-  });
-
-  final String label;
-  final PabloIconName icon;
-  final Color iconColor;
-  final int count;
-  final bool selected;
-  final VoidCallback onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? PabloColors.selectionBackground : Colors.transparent,
-      child: InkWell(
-        onTap: onSelect,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            PabloSpacing.xxxl,
-            PabloSpacing.sm,
-            PabloSpacing.xl,
-            PabloSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              PabloIcon(
-                icon,
-                size: 13,
-                color: selected ? PabloColors.selectionPrimary : iconColor,
-              ),
-              const SizedBox(width: PabloSpacing.base),
-              Expanded(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: PabloTypography.sans(
-                    fontSize: 12,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                    color: selected
-                        ? PabloColors.selectionPrimary
-                        : PabloColors.textSecondary,
-                  ),
-                ),
-              ),
-              Text(
-                '$count',
-                style: PabloTypography.mono(
-                  fontSize: 10.5,
-                  color: PabloColors.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A selectable album row in the sidebar (cover/glyph + name + member count).
-/// Right-click opens the rename/delete menu.
-class _AlbumRow extends StatelessWidget {
-  const _AlbumRow({
-    required this.album,
-    required this.leading,
-    required this.selected,
-    required this.onSelect,
-    this.onContextMenu,
-  });
-
-  final Album album;
-  final Widget leading;
-  final bool selected;
-  final VoidCallback onSelect;
-  final void Function(Offset position)? onContextMenu;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: selected ? PabloColors.selectionBackground : Colors.transparent,
-      child: InkWell(
-        onTap: onSelect,
-        onSecondaryTapDown: onContextMenu == null
-            ? null
-            : (d) => onContextMenu!(d.globalPosition),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            PabloSpacing.xxxl,
-            PabloSpacing.sm,
-            PabloSpacing.xl,
-            PabloSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              leading,
-              const SizedBox(width: PabloSpacing.base),
-              Expanded(
-                child: Text(
-                  album.name.isEmpty ? 'Untitled album' : album.name,
-                  overflow: TextOverflow.ellipsis,
-                  style: PabloTypography.sans(
-                    fontSize: 12,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                    color: selected
-                        ? PabloColors.selectionPrimary
-                        : PabloColors.textSecondary,
-                  ),
-                ),
-              ),
-              Text(
-                '${album.count}',
-                style: PabloTypography.mono(
-                  fontSize: 10.5,
-                  color: PabloColors.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Map nav as a standalone bordered card matching the section-header chrome
-/// (non-collapsible). Icon is teal at rest, azure when the Map view is active.
-class _MapCard extends StatefulWidget {
-  const _MapCard({required this.active, required this.onTap});
-  final bool active;
-  final VoidCallback onTap;
-  @override
-  State<_MapCard> createState() => _MapCardState();
-}
-
-class _MapCardState extends State<_MapCard> {
-  bool _hover = false;
-  @override
-  Widget build(BuildContext context) {
-    final headerBg = widget.active
-        ? PabloColors.backgroundSelected
-        : _hover
-            ? PabloColors.backgroundSidebarHover
-            : PabloColors.backgroundSidebar;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(
-        PabloSpacing.base,
-        PabloSpacing.sm,
-        PabloSpacing.base,
-        PabloSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: PabloColors.backgroundSurface,
-        border: Border.all(color: PabloColors.borderStrong),
-        borderRadius: PabloRadius.mdAll,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: PabloDurations.hover,
-            height: PabloSizing.controlMd,
-            padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.lg),
-            color: headerBg,
-            child: Row(
-              children: [
-                PabloIcon(
-                  PabloIconName.map,
-                  size: 14,
-                  filled: true, // design navMap = location_on (filled)
-                  color: widget.active
-                      ? PabloColors.accentActive
-                      : PabloColors.sectionMap,
-                ),
-                const SizedBox(width: PabloSpacing.base),
-                Expanded(
-                  child: Text(
-                    'Map',
-                    style: PabloTypography.serif(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Text(
-                  '0',
-                  style: PabloTypography.mono(
-                    fontSize: 10,
-                    color: PabloColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FolderSortToggle extends StatefulWidget {
-  const _FolderSortToggle({required this.sort, required this.onToggle});
-  final String sort;
-  final VoidCallback onToggle;
-  @override
-  State<_FolderSortToggle> createState() => _FolderSortToggleState();
-}
-
-class _FolderSortToggleState extends State<_FolderSortToggle> {
-  bool _hover = false;
-  @override
-  Widget build(BuildContext context) {
-    final label = widget.sort == FolderSort.tree ? 'A→Z' : 'Tree';
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onToggle,
-        child: AnimatedContainer(
-          duration: PabloDurations.hover,
-          padding: const EdgeInsets.symmetric(
-            horizontal: PabloSpacing.md,
-            vertical: PabloSpacing.xs,
-          ),
-          decoration: BoxDecoration(
-            color: _hover
-                ? PabloColors.backgroundHover
-                : PabloColors.backgroundSurface,
-            border: Border.all(color: PabloColors.borderSubtle),
-            borderRadius: PabloRadius.smAll,
-            boxShadow: PabloShadows.sm,
-          ),
-          child: Text(
-            label,
-            style: PabloTypography.sans(
-              fontSize: 11,
-              color: PabloColors.textMuted,
-            ),
-          ),
-        ),
       ),
     );
   }

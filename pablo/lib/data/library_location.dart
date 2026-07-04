@@ -10,6 +10,8 @@
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../backend/native_backend.dart';
 import 'app_config.dart';
 
@@ -79,9 +81,16 @@ class LibraryLocation {
 
     backend.engine.catalogCheckpoint(); // flush WAL into catalog.db
     await copyCatalog(srcDir, destDir, overwrite: overwrite);
-    AppConfig(catalogDir: destDir).save();
+    persistCatalogDir(destDir);
     return true;
   }
+
+  /// Point the persisted config at [destDir] — via copyWith, NOT a fresh
+  /// AppConfig: a fresh one silently resets every other persisted setting
+  /// (editSaveMode, export defaults) on relocate.
+  @visibleForTesting
+  static void persistCatalogDir(String destDir) =>
+      AppConfig.load().copyWith(catalogDir: destDir).save();
 
   static String _normalize(String dir) {
     var d = dir;

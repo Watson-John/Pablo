@@ -5,23 +5,19 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:photo_native/photo_native.dart';
 
 import '../../components/pablo_icon.dart';
-import '../../data/caption_store.dart';
 import '../../data/library.dart';
 import '../../data/models.dart';
 import '../../theme/tokens.dart';
 import '../../utils/asset_id.dart';
-import '../editor/crop_overlay.dart';
-import '../editor/retouch_overlay.dart';
-import '../editor/edit_preview_surface.dart';
-import '../editor/edit_session.dart';
-import '../people/face_naming.dart';
 import '../people/people_scope.dart';
 import '../slideshow/slideshow_view.dart';
 import 'lightbox_video.dart';
 import 'photo_surface.dart';
+import 'widgets/caption_bar.dart';
+import 'widgets/lightbox_chrome.dart';
+import 'widgets/lightbox_image.dart';
 
 class LightboxView extends StatefulWidget {
   const LightboxView({
@@ -265,7 +261,7 @@ class _LightboxViewState extends State<LightboxView> {
                           ),
                         ),
                         const SizedBox(width: PabloSpacing.xl),
-                        _TopBarButton(
+                        TopBarButton(
                           icon: PabloIconName.play,
                           tooltip: 'Slideshow',
                           onTap: () => showSlideshow(
@@ -276,7 +272,7 @@ class _LightboxViewState extends State<LightboxView> {
                         ),
                         if (widget.onToggleFullscreen != null) ...[
                           const SizedBox(width: PabloSpacing.base),
-                          _FullscreenButton(
+                          FullscreenButton(
                             fullscreen: widget.fullscreen,
                             onTap: widget.onToggleFullscreen!,
                           ),
@@ -346,14 +342,14 @@ class _LightboxViewState extends State<LightboxView> {
                             top: 0,
                             bottom: 0,
                             child:
-                                IgnorePointer(child: _FilmEdgeFade(left: true)),
+                                IgnorePointer(child: FilmEdgeFade(left: true)),
                           ),
                           const Positioned(
                             right: 0,
                             top: 0,
                             bottom: 0,
                             child: IgnorePointer(
-                                child: _FilmEdgeFade(left: false)),
+                                child: FilmEdgeFade(left: false)),
                           ),
                         ],
                       ),
@@ -380,7 +376,7 @@ class _LightboxViewState extends State<LightboxView> {
                                   key: ValueKey('vid-${photo.id}'),
                                   photo: photo,
                                 )
-                              : _LightboxImage(
+                              : LightboxImage(
                                   photo: photo,
                                   faces: faces,
                                   imgW: exif.width,
@@ -406,7 +402,7 @@ class _LightboxViewState extends State<LightboxView> {
                 // per photo so navigating away cancels any in-progress edit. Part of
                 // the chrome that auto-hides in immersive mode.
                 if (showChrome)
-                  _CaptionBar(
+                  CaptionBar(
                     key: ValueKey('cap-${photo.id}'),
                     assetId: assetIdFor(photo.id),
                     parentFocus: _focus,
@@ -428,487 +424,7 @@ class _LightboxViewState extends State<LightboxView> {
       alignment: alignment,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: PabloSpacing.xxl),
-        child: _NavArrowButton(icon: icon, onTap: onTap),
-      ),
-    );
-  }
-}
-
-/// The big image, sized to the photo's true aspect (so the whole frame shows),
-/// with one hover-to-name marker per detected face overlaid on top. Falls back
-/// to a 4:3 frame with no markers when the source dimensions aren't known.
-class _LightboxImage extends StatelessWidget {
-  const _LightboxImage({
-    required this.photo,
-    required this.faces,
-    required this.imgW,
-    required this.imgH,
-  });
-
-  final Photo photo;
-  final List<FaceRow> faces;
-  final int imgW;
-  final int imgH;
-
-  @override
-  Widget build(BuildContext context) {
-    // Depend on the edit session so the box re-sizes as geometry changes.
-    final session = EditSessionScope.of(context);
-    final spec = session?.spec;
-    final cropMode = session?.activeTool == 'crop';
-    final retouchMode =
-        session?.activeTool == 'redeye' || session?.activeTool == 'heal';
-    return LayoutBuilder(builder: (context, c) {
-      final maxW = c.maxWidth.isFinite ? c.maxWidth : 900.0;
-      final maxH = c.maxHeight.isFinite ? c.maxHeight : 700.0;
-      final known = imgW > 0 && imgH > 0;
-      // Aspect after rotation (the space the crop overlay maps over)…
-      double rotAspect = known ? imgW / imgH : 4 / 3;
-      if (spec != null && spec.rot90 % 2 == 1) rotAspect = 1 / rotAspect;
-      // …and the displayed-box aspect, which also folds in the crop unless we're
-      // actively cropping (then we show the full uncropped frame).
-      var aspect = rotAspect;
-      if (spec != null &&
-          !cropMode &&
-          spec.cropW > 0 &&
-          (spec.cropW != 1 || spec.cropH != 1)) {
-        aspect *= spec.cropW / spec.cropH;
-      }
-      // Contain the image at that aspect within the available area.
-      var dW = maxW;
-      var dH = dW / aspect;
-      if (dH > maxH) {
-        dH = maxH;
-        dW = dH * aspect;
-      }
-      final showFaces = known &&
-          !cropMode &&
-          !retouchMode &&
-          (spec == null || !spec.hasGeometry);
-      return Center(
-        child: SizedBox(
-          width: dW,
-          height: dH,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: PabloRadius.lgAll,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        offset: const Offset(0, 8),
-                        blurRadius: 40,
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: PabloRadius.lgAll,
-                    // The main image renders the live edit preview when an
-                    // EditSession is in scope (editor open); otherwise it shows
-                    // the saved/original frame. Keyed by id so navigation
-                    // recreates it against the freshly-swapped session.
-                    child: EditPreviewSurface(
-                      key: ValueKey(photo.id),
-                      photo: photo,
-                      targetW: 1280,
-                      targetH: 1280,
-                    ),
-                  ),
-                ),
-              ),
-              if (cropMode && session != null)
-                Positioned.fill(
-                  child: ClipRRect(
-                    borderRadius: PabloRadius.lgAll,
-                    child: CropOverlay(
-                        session: session, imageAspect: rotAspect),
-                  ),
-                ),
-              if (retouchMode && session != null)
-                Positioned.fill(
-                  child: ClipRRect(
-                    borderRadius: PabloRadius.lgAll,
-                    child: RetouchOverlay(
-                        session: session, tool: session.activeTool!),
-                  ),
-                ),
-              if (showFaces)
-                for (final f in faces)
-                  Positioned(
-                    left: (f.boxX / imgW) * dW,
-                    top: (f.boxY / imgH) * dH,
-                    width: (f.boxW / imgW) * dW,
-                    height: (f.boxH / imgH) * dH,
-                    child: _FaceMarker(face: f),
-                  ),
-            ],
-          ),
-        ),
-      );
-    });
-  }
-}
-
-/// One face box on the lightbox image: a faint always-on outline (so faces are
-/// discoverable), brightening on hover and revealing the name / "Name…" bar.
-class _FaceMarker extends StatefulWidget {
-  const _FaceMarker({required this.face});
-  final FaceRow face;
-
-  @override
-  State<_FaceMarker> createState() => _FaceMarkerState();
-}
-
-class _FaceMarkerState extends State<_FaceMarker> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final pc = PeopleScope.read(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: _hover
-                      ? PabloColors.selectionPrimary
-                      : Colors.white.withValues(alpha: 0.4),
-                  width: 2,
-                ),
-                borderRadius: PabloRadius.smAll,
-              ),
-            ),
-          ),
-          // The naming field (rounded, matching the Unnamed Faces cards) sits at
-          // the box's bottom edge — inside the hover region so it isn't
-          // dismissed before it can be clicked. Shown on hover; persists while
-          // focused (so the suggestion dropdown is usable).
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: FaceNameOverlay(
-              face: widget.face,
-              controller: pc,
-              hovered: _hover,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Lightbox prev/next arrow — borderless gray glyph that brightens into a dark
-/// well on hover (Pablo v4).
-class _NavArrowButton extends StatefulWidget {
-  const _NavArrowButton({required this.icon, required this.onTap});
-  final PabloIconName icon;
-  final VoidCallback onTap;
-  @override
-  State<_NavArrowButton> createState() => _NavArrowButtonState();
-}
-
-class _NavArrowButtonState extends State<_NavArrowButton> {
-  bool _hover = false;
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: PabloDurations.hover,
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: _hover ? PabloColors.lightboxNavHoverBg : Colors.transparent,
-            shape: BoxShape.circle,
-          ),
-          child: PabloIcon(
-            widget.icon,
-            size: 20,
-            color: _hover
-                ? PabloColors.lightboxNavHoverIcon
-                : PabloColors.lightboxNavIcon,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Lightbox top-bar fullscreen toggle — borderless glyph that brightens into a
-/// dark well on hover, mirroring [_NavArrowButton].
-class _FullscreenButton extends StatefulWidget {
-  const _FullscreenButton({required this.fullscreen, required this.onTap});
-  final bool fullscreen;
-  final VoidCallback onTap;
-  @override
-  State<_FullscreenButton> createState() => _FullscreenButtonState();
-}
-
-class _FullscreenButtonState extends State<_FullscreenButton> {
-  bool _hover = false;
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: widget.fullscreen ? 'Exit Fullscreen (F)' : 'Fullscreen (F)',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: PabloDurations.hover,
-            width: 30,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color:
-                  _hover ? PabloColors.lightboxNavHoverBg : Colors.transparent,
-              shape: BoxShape.circle,
-            ),
-            child: PabloIcon(
-              widget.fullscreen ? PabloIconName.zoomOut : PabloIconName.zoomIn,
-              size: 16,
-              color: _hover
-                  ? PabloColors.lightboxNavHoverIcon
-                  : PabloColors.lightboxNavIcon,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A generic lightbox top-bar icon button (tooltip + hover well), matching
-/// [_FullscreenButton]'s styling. Used for the Slideshow launcher.
-class _TopBarButton extends StatefulWidget {
-  const _TopBarButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-  });
-  final PabloIconName icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  @override
-  State<_TopBarButton> createState() => _TopBarButtonState();
-}
-
-class _TopBarButtonState extends State<_TopBarButton> {
-  bool _hover = false;
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: widget.tooltip,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: PabloDurations.hover,
-            width: 30,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color:
-                  _hover ? PabloColors.lightboxNavHoverBg : Colors.transparent,
-              shape: BoxShape.circle,
-            ),
-            child: PabloIcon(
-              widget.icon,
-              size: 16,
-              color: _hover
-                  ? PabloColors.lightboxNavHoverIcon
-                  : PabloColors.lightboxNavIcon,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Editable caption bar at the bottom of the lightbox (Picasa "Make a
-/// caption!"). Click to type; Enter or click-away saves to the catalog via
-/// [CaptionStore]; Esc cancels. Shows a muted "Add a caption…" affordance when
-/// the photo has none.
-class _CaptionBar extends StatefulWidget {
-  const _CaptionBar({required this.assetId, this.parentFocus, super.key});
-  final int assetId;
-
-  /// The lightbox's keyboard-focus node. Reclaimed when an edit ends so the
-  /// lightbox's Esc / F / arrow shortcuts work again after captioning.
-  final FocusNode? parentFocus;
-
-  @override
-  State<_CaptionBar> createState() => _CaptionBarState();
-}
-
-class _CaptionBarState extends State<_CaptionBar> {
-  bool _editing = false;
-  final TextEditingController _ctl = TextEditingController();
-  final FocusNode _focus = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    // Ensure the caption is read even when the lightbox is opened directly on a
-    // photo that never scrolled through the grid.
-    CaptionStore.instance.prioritize([widget.assetId]);
-  }
-
-  @override
-  void dispose() {
-    _ctl.dispose();
-    _focus.dispose();
-    super.dispose();
-  }
-
-  void _beginEdit(String current) {
-    _ctl.text = current;
-    _ctl.selection = TextSelection(baseOffset: 0, extentOffset: current.length);
-    setState(() => _editing = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
-  }
-
-  void _commit() {
-    if (!_editing) return;
-    CaptionStore.instance.setCaption(widget.assetId, _ctl.text.trim());
-    setState(() => _editing = false);
-    widget.parentFocus?.requestFocus();
-  }
-
-  void _cancel() {
-    setState(() => _editing = false);
-    widget.parentFocus?.requestFocus();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: CaptionStore.instance.captionRevision,
-      builder: (context, _, __) {
-        final cap = CaptionStore.instance.captionOf(widget.assetId) ?? '';
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-            horizontal: PabloSpacing.xxl,
-            vertical: PabloSpacing.lg,
-          ),
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(color: Colors.white.withValues(alpha: 0.07)),
-            ),
-          ),
-          alignment: Alignment.center,
-          child: _editing ? _field() : _display(cap),
-        );
-      },
-    );
-  }
-
-  Widget _field() {
-    // Escape cancels the edit. This CallbackShortcuts is nearer the focused
-    // TextField than the lightbox's Escape binding, so it wins while editing.
-    return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.escape): _cancel,
-      },
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
-        child: TextField(
-          controller: _ctl,
-          focusNode: _focus,
-          textAlign: TextAlign.center,
-          onSubmitted: (_) => _commit(),
-          onTapOutside: (_) => _commit(),
-          cursorColor: PabloColors.selectionPrimary,
-          style: PabloTypography.sans(
-            fontSize: 13,
-            color: Colors.white.withValues(alpha: 0.92),
-          ),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: 'Add a caption…',
-            hintStyle: PabloTypography.sans(
-              fontSize: 13,
-              color: Colors.white.withValues(alpha: 0.3),
-            ),
-            filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.06),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: PabloSpacing.xl,
-              vertical: PabloSpacing.base,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: PabloRadius.mdAll,
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _display(String cap) {
-    final hasCap = cap.isNotEmpty;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => _beginEdit(cap),
-        behavior: HitTestBehavior.opaque,
-        child: Text(
-          hasCap ? cap : 'Add a caption…',
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: PabloTypography.sans(
-            fontSize: 13,
-            fontWeight: hasCap ? FontWeight.w500 : FontWeight.w400,
-            color: Colors.white.withValues(alpha: hasCap ? 0.85 : 0.35),
-          ).copyWith(fontStyle: hasCap ? FontStyle.normal : FontStyle.italic),
-        ),
-      ),
-    );
-  }
-}
-
-/// Horizontal gradient that fades the filmstrip into the lightbox chrome at
-/// each edge.
-class _FilmEdgeFade extends StatelessWidget {
-  const _FilmEdgeFade({required this.left});
-  final bool left;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 28,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: left ? Alignment.centerLeft : Alignment.centerRight,
-          end: left ? Alignment.centerRight : Alignment.centerLeft,
-          colors: [
-            PabloColors.lightboxBackground,
-            PabloColors.lightboxBackground.withValues(alpha: 0),
-          ],
-        ),
+        child: NavArrowButton(icon: icon, onTap: onTap),
       ),
     );
   }

@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_scope.dart';
+import '../../backend/native_backend.dart';
 import '../../components/pablo_button.dart';
 import '../../data/models.dart';
 import '../../data/sources/dedup_repository.dart';
@@ -26,7 +27,19 @@ class FindDuplicatesFlow extends StatefulWidget {
 }
 
 class _FindDuplicatesFlowState extends State<FindDuplicatesFlow> {
-  final DedupRepository _repo = createDedupRepository();
+  // Engine-backed when the native backend is up (real semantic similarity);
+  // resolved in didChangeDependencies because the backend scope needs context.
+  DedupRepository _repo = createDedupRepository();
+  bool _repoResolved = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_repoResolved) return;
+    _repoResolved = true;
+    _repo = createDedupRepository(
+        engine: NativeBackendScope.maybeOf(context)?.engine);
+  }
 
   int _stage = 0; // 0 = scope, 1 = review
   DedupScopeKind _scope = DedupScopeKind.library;

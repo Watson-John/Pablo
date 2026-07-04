@@ -434,37 +434,21 @@ class _BodyState extends State<_Body> {
         onShowInPablo: _showInPablo,
         onSplitFolder: _splitFolderHere,
         onRename: _rename,
-        onExport: _exportPhotos,
-        onShare: _sharePhotos,
-        onPrint: _printPhotos,
         isStarred: (id) => isStarredAsset(assetIdFor(id)),
         isHidden: isHiddenPhoto,
+        onExport: (ids) =>
+            runExportToFolder(context, photos: _photosForIds(ids)),
+        onShare: (ids) => sharePhotos(context,
+            photos: _photosForIds(ids), origin: shareOriginFrom(context)),
+        onPrint: (ids) => runPrint(context, photos: _photosForIds(ids)),
       );
 
-  // §10 create/output — resolve target ids to Photos and run the flows. The
-  // menu passes the whole selection when the clicked photo is part of one.
-  List<Photo> _photosFromIds(List<String> ids) => [
+  // Resolve menu-target ids to Photo records, dropping any that vanished
+  // between the right-click and the action (e.g. a concurrent move).
+  List<Photo> _photosForIds(List<String> ids) => [
         for (final id in ids)
-          if (photoById(id) case final p?) p,
+          if (photoById(id) case final Photo p) p,
       ];
-
-  void _exportPhotos(List<String> ids) {
-    final photos = _photosFromIds(ids);
-    if (photos.isEmpty) return;
-    runExportToFolder(context, photos: photos);
-  }
-
-  void _sharePhotos(List<String> ids) {
-    final photos = _photosFromIds(ids);
-    if (photos.isEmpty) return;
-    sharePhotos(context, photos: photos, origin: shareOriginFrom(context));
-  }
-
-  void _printPhotos(List<String> ids) {
-    final photos = _photosFromIds(ids);
-    if (photos.isEmpty) return;
-    runPrint(context, photos: photos);
-  }
 
   // Rename: a single photo gets a quick name dialog; a multi-selection opens
   // the token-based batch modal. Both apply through the shared rename path.
@@ -729,9 +713,6 @@ class _BodyState extends State<_Body> {
                                   children: [
                                     Expanded(
                                       child: MainGrid(
-                                        // §10 export/share/print ride main's
-                                        // selection-aware menu via the
-                                        // PhotoMenuActions seam (multi-capable).
                                         onPhotoSecondary: (pos, id) =>
                                             showPhotoContextMenu(
                                           context,
@@ -778,6 +759,7 @@ class _BodyState extends State<_Body> {
     if (lightboxPhoto == null) return shell;
     return EditSessionProvider(
       engine: NativeBackendScope.maybeOf(context)?.engine,
+      events: NativeBackendScope.maybeOf(context)?.events,
       assetId: assetIdFor(lightboxPhoto.id),
       path: lightboxPhoto.filePath,
       child: shell,

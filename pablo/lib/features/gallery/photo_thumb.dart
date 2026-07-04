@@ -4,6 +4,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../components/hover_surface.dart';
 import '../../components/pablo_icon.dart';
 import '../../data/caption_store.dart';
 import '../../data/library.dart';
@@ -66,7 +67,6 @@ class PhotoThumb extends StatefulWidget {
 }
 
 class _PhotoThumbState extends State<PhotoThumb> {
-  bool _hover = false;
   PointerDownEvent? _lastPointerEvent;
 
   @override
@@ -83,6 +83,49 @@ class _PhotoThumbState extends State<PhotoThumb> {
         : (widget.selected || widget.inTray)
             ? PabloColors.selectionPrimary.withValues(alpha: 0.4)
             : PabloColors.borderSubtle;
+
+    // Right-click stays on the raw Listener (fires on pointer-down, ahead of
+    // the gesture arena) and it also captures the pointer event onTap needs,
+    // so HoverSurface only carries hover + tap/double-tap.
+    final Widget tile = Listener(
+      onPointerDown: (e) {
+        _lastPointerEvent = e;
+        if (e.kind == PointerDeviceKind.mouse &&
+            e.buttons == kSecondaryMouseButton) {
+          widget.onSecondaryTap?.call(e.position);
+        }
+      },
+      child: HoverSurface(
+        onTap: () {
+          if (_lastPointerEvent != null) {
+            widget.onTap?.call(_lastPointerEvent!);
+          }
+        },
+        onDoubleTap: widget.onDoubleTap,
+        builder: (context, hovered) => _tileBody(
+          hovered: hovered,
+          h: h,
+          tileRadius: tileRadius,
+          borderColor: borderColor,
+        ),
+      ),
+    );
+    if (widget.dragPaths == null || widget.dragPaths!.isEmpty) return tile;
+    return LongPressDraggable<List<String>>(
+      data: widget.dragPaths!,
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      feedback: _DragFeedback(count: widget.dragPaths!.length),
+      childWhenDragging: Opacity(opacity: 0.35, child: tile),
+      child: tile,
+    );
+  }
+
+  Widget _tileBody({
+    required bool hovered,
+    required double h,
+    required BorderRadius tileRadius,
+    required Color borderColor,
+  }) {
     final shadows = <BoxShadow>[
       if (widget.flash) ...[
         BoxShadow(
@@ -112,7 +155,7 @@ class _PhotoThumbState extends State<PhotoThumb> {
           color: PabloColors.selectionPrimary.withValues(alpha: 0.28),
           blurRadius: 18,
         ),
-      ] else if (_hover)
+      ] else if (hovered)
         ...PabloShadows.md
       else
         ...PabloShadows.sm,
@@ -139,7 +182,7 @@ class _PhotoThumbState extends State<PhotoThumb> {
           ),
         );
       }
-      if (_hover) {
+      if (hovered) {
         return Container(
           width: 18,
           height: 18,
@@ -156,169 +199,137 @@ class _PhotoThumbState extends State<PhotoThumb> {
       return const SizedBox.shrink();
     }
 
-    final Widget tile = Listener(
-      onPointerDown: (e) {
-        _lastPointerEvent = e;
-        if (e.kind == PointerDeviceKind.mouse &&
-            e.buttons == kSecondaryMouseButton) {
-          widget.onSecondaryTap?.call(e.position);
-        }
-      },
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            if (_lastPointerEvent != null) {
-              widget.onTap?.call(_lastPointerEvent!);
-            }
-          },
-          onDoubleTap: widget.onDoubleTap,
-          child: AnimatedScale(
-            duration: PabloDurations.hover,
-            scale: widget.selected ? 1.0 : (_hover ? 1.0 : 1.0),
-            child: AnimatedSlide(
-              duration: PabloDurations.hover,
-              offset: widget.selected
-                  ? const Offset(0, -0.02)
-                  : (_hover ? const Offset(0, -0.01) : Offset.zero),
-              child: SizedBox(
+    return AnimatedScale(
+      duration: PabloDurations.hover,
+      scale: 1.0,
+      child: AnimatedSlide(
+        duration: PabloDurations.hover,
+        offset: widget.selected
+            ? const Offset(0, -0.02)
+            : (hovered ? const Offset(0, -0.01) : Offset.zero),
+        child: SizedBox(
+          width: widget.size,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // SizedBox sizes the tile instantly; the AnimatedContainer
+              // animates only the decoration (hover/select shadow+border).
+              // Animating the SIZE would briefly overflow its row slot
+              // when the justified grid re-packs as aspect ratios load.
+              SizedBox(
                 width: widget.size,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // SizedBox sizes the tile instantly; the AnimatedContainer
-                    // animates only the decoration (hover/select shadow+border).
-                    // Animating the SIZE would briefly overflow its row slot
-                    // when the justified grid re-packs as aspect ratios load.
-                    SizedBox(
-                      width: widget.size,
-                      height: h,
-                      child: AnimatedContainer(
-                        duration: PabloDurations.hover,
-                        decoration: BoxDecoration(
-                          borderRadius: tileRadius,
-                          border: Border.all(color: borderColor),
-                          boxShadow: shadows,
+                height: h,
+                child: AnimatedContainer(
+                  duration: PabloDurations.hover,
+                  decoration: BoxDecoration(
+                    borderRadius: tileRadius,
+                    border: Border.all(color: borderColor),
+                    boxShadow: shadows,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: tileRadius,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: PhotoSurface(photo: widget.photo),
                         ),
-                        child: ClipRRect(
-                          borderRadius: tileRadius,
-                          child: Stack(
-                            children: [
-                              Positioned.fill(
-                                child: PhotoSurface(photo: widget.photo),
-                              ),
-                              // §11 video cues: a centered play circle (always)
-                              // and a duration pill (hidden on hover so it
-                              // doesn't fight the add-to-tray "+").
-                              if (widget.photo.isVideo) ...[
-                                const Positioned.fill(
-                                  child: Center(child: _PlayCircle()),
-                                ),
-                                if (!_hover && widget.photo.durationMs > 0)
-                                  Positioned(
-                                    bottom: 6,
-                                    right: 6,
-                                    child: _DurationPill(
-                                        ms: widget.photo.durationMs),
-                                  ),
-                              ],
-                              if (widget.photo.starred ||
-                                  isStarredAsset(assetIdFor(widget.photo.id)))
-                                const Positioned(
-                                  top: 6,
-                                  left: 6,
-                                  child: _StarBadge(),
-                                ),
-                              // "Edited" badge — a saved non-destructive edit
-                              // exists (revertible). Reacts to EditsStore.
-                              Positioned(
-                                bottom: 6,
-                                left: 6,
-                                child: ListenableBuilder(
-                                  listenable: EditsStore.instance,
-                                  builder: (context, _) =>
-                                      EditsStore.instance.isEdited(
-                                              assetIdFor(widget.photo.id))
-                                          ? const _EditedBadge()
-                                          : const SizedBox.shrink(),
-                                ),
-                              ),
-                              Positioned(
-                                top: 4,
-                                right: 4,
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: widget.onToggleSelect,
-                                  child: overlayCheck(),
-                                ),
-                              ),
-                              // Caption overlay — a bottom band shown only when
-                              // the asset carries a user caption. Reactive to
-                              // CaptionStore so it appears as captions stream in.
-                              Positioned(
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                child: _CaptionBand(photoId: widget.photo.id),
-                              ),
-                              if (_hover && !widget.inTray)
-                                Positioned(
-                                  bottom: 4,
-                                  right: 4,
-                                  child: GestureDetector(
-                                    onTap: widget.onAddToTray,
-                                    child: Container(
-                                      width: 22,
-                                      height: 22,
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.9),
-                                        shape: BoxShape.circle,
-                                        boxShadow: PabloShadows.sm,
-                                      ),
-                                      child: const Text(
-                                        '+',
-                                        style: TextStyle(
-                                          color: PabloColors.textSecondary,
-                                          fontSize: 13,
-                                          height: 1,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
+                        // §11 video cues: a centered play circle (always)
+                        // and a duration pill (hidden on hover so it
+                        // doesn't fight the add-to-tray "+").
+                        if (widget.photo.isVideo) ...[
+                          const Positioned.fill(
+                            child: Center(child: _PlayCircle()),
+                          ),
+                          if (!hovered && widget.photo.durationMs > 0)
+                            Positioned(
+                              bottom: 6,
+                              right: 6,
+                              child: _DurationPill(
+                                  ms: widget.photo.durationMs),
+                            ),
+                        ],
+                        if (widget.photo.starred ||
+                            isStarredAsset(assetIdFor(widget.photo.id)))
+                          const Positioned(
+                            top: 6,
+                            left: 6,
+                            child: _StarBadge(),
+                          ),
+                        // "Edited" badge — a saved non-destructive edit
+                        // exists (revertible). Reacts to EditsStore.
+                        Positioned(
+                          bottom: 6,
+                          left: 6,
+                          child: ListenableBuilder(
+                            listenable: EditsStore.instance,
+                            builder: (context, _) =>
+                                EditsStore.instance.isEdited(
+                                        assetIdFor(widget.photo.id))
+                                    ? const _EditedBadge()
+                                    : const SizedBox.shrink(),
                           ),
                         ),
-                      ),
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: widget.onToggleSelect,
+                            child: overlayCheck(),
+                          ),
+                        ),
+                        // Caption overlay — a bottom band shown only when
+                        // the asset carries a user caption. Reactive to
+                        // CaptionStore so it appears as captions stream in.
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: _CaptionBand(photoId: widget.photo.id),
+                        ),
+                        if (hovered && !widget.inTray)
+                          Positioned(
+                            bottom: 4,
+                            right: 4,
+                            child: GestureDetector(
+                              onTap: widget.onAddToTray,
+                              child: Container(
+                                width: 22,
+                                height: 22,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  shape: BoxShape.circle,
+                                  boxShadow: PabloShadows.sm,
+                                ),
+                                child: const Text(
+                                  '+',
+                                  style: TextStyle(
+                                    color: PabloColors.textSecondary,
+                                    fontSize: 13,
+                                    height: 1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                    if (widget.showLabel && widget.size >= 80) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        widget.photo.label,
-                        overflow: TextOverflow.ellipsis,
-                        style: PabloTypography.mono(fontSize: 10.5),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
-            ),
+              if (widget.showLabel && widget.size >= 80) ...[
+                const SizedBox(height: 3),
+                Text(
+                  widget.photo.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: PabloTypography.mono(fontSize: 10.5),
+                ),
+              ],
+            ],
           ),
         ),
       ),
-    );
-    if (widget.dragPaths == null || widget.dragPaths!.isEmpty) return tile;
-    return LongPressDraggable<List<String>>(
-      data: widget.dragPaths!,
-      dragAnchorStrategy: pointerDragAnchorStrategy,
-      feedback: _DragFeedback(count: widget.dragPaths!.length),
-      childWhenDragging: Opacity(opacity: 0.35, child: tile),
-      child: tile,
     );
   }
 }

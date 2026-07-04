@@ -38,6 +38,21 @@ overwritten) and portable, but it IS a real new-file write, so it is opt-in and
 off by default. "Save as Copy" (`photo_asset_export`) likewise writes a separate
 flattened file. No original file is ever modified or deleted by the editor.
 
+**Amendment (2026-07-03) — opt-in Picasa-style overwrite-with-backup.** A third
+save mode (`Settings → Edit save → Overwrite the photo`,
+`AppConfig.editSaveMode = overwriteBackup`) bakes the edited pixels into the
+original file so every other app sees them — the behavior Picasa users expect.
+The D1 invariant is preserved in amended form: **no save proceeds unless the
+untouched original is first secured** in `<folder>/.pablo-originals/<name>`
+(first-save-wins, so Revert always restores the TRUE original across repeated
+saves; the save ABORTS if the backup cannot be written), the replace is
+temp+atomic-rename on the same volume, and "Revert to Original" restores the
+backup byte-identically (Picasa's "Undo Save"). The import walk never descends
+into dot-directories, so backups are never re-imported as new assets. Catalog-
+only remains the default; in-place saves are NOT on the app undo stack (Revert
+is the durable escape hatch). Native: `photo_asset_save_in_place` /
+`photo_asset_revert_in_place` / `photo_asset_has_inplace_backup`.
+
 **Amendment (2026-07-01) — opt-in XMP face-region write-back (§7 parity).** The
 "no write-back" rule is relaxed for ONE explicit, user-initiated action: exporting
 an asset's named face regions to an XMP **sidecar** (`<path>.xmp`) in the MWG

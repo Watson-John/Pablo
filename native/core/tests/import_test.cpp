@@ -202,46 +202,6 @@ TEST(Import, AssetIdStableAcrossRestart) {
     }
 }
 
-// §11: a mixed photo+video folder imports both; the video row is flagged
-// kind=1. Duration is filled when the build linked FFmpeg (else stays 0 but the
-// row still imports — video is never dropped for lack of a decoder).
-TEST(Import, VideoIsImportedAndFlagged) {
-    auto dir = make_tree("video");
-    write_file(dir / "photo.jpg");
-    fs::copy_file(fs::path(PHOTO_TEST_DATA_DIR) / "tiny.mp4",
-                  dir / "clip.mp4", fs::copy_options::overwrite_existing);
-
-    auto eng = make_engine(dir);
-    ASSERT_NE(eng, nullptr);
-    const uint64_t req = eng->import_path(dir.string());
-    ASSERT_NE(req, 0u);
-    ASSERT_TRUE(wait_for_import(*eng, req));
-
-    auto assets = eng->list_assets();
-    ASSERT_EQ(assets.size(), 2u);
-    const photo::catalog::AssetRecord* vid = nullptr;
-    const photo::catalog::AssetRecord* pho = nullptr;
-    for (const auto& a : assets) {
-        if (a.path == (dir / "clip.mp4").string()) vid = &a;
-        if (a.path == (dir / "photo.jpg").string()) pho = &a;
-    }
-    ASSERT_NE(vid, nullptr);
-    ASSERT_NE(pho, nullptr);
-    EXPECT_EQ(vid->kind, 1);
-    EXPECT_EQ(pho->kind, 0);
-#ifdef PHOTO_HAVE_FFMPEG
-    EXPECT_EQ(vid->width, 64);
-    EXPECT_EQ(vid->height, 48);
-    EXPECT_NEAR(vid->duration_ms, 2000, 200);
-#endif
-
-    // Rescan is idempotent (unchanged files skipped, nothing re-added).
-    const auto ev = wait_for_import_event(*eng, eng->rescan());
-    EXPECT_EQ(ev.aux64, 0u);         // added
-    EXPECT_EQ(ev.aux64_b, 0u);       // updated
-    EXPECT_EQ(eng->list_assets().size(), 2u);
-}
-
 TEST(Import, RescanAfterRelocateIsChurnFree) {
     // The acceptance test for in-app file moves: move a file on disk, tell the
     // catalog via relocate_assets, and a rescan must see NOTHING to do — same
@@ -288,4 +248,125 @@ TEST(Import, RescanAfterRelocateIsChurnFree) {
     EXPECT_TRUE(found);
 }
 
+// §11: a mixed photo+video folder imports both; the video row is flagged
+// kind=1. Duration is filled when the build linked FFmpeg (else stays 0 but the
+// row still imports — video is never dropped for lack of a decoder).
+TEST(Import, VideoIsImportedAndFlagged) {
+    auto dir = make_tree("video");
+    write_file(dir / "photo.jpg");
+    fs::copy_file(fs::path(PHOTO_TEST_DATA_DIR) / "tiny.mp4",
+                  dir / "clip.mp4", fs::copy_options::overwrite_existing);
+
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    const uint64_t req = eng->import_path(dir.string());
+    ASSERT_NE(req, 0u);
+    ASSERT_TRUE(wait_for_import(*eng, req));
+
+    auto assets = eng->list_assets();
+    ASSERT_EQ(assets.size(), 2u);
+    const photo::catalog::AssetRecord* vid = nullptr;
+    const photo::catalog::AssetRecord* pho = nullptr;
+    for (const auto& a : assets) {
+        if (a.path == (dir / "clip.mp4").string()) vid = &a;
+        if (a.path == (dir / "photo.jpg").string()) pho = &a;
+    }
+    ASSERT_NE(vid, nullptr);
+    ASSERT_NE(pho, nullptr);
+    EXPECT_EQ(vid->kind, 1);
+    EXPECT_EQ(pho->kind, 0);
+#ifdef PHOTO_HAVE_FFMPEG
+    EXPECT_EQ(vid->width, 64);
+    EXPECT_EQ(vid->height, 48);
+    EXPECT_NEAR(vid->duration_ms, 2000, 200);
+#endif
+
+    // Rescan is idempotent (unchanged files skipped, nothing re-added).
+    const auto ev = wait_for_import_event(*eng, eng->rescan());
+    EXPECT_EQ(ev.aux64, 0u);         // added
+    EXPECT_EQ(ev.aux64_b, 0u);       // updated
+    EXPECT_EQ(eng->list_assets().size(), 2u);
+}
+
 #endif  // PHOTO_HAVE_SQLITE
+
+// ── Analyzer seam (runtime/analyzer.h): register → run → poll result ────────
+
+namespace {
+class StubAnalyzer final : public photo::runtime::IImageAnalyzer {
+public:
+    const std::string& id() const override {
+        static const std::string kId = "test.stub";
+        return kId;
+    }
+    const std::string& version() const override {
+        static const std::string kV = "1";
+        return kV;
+    }
+    bool available() const override { return true; }
+    photo::runtime::AnalyzerResult analyze(
+        int64_t, const photo::semantic::PixelView& px) override {
+        return {0, std::string("{\"ok\":true,\"w\":") +
+                       std::to_string(px.width) + "}"};
+    }
+};
+}  // namespace
+
+TEST(Analyzer, RunPersistsAndPollsThroughTheEngine) {
+    auto dir = make_tree("analyzer");
+    write_file(dir / "a.jpg");
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    eng->analyzers().register_analyzer(std::make_unique<StubAnalyzer>());
+    ASSERT_TRUE(wait_for_import(*eng, eng->import_path(dir.string())));
+    const auto assets = eng->list_assets();
+    ASSERT_EQ(assets.size(), 1u);
+    const int64_t id = assets[0].id;
+
+    // Unknown analyzer → rejected.
+    EXPECT_EQ(eng->analyzer_run("no.such.analyzer", id), 0u);
+
+    ASSERT_GT(eng->analyzer_run("test.stub", id), 0u);
+    // A pending row lands synchronously; the result follows on the idle lane.
+    photo::catalog::Catalog::AnalysisRow row;
+    ASSERT_TRUE(eng->analysis_get("test.stub", id, row));
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (row.status == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ASSERT_TRUE(eng->analysis_get("test.stub", id, row));
+    }
+    EXPECT_EQ(row.version, "1");
+#if defined(PHOTO_HAVE_FACES)
+    // A codec is compiled in: the 8-byte fixture is undecodable → failed is
+    // also acceptable; a REAL decode yields done + the stub payload. Either
+    // way the row is terminal.
+    EXPECT_NE(row.status, 0);
+#else
+    // Lean build: no decoder → the runner reports failed.
+    EXPECT_EQ(row.status, 2);
+#endif
+}
+
+// The extension gate admits every format the libvips decode path handles —
+// TIFF/HEIC/AVIF must reach the catalog (they used to be silently dropped
+// even though thumbs/edit/faces could already decode them). Import keys off
+// the extension; content is irrelevant to this catalog-level test.
+TEST(Import, VipsDecodableFormatsAreAdmitted) {
+    auto dir = make_tree("formats");
+    write_file(dir / "a.jpg");
+    write_file(dir / "b.tif");
+    write_file(dir / "c.tiff");
+    write_file(dir / "d.heic");
+    write_file(dir / "e.heif");
+    write_file(dir / "f.avif");
+    write_file(dir / "g.cr2");  // RAW stays OUT until embedded-preview decode
+
+    auto eng = make_engine(dir);
+    ASSERT_NE(eng, nullptr);
+    ASSERT_TRUE(wait_for_import(*eng, eng->import_path(dir.string())));
+    const auto assets = eng->list_assets();
+    EXPECT_EQ(assets.size(), 6u);
+    for (const auto& a : assets)
+        EXPECT_EQ(a.path.find(".cr2"), std::string::npos) << a.path;
+}

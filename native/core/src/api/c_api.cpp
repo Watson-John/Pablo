@@ -13,6 +13,7 @@
 //     functions treat NULL engine as a misuse and return a sentinel.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -1183,11 +1184,6 @@ PHOTO_API size_t photo_asset_detect_redeye(photo_engine_t* engine,
 // ML — M6 implements.
 // ---------------------------------------------------------------------------
 
-PHOTO_API int32_t photo_provider_probe(photo_engine_t* /*engine*/,
-                                       int32_t /*provider*/) {
-    return PHOTO_STATUS_UNSUPPORTED;
-}
-
 PHOTO_API uint64_t photo_face_scan(photo_engine_t* engine,
                                    uint64_t asset_id, uint32_t flags) {
 #if defined(PHOTO_HAVE_FACES) && defined(PHOTO_HAVE_SQLITE)
@@ -1452,6 +1448,189 @@ PHOTO_API int32_t photo_face_set_ignored(photo_engine_t* engine,
 #else
     (void)engine; (void)face_id; (void)ignored;
     return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// In-place save mode ("overwrite with backup", Picasa-style).
+// ---------------------------------------------------------------------------
+
+PHOTO_API uint64_t photo_asset_save_in_place(photo_engine_t* engine,
+                                             uint64_t asset_id,
+                                             const char* src_utf8,
+                                             const char* spec_utf8,
+                                             int32_t quality) {
+    if (!engine || !src_utf8 || !spec_utf8) return 0;
+    try {
+        return cast(engine)->save_in_place(static_cast<int64_t>(asset_id),
+                                           src_utf8, spec_utf8, quality);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_save_in_place: %s", e.what());
+        return 0;
+    }
+}
+
+PHOTO_API uint64_t photo_asset_revert_in_place(photo_engine_t* engine,
+                                               uint64_t asset_id,
+                                               const char* src_utf8) {
+    if (!engine || !src_utf8) return 0;
+    try {
+        return cast(engine)->revert_in_place(static_cast<int64_t>(asset_id),
+                                             src_utf8);
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_asset_revert_in_place: %s", e.what());
+        return 0;
+    }
+}
+
+PHOTO_API int32_t photo_asset_has_inplace_backup(photo_engine_t* engine,
+                                                 const char* src_utf8) {
+    if (!engine || !src_utf8) return 0;
+    try {
+        return cast(engine)->has_inplace_backup(src_utf8) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Visually-similar pairs (Find Duplicates) — scoped pairwise semantic cosine.
+// ---------------------------------------------------------------------------
+
+PHOTO_API size_t photo_dedup_similar(photo_engine_t* engine,
+                                     const uint64_t* asset_ids, size_t n_ids,
+                                     float min_cosine,
+                                     photo_similar_pair_t* out, size_t cap) {
+    if (!engine || !asset_ids || n_ids < 2) return 0;
+    try {
+        std::vector<int64_t> ids(asset_ids, asset_ids + n_ids);
+        std::vector<photo::Engine::SimilarPair> pairs;
+        cast(engine)->similar_pairs(ids, min_cosine, pairs);
+        if (out) {
+            const size_t n = std::min(cap, pairs.size());
+            for (size_t i = 0; i < n; ++i) {
+                out[i].asset_a = static_cast<uint64_t>(pairs[i].a);
+                out[i].asset_b = static_cast<uint64_t>(pairs[i].b);
+                out[i].score = pairs[i].score;
+                out[i]._pad = 0;
+            }
+        }
+        return pairs.size();  // grow-and-retry contract
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_dedup_similar: %s", e.what());
+        return 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Analyzers (runtime/analyzer.h) — the plugin-ready analysis seam. Payloads
+// are JSON-opaque so the ABI never grows per-analyzer.
+// ---------------------------------------------------------------------------
+
+PHOTO_API size_t photo_analyzer_list(photo_engine_t* engine, char* out,
+                                     size_t cap) {
+    if (!engine) return 0;
+    // NUL-separated "id\tversion" entries; returns the TOTAL byte size needed
+    // (grow-and-retry contract, mirroring photo_asset_tags).
+    std::string joined;
+    for (const auto& [id, ver] : cast(engine)->analyzers().list_ids_versions()) {
+        joined += id;
+        joined += '\t';
+        joined += ver;
+        joined += '\0';
+    }
+    if (out && cap >= joined.size() && !joined.empty())
+        std::memcpy(out, joined.data(), joined.size());
+    return joined.size();
+}
+
+PHOTO_API uint64_t photo_analyzer_run(photo_engine_t* engine,
+                                      const char* analyzer_id_utf8,
+                                      uint64_t asset_id) {
+    if (!engine || !analyzer_id_utf8) return 0;
+    try {
+        return cast(engine)->analyzer_run(analyzer_id_utf8,
+                                          static_cast<int64_t>(asset_id));
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_analyzer_run: %s", e.what());
+        return 0;
+    }
+}
+
+PHOTO_API int32_t photo_analysis_get(photo_engine_t* engine,
+                                     const char* analyzer_id_utf8,
+                                     uint64_t asset_id, int32_t* out_status,
+                                     char* out_payload, size_t cap,
+                                     size_t* out_needed) {
+    if (!engine || !analyzer_id_utf8) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        photo::catalog::Catalog::AnalysisRow row;
+        if (!cast(engine)->analysis_get(analyzer_id_utf8,
+                                        static_cast<int64_t>(asset_id), row))
+            return PHOTO_STATUS_NOT_FOUND;
+        if (out_status) *out_status = row.status;
+        const size_t need = row.payload_json.size() + 1;
+        if (out_needed) *out_needed = need;
+        if (!out_payload || cap < need) return PHOTO_STATUS_INVALID_ARG;
+        std::memcpy(out_payload, row.payload_json.c_str(), need);
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_analysis_get: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Face model registry (model_registry.h) — diagnostics + stale-row upkeep.
+// ---------------------------------------------------------------------------
+
+PHOTO_API int32_t photo_face_model_id(photo_engine_t* engine, char* out,
+                                      size_t cap) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine || !out || cap == 0) return PHOTO_STATUS_INVALID_ARG;
+    try {
+        const std::string id = cast(engine)->faces().active_model_id();
+        if (id.size() + 1 > cap) return PHOTO_STATUS_INVALID_ARG;
+        std::memcpy(out, id.c_str(), id.size() + 1);
+        return PHOTO_STATUS_OK;
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_model_id: %s", e.what());
+        return PHOTO_STATUS_INTERNAL;
+    }
+#else
+    (void)engine; (void)cap;
+    if (out && cap > 0) out[0] = '\0';
+    return PHOTO_STATUS_UNSUPPORTED;
+#endif
+}
+
+PHOTO_API int64_t photo_face_stale_count(photo_engine_t* engine) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try {
+        return cast(engine)->faces().stale_face_count();
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_stale_count: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine;
+    return 0;
+#endif
+}
+
+PHOTO_API int64_t photo_face_prune_stale(photo_engine_t* engine) {
+#ifdef PHOTO_HAVE_FACES
+    if (!engine) return 0;
+    try {
+        return cast(engine)->faces().prune_stale_faces();
+    } catch (const std::exception& e) {
+        PHOTO_LOGF(PHOTO_LOG_ERROR, "photo_face_prune_stale: %s", e.what());
+        return 0;
+    }
+#else
+    (void)engine;
+    return 0;
 #endif
 }
 
@@ -1787,21 +1966,50 @@ PHOTO_API int32_t photo_asset_write_face_xmp(photo_engine_t* engine,
 }
 
 // ---------------------------------------------------------------------------
-// TEST-ONLY hook (M1).
+// ABI layout pins.
 //
-// Publishes a solid-color frame into a slot. The texture-harness uses this
-// before M2's request/decode pipeline lands. Wrapped in extern "C" because the
-// symbol is intentionally not declared in photo_core.h.
-// (photo_face_scan now resolves asset_id -> path via the catalog, so the former
-// photo_face_scan_path hook has been removed.)
+// These are the byte layouts the Dart side hand-mirrors (core_api.dart) and
+// ffigen generates from (bindings_generated.dart). If one of these fires you
+// have changed the FFI ABI: either revert to an append-only change, or bump
+// PHOTO_ABI_VERSION and regenerate/update BOTH Dart mirrors in the same
+// commit. The Dart twin of this block is photo_native's abi_drift_test.dart.
 // ---------------------------------------------------------------------------
 
-extern "C" PHOTO_API void photo_test_publish_solid(photo_engine_t* engine,
-                                                   uint64_t slot_id,
-                                                   uint8_t r, uint8_t g,
-                                                   uint8_t b, uint8_t a) {
-    if (!engine) return;
-    auto* slot = cast(engine)->slots().get(slot_id);
-    if (!slot) return;
-    slot->publish_solid_color(b, g, r, a);
-}
+static_assert(sizeof(void*) == 8,
+              "photo_core ABI is pinned for 64-bit targets only");
+static_assert(sizeof(photo_config_t)         == 64,  "ABI break: photo_config_t");
+static_assert(sizeof(photo_frame_view_t)     == 32,  "ABI break: photo_frame_view_t");
+static_assert(sizeof(photo_event_t)          == 80,  "ABI break: photo_event_t");
+static_assert(sizeof(photo_catalog_stats_t)  == 24,  "ABI break: photo_catalog_stats_t");
+static_assert(sizeof(photo_person_t)         == 168, "ABI break: photo_person_t");
+static_assert(sizeof(photo_face_t)           == 72,  "ABI break: photo_face_t");
+static_assert(sizeof(photo_asset_t)          == 4160,"ABI break: photo_asset_t");
+static_assert(sizeof(photo_geopoint_t)       == 24,  "ABI break: photo_geopoint_t");
+static_assert(sizeof(photo_organize_t)       == 520, "ABI break: photo_organize_t");
+static_assert(sizeof(photo_album_t)          == 160, "ABI break: photo_album_t");
+static_assert(sizeof(photo_embed_counts_t)   == 48,  "ABI break: photo_embed_counts_t");
+static_assert(sizeof(photo_search_hit_t)     == 16,  "ABI break: photo_search_hit_t");
+static_assert(sizeof(photo_asset_color_t)    == 16,  "ABI break: photo_asset_color_t");
+static_assert(sizeof(photo_saved_search_t)   == 144, "ABI break: photo_saved_search_t");
+static_assert(sizeof(photo_export_options_t) == 300, "ABI break: photo_export_options_t");
+static_assert(sizeof(photo_collage_cell_t)   == 32,  "ABI break: photo_collage_cell_t");
+static_assert(sizeof(photo_metadata_t)       == 408, "ABI break: photo_metadata_t");
+static_assert(sizeof(photo_similar_pair_t)   == 24,  "ABI break: photo_similar_pair_t");
+static_assert(sizeof(photo_region_t)         == 12,  "ABI break: photo_region_t");
+
+// Field offsets the Dart event pump / asset hydration dereference directly.
+static_assert(offsetof(photo_event_t, kind)       == 0,  "ABI break: event.kind");
+static_assert(offsetof(photo_event_t, status)     == 8,  "ABI break: event.status");
+static_assert(offsetof(photo_event_t, request_id) == 24, "ABI break: event.request_id");
+static_assert(offsetof(photo_event_t, asset_id)   == 32, "ABI break: event.asset_id");
+static_assert(offsetof(photo_event_t, aux64)      == 56, "ABI break: event.aux64");
+static_assert(offsetof(photo_event_t, aux64_b)    == 64, "ABI break: event.aux64_b");
+static_assert(offsetof(photo_event_t, _reserved)  == 72, "ABI break: event._reserved");
+static_assert(offsetof(photo_asset_t, asset_id)   == 0,  "ABI break: asset.asset_id");
+static_assert(offsetof(photo_asset_t, flags)      == 44, "ABI break: asset.flags");
+static_assert(offsetof(photo_asset_t, _reserved)  == 48, "ABI break: asset._reserved");
+static_assert(offsetof(photo_asset_t, path)       == 60, "ABI break: asset.path");
+static_assert(offsetof(photo_face_t, ignored)     == 60, "ABI break: face.ignored");
+static_assert(offsetof(photo_face_t, manual)      == 64, "ABI break: face.manual");
+static_assert(offsetof(photo_export_options_t, wm_text) == 44,
+              "ABI break: export_options.wm_text");

@@ -13,6 +13,7 @@ import '../../app/app_state.dart';
 import '../../components/context_menu.dart';
 import '../../data/library.dart' show photosFor;
 import '../../data/models.dart' show NavSection;
+import '../../data/sources/external_actions.dart';
 import '../../utils/reveal_in_file_manager.dart';
 
 /// The photos an action should operate on: the current selection (in visible
@@ -44,11 +45,11 @@ class PhotoMenuActions {
     required this.onShowInPablo,
     required this.onSplitFolder,
     required this.onRename,
-    required this.onExport,
-    required this.onShare,
-    required this.onPrint,
     required this.isStarred,
     required this.isHidden,
+    this.onExport,
+    this.onShare,
+    this.onPrint,
   });
 
   final void Function(String clickedId) onView;
@@ -67,13 +68,15 @@ class PhotoMenuActions {
 
   /// Rename the target photos (single dialog for one, batch modal for many).
   final void Function(List<String> ids) onRename;
-
-  /// §10 create/output: batch export / OS share sheet / print the targets.
-  final void Function(List<String> ids) onExport;
-  final void Function(List<String> ids) onShare;
-  final void Function(List<String> ids) onPrint;
   final bool Function(String id) isStarred;
   final bool Function(String id) isHidden;
+
+  /// Export/Share/Print the target photos (§10). Null when the backend that
+  /// renders edited copies isn't wired — the items are omitted so the menu
+  /// never dangles a dead action.
+  final void Function(List<String> ids)? onExport;
+  final void Function(List<String> ids)? onShare;
+  final void Function(List<String> ids)? onPrint;
 }
 
 /// True when the gallery is showing a real on-disk folder (Folders nav on a
@@ -189,33 +192,42 @@ List<ContextMenuItem> buildPhotoMenuItems({
         onPressed: () => actions.onToggleHidden(targets),
       ),
       ContextMenuItem.separator(),
-      ContextMenuItem(
-        label: revealActionLabel(),
-        iconCharacter: '📂',
-        onPressed: () => revealInFileManager(clickedId),
-      ),
+      // External actions come from the registry (external_actions.dart) so an
+      // add-on lands in this menu with one registration, no menu surgery.
+      for (final action in ExternalActionRegistry.actions)
+        if (action.canRun(action.singleTarget ? [clickedId] : targets))
+          ContextMenuItem(
+            label: action.singleTarget || !multi
+                ? action.label
+                : '${action.label} ($n)',
+            iconCharacter: action.iconCharacter,
+            onPressed: () =>
+                action.run(action.singleTarget ? [clickedId] : targets),
+          ),
       ContextMenuItem(
         label: withCount('Copy', 'Paths'),
         iconCharacter: '📋',
         onPressed: () => copyPathsToClipboard(targets),
       ),
       ContextMenuItem.separator(),
-      // §10 create/output — batch-capable: acts on the whole selection.
-      ContextMenuItem(
-        label: multi ? 'Export $n Photos…' : 'Export…',
-        iconCharacter: '⤓',
-        onPressed: () => actions.onExport(targets),
-      ),
-      ContextMenuItem(
-        label: multi ? 'Share $n Photos…' : 'Share…',
-        iconCharacter: '📤',
-        onPressed: () => actions.onShare(targets),
-      ),
-      ContextMenuItem(
-        label: multi ? 'Print $n Photos…' : 'Print…',
-        iconCharacter: '🖨',
-        onPressed: () => actions.onPrint(targets),
-      ),
+      if (actions.onExport != null)
+        ContextMenuItem(
+          label: multi ? 'Export $n Photos…' : 'Export…',
+          iconCharacter: '⤓',
+          onPressed: () => actions.onExport!(targets),
+        ),
+      if (actions.onShare != null)
+        ContextMenuItem(
+          label: multi ? 'Share $n Photos…' : 'Share…',
+          iconCharacter: '📤',
+          onPressed: () => actions.onShare!(targets),
+        ),
+      if (actions.onPrint != null)
+        ContextMenuItem(
+          label: multi ? 'Print $n Photos…' : 'Print…',
+          iconCharacter: '🖨',
+          onPressed: () => actions.onPrint!(targets),
+        ),
       ContextMenuItem.separator(),
       ContextMenuItem(
         label: withCount('Delete', 'Photos'),

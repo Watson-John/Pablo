@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:photo_native/photo_native.dart';
 
 import '../../backend/native_backend.dart';
+import '../../components/hover_surface.dart';
 import '../../theme/tokens.dart';
 import '../../utils/hue.dart';
 import '../gallery/native_asset_texture.dart';
@@ -44,7 +45,7 @@ Rect? faceCropRect({
   return Rect.fromLTWH(l, t, cw, ch);
 }
 
-class FaceThumb extends StatefulWidget {
+class FaceThumb extends StatelessWidget {
   const FaceThumb({
     required this.face,
     this.size = 64,
@@ -65,38 +66,30 @@ class FaceThumb extends StatefulWidget {
   /// face is unnamed). Suppressed on tiny tiles regardless.
   final bool showHoverLabel;
 
-  @override
-  State<FaceThumb> createState() => _FaceThumbState();
-}
-
-class _FaceThumbState extends State<FaceThumb> {
-  bool _hover = false;
-
   /// Faces smaller than this are inline avatars whose name is already shown
   /// next to them, so the hover box would just crowd them.
   static const double _kMinLabelSize = 44;
 
   @override
   Widget build(BuildContext context) {
-    final radius = widget.borderRadius ?? PabloRadius.lgAll;
+    final radius = borderRadius ?? PabloRadius.lgAll;
     final backend = NativeBackendScope.maybeOf(context);
     final controller = PeopleScope.read(context);
-    final path = controller.assetPath(widget.face.assetId);
-    final dims = controller.assetDims(widget.face.assetId);
+    final path = controller.assetPath(face.assetId);
+    final dims = controller.assetDims(face.assetId);
     final fallback = DecoratedBox(
       decoration: BoxDecoration(
-        gradient:
-            faceTileGradient(widget.hue ?? hueForId(widget.face.clusterId)),
+        gradient: faceTileGradient(hue ?? hueForId(face.clusterId)),
       ),
     );
 
     Widget child = fallback;
     if (backend != null && path != null && dims != null) {
       final crop = faceCropRect(
-        boxX: widget.face.boxX,
-        boxY: widget.face.boxY,
-        boxW: widget.face.boxW,
-        boxH: widget.face.boxH,
+        boxX: face.boxX,
+        boxY: face.boxY,
+        boxW: face.boxW,
+        boxH: face.boxH,
         imgW: dims.width,
         imgH: dims.height,
       );
@@ -104,7 +97,7 @@ class _FaceThumbState extends State<FaceThumb> {
         child = NativeAssetTexture(
           engine: backend.engine,
           events: backend.events,
-          assetId: widget.face.assetId,
+          assetId: face.assetId,
           path: path,
           crop: crop,
           fallback: fallback,
@@ -112,19 +105,18 @@ class _FaceThumbState extends State<FaceThumb> {
       }
     }
 
-    final labelled = widget.showHoverLabel && widget.size >= _kMinLabelSize;
+    final labelled = showHoverLabel && size >= _kMinLabelSize;
 
     return SizedBox(
-      width: widget.size,
-      height: widget.size,
+      width: size,
+      height: size,
       child: ClipRRect(
         borderRadius: radius,
         child: !labelled
             ? child
-            : MouseRegion(
-                onEnter: (_) => setState(() => _hover = true),
-                onExit: (_) => setState(() => _hover = false),
-                child: Stack(
+            : HoverSurface(
+                cursor: MouseCursor.defer,
+                builder: (context, hovered) => Stack(
                   fit: StackFit.expand,
                   children: [
                     child,
@@ -135,9 +127,9 @@ class _FaceThumbState extends State<FaceThumb> {
                       right: 3,
                       bottom: 3,
                       child: FaceNameOverlay(
-                        face: widget.face,
+                        face: face,
                         controller: controller,
-                        hovered: _hover,
+                        hovered: hovered,
                       ),
                     ),
                   ],

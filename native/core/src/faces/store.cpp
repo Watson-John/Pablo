@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <stdexcept>
 
+#include "faces/model_registry.h"
+
 #ifdef FACES_HAVE_SQLITE
 #include <sqlite3.h>
 #endif
@@ -108,7 +110,8 @@ void exec(sqlite3* db, const char* sql) {
 constexpr const char* kFaceCols =
     "id,asset_id,x,y,w,h,"
     "lm0,lm1,lm2,lm3,lm4,lm5,lm6,lm7,lm8,lm9,"
-    "det_score,quality,vec_row,cluster_id,person_id,confirmed,ignored,manual";
+    "det_score,quality,vec_row,cluster_id,person_id,confirmed,ignored,manual,"
+    "model_id";
 
 FaceRecord read_face(const Stmt& q) {
     FaceRecord r;
@@ -125,6 +128,7 @@ FaceRecord read_face(const Stmt& q) {
     r.confirmed = q.col_int(21) != 0;
     r.ignored = q.col_int(22) != 0;
     r.manual = q.col_int(23) != 0;
+    r.model_id = q.col_text(24);
     return r;
 }
 
@@ -145,8 +149,9 @@ void add_column_if_missing(sqlite3* db, const char* table, const char* coldef) {
 
 }  // namespace
 
-FaceStore::FaceStore(const std::string& catalog_path, int dim)
-    : vectors_path_(catalog_path + ".faces.vec") {
+FaceStore::FaceStore(const std::string& catalog_path, int dim,
+                     const std::string& vec_suffix)
+    : vectors_path_(catalog_path + vec_suffix) {
     if (sqlite3_open(catalog_path.c_str(), &db_) != SQLITE_OK)
         throw std::runtime_error(std::string("cannot open catalog: ") + sqlite3_errmsg(db_));
     exec(db_, "PRAGMA journal_mode=WAL;");
@@ -185,15 +190,53 @@ void FaceStore::init_schema() {
     // ignored/manual were added after the first release; ALTER-in for older DBs.
     add_column_if_missing(db_, "face", "ignored INTEGER DEFAULT 0");
     add_column_if_missing(db_, "face", "manual INTEGER DEFAULT 0");
+    // model registry (model_registry.h): which profile embedded each row.
+    // '' = legacy rows, attributed to the default profile.
+    add_column_if_missing(db_, "face", "model_id TEXT DEFAULT ''");
+    add_column_if_missing(db_, "face", "model_version TEXT DEFAULT ''");
+}
+
+void FaceStore::set_active_model(const std::string& id, const std::string& version) {
+    active_model_id_ = id;
+    active_model_version_ = version;
+}
+
+bool FaceStore::matches_active(const std::string& model_id) const {
+    if (model_id == active_model_id_) return true;
+    // Legacy rows predate the column; they were embedded by the default stack.
+    return model_id.empty() && active_model_id_ == kDefaultFaceModelId;
+}
+
+int64_t FaceStore::count_stale() const {
+    Stmt q(db_, active_model_id_ == kDefaultFaceModelId
+                    ? "SELECT COUNT(*) FROM face WHERE vec_row>=0"
+                      " AND model_id NOT IN ('', ?)"
+                    : "SELECT COUNT(*) FROM face WHERE vec_row>=0"
+                      " AND model_id != ?");
+    q.bind(1, active_model_id_);
+    return q.step() ? q.col_int(0) : 0;
+}
+
+int64_t FaceStore::prune_stale_unconfirmed() {
+    Stmt q(db_, active_model_id_ == kDefaultFaceModelId
+                    ? "DELETE FROM face WHERE vec_row>=0 AND confirmed=0"
+                      " AND model_id NOT IN ('', ?)"
+                    : "DELETE FROM face WHERE vec_row>=0 AND confirmed=0"
+                      " AND model_id != ?");
+    q.bind(1, active_model_id_);
+    q.run();
+    return sqlite3_changes(db_);
 }
 
 void FaceStore::insert_face(FaceRecord& rec, const float* vec) {
     rec.vec_row = vectors_->append(vec);
+    rec.model_id = active_model_id_;
     Stmt q(db_,
            "INSERT INTO face(asset_id,x,y,w,h,"
            "lm0,lm1,lm2,lm3,lm4,lm5,lm6,lm7,lm8,lm9,"
-           "det_score,quality,vec_row,cluster_id,person_id,confirmed)"
-           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+           "det_score,quality,vec_row,cluster_id,person_id,confirmed,"
+           "model_id,model_version)"
+           " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     q.bind(1, rec.asset_id);
     q.bind(2, (double)rec.box.x).bind(3, (double)rec.box.y)
      .bind(4, (double)rec.box.w).bind(5, (double)rec.box.h);
@@ -201,6 +244,7 @@ void FaceStore::insert_face(FaceRecord& rec, const float* vec) {
     q.bind(16, (double)rec.det_score).bind(17, (double)rec.quality)
      .bind(18, rec.vec_row).bind(19, rec.cluster_id).bind(20, rec.person_id)
      .bind(21, (int64_t)(rec.confirmed ? 1 : 0));
+    q.bind(22, active_model_id_).bind(23, active_model_version_);
     q.run();
     rec.id = sqlite3_last_insert_rowid(db_);
 }
@@ -327,7 +371,10 @@ std::vector<FaceRecord> FaceStore::all_faces() const {
     std::vector<FaceRecord> out;
     Stmt q(db_, (std::string("SELECT ") + kFaceCols +
                  " FROM face WHERE vec_row>=0 AND ignored=0 ORDER BY id").c_str());
-    while (q.step()) out.push_back(read_face(q));
+    while (q.step()) {
+        FaceRecord r = read_face(q);
+        if (matches_active(r.model_id)) out.push_back(std::move(r));
+    }
     return out;
 }
 
@@ -377,16 +424,18 @@ std::vector<Person> FaceStore::all_people() const {
 
 std::unordered_map<int64_t, std::vector<Embedding>> FaceStore::confirmed_by_person() {
     std::unordered_map<int64_t, std::vector<Embedding>> out;
-    Stmt q(db_, "SELECT person_id,vec_row FROM face "
+    Stmt q(db_, "SELECT person_id,vec_row,model_id FROM face "
                 "WHERE person_id>=0 AND vec_row>=0 AND ignored=0");
-    while (q.step())
+    while (q.step()) {
+        if (!matches_active(q.col_text(2))) continue;  // stale: other vec file
         out[q.col_int(0)].push_back(vectors_->row(q.col_int(1)));
+    }
     return out;
 }
 
 #else  // !FACES_HAVE_SQLITE — faces persistence needs the catalog (M5 dependency)
 
-FaceStore::FaceStore(const std::string&, int) {
+FaceStore::FaceStore(const std::string&, int, const std::string&) {
     throw std::runtime_error("face persistence requires SQLite "
                              "(rebuild with FACES_HAVE_SQLITE)");
 }
@@ -415,6 +464,10 @@ std::unordered_map<int64_t, std::vector<Embedding>> FaceStore::confirmed_by_pers
     return {};
 }
 void FaceStore::init_schema() {}
+void FaceStore::set_active_model(const std::string&, const std::string&) {}
+bool FaceStore::matches_active(const std::string&) const { return false; }
+int64_t FaceStore::count_stale() const { return 0; }
+int64_t FaceStore::prune_stale_unconfirmed() { return 0; }
 
 #endif  // FACES_HAVE_SQLITE
 

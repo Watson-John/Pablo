@@ -46,7 +46,9 @@ set(PHOTO_CORE_TEST_SOURCES
     semantic_onnx_test.cpp
     xmp_test.cpp
     geo_test.cpp
+    face_pipeline_test.cpp
     face_store_test.cpp
+    runtime_test.cpp
     # §5 Organize & metadata — full suite (see
     # docs/specs/05-organize-and-metadata-tests.md).
     organize_state_test.cpp     # star / rating / caption (catalog)

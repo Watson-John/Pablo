@@ -116,15 +116,18 @@ TEST(CatalogV9, MigratesFromV8AndDefaultsLegacyRows) {
         auto r = photo_rec("/lib/legacy.jpg");
         ASSERT_GT(cat.upsert_asset(r), 0);
     }
-    ASSERT_EQ(schema_version(db), 9);
+    // The schema head keeps moving (v10 added the analysis table); this test
+    // only pins that a fresh open lands PAST v9 and that a v8 downgrade
+    // forward-migrates through the v9 additions again.
+    ASSERT_GE(schema_version(db), 9);
 
     // Roll the schema back to v8 (drop the v9 additions) then reopen.
     downgrade_to_v8(db);
     ASSERT_EQ(schema_version(db), 8);
 
-    Catalog cat(db);  // reopen → forward-migrates to v9
+    Catalog cat(db);  // reopen → forward-migrates through v9 to the head
     ASSERT_TRUE(cat.ok());
-    EXPECT_EQ(schema_version(db), 9);
+    EXPECT_GE(schema_version(db), 9);
 
     // The pre-existing row survived and defaults to kind 0.
     const auto rows = cat.list_assets(/*include_hidden=*/true);
