@@ -50,13 +50,23 @@ List<JRow> packRows({
     final count = j - i;
     final gaps = gap * (count - 1);
     final isLast = j >= n;
+    // Row height that would make the tiles fill availWidth exactly.
+    final natural = sumAsp > 0 ? (availWidth - gaps) / sumAsp : targetH;
     // Justify full rows to fill the width; leave the last row ragged at target
     // height. Clamp so a sparse last-ish row can't balloon or collapse.
-    final height = isLast
+    var height = isLast
         ? targetH
-        : ((availWidth - gaps) / sumAsp)
-            .clamp(0.7 * targetH, 1.4 * targetH)
-            .toDouble();
+        : natural.clamp(0.7 * targetH, 1.4 * targetH).toDouble();
+    // Never overflow the row's width: a ragged last row (or the min-height
+    // clamp on a dense row) can otherwise make the tiles sum wider than
+    // availWidth, which shows as a RenderFlex overflow at narrow widths. When
+    // that would happen, fall back to the exact-fit height (degrade gracefully
+    // to a shorter row rather than overflowing). The +epsilon absorbs float
+    // jitter so an exactly-filled row isn't needlessly rescaled.
+    if (natural > 0 && sumAsp * height + gaps > availWidth + 0.01) {
+      height = natural;
+    }
+    if (height < 1) height = 1;
     final widths = [
       for (var k = i; k < j; k++)
         aspects[k].clamp(_kMinAspect, _kMaxAspect).toDouble() * height,

@@ -69,6 +69,31 @@ void main() {
       expect(rows.single.widths.single, lessThan(rows.single.height));
     });
 
+    test('no row ever exceeds availWidth — narrow widths + ragged last row', () {
+      // Regression: at narrow widths a ragged last row (rendered at targetH)
+      // or the min-height clamp on a dense row could push the tiles wider than
+      // the row, producing a RenderFlex overflow in the gallery. Every row —
+      // full, dense, or last — must fit within availWidth.
+      const g = 8.0;
+      for (final w in <double>[100, 140, 200, 320, 456, 640, 900]) {
+        for (final aspects in <List<double>>[
+          List<double>.filled(10, 1.5), // landscape
+          List<double>.filled(11, 1.0), // square, odd count → ragged last row
+          [1.5, 0.66, 5.0, 1.0, 0.66, 1.78, 1.0, 3.0, 0.5, 1.2], // mixed + wide
+        ]) {
+          final rows =
+              packRows(aspects: aspects, availWidth: w, targetH: 94, gap: g);
+          for (var r = 0; r < rows.length; r++) {
+            final total = rows[r].widths.fold<double>(0, (a, b) => a + b) +
+                g * (rows[r].count - 1);
+            expect(total, lessThanOrEqualTo(w + 0.5),
+                reason: 'width=$w row=$r overflowed: total=$total');
+            expect(rows[r].height, greaterThan(0));
+          }
+        }
+      }
+    });
+
     test('extreme aspects are clamped, never degenerate', () {
       final rows = packRows(
           aspects: const [100.0, 0.001, 1.0],

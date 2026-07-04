@@ -48,6 +48,13 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+  // Pablo's shell is designed for a 960x600 minimum; below that the gallery and
+  // bars are squeezed past their content and Flutter throws layout/hit-test
+  // errors. Enforce the minimum so the window can't be resized into that state.
+  GdkGeometry min_geometry;
+  min_geometry.min_width = 960;
+  min_geometry.min_height = 600;
+  gtk_window_set_geometry_hints(window, nullptr, &min_geometry, GDK_HINT_MIN_SIZE);
   gtk_widget_show(GTK_WIDGET(window));
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
